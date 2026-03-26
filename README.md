@@ -1,4 +1,4 @@
-# Giraffos SII 🇨🇱
+# CUENTAX 🇨🇱
 
 > **Plataforma de Facturación Electrónica con conexión directa al SII Chile**  
 > Stack: Next.js 14 + Fastify BFF + Odoo 18 + Python FastAPI (SII Bridge)
