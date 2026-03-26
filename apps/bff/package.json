@@ -1,8 +1,8 @@
 {
-  "name": "@giraffos-sii/bff",
+  "name": "@cuentax/bff",
   "version": "0.1.0",
   "private": true,
-  "description": "Giraffos SII BFF — Backend For Frontend (Fastify + TypeScript)",
+  "description": "CUENTAX BFF — Backend For Frontend (Fastify + TypeScript)",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",

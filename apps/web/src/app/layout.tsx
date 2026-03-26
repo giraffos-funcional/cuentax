@@ -10,13 +10,13 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Giraffos SII — Facturación Electrónica',
-    template: '%s | Giraffos SII',
+    default: 'CUENTAX — Plataforma Contable SII',
+    template: '%s | CUENTAX',
   },
   description:
-    'Plataforma de facturación electrónica con conexión directa al SII Chile. Emite DTEs, gestiona folios, consulta estados y más.',
-  keywords: ['factura electrónica', 'SII Chile', 'DTE', 'boleta electrónica', 'contabilidad'],
-  authors: [{ name: 'Giraffos', url: 'https://giraffos.com' }],
+    'Plataforma de contabilidad y facturación electrónica con conexión directa al SII Chile. Emite DTEs, gestiona folios, consulta estados y más.',
+  keywords: ['factura electrónica', 'SII Chile', 'DTE', 'boleta electrónica', 'contabilidad', 'cuentax'],
+  authors: [{ name: 'CUENTAX', url: 'https://cuentax.cl' }],
   robots: { index: false, follow: false }, // Privado — no indexar
 }
 

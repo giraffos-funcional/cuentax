@@ -1,6 +1,6 @@
 /**
- * Giraffos SII BFF — Entry Point
- * ================================
+ * CUENTAX BFF — Entry Point
+ * ==========================
  * Backend For Frontend: API Gateway + Auth + Multi-tenant + Rate Limiting
  *
  * Arquitectura: Hexagonal (Ports & Adapters)

@@ -1,8 +1,8 @@
 {
-  "name": "giraffos-sii",
+  "name": "cuentax",
   "private": true,
   "version": "0.1.0",
-  "description": "Giraffos SII — Sistema de Facturación Electrónica con conexión directa al SII Chile",
+  "description": "CUENTAX — Plataforma de Contabilidad y Facturación Electrónica con conexión directa al SII Chile",
   "scripts": {
     "dev": "pnpm --parallel -r dev",
     "build": "pnpm -r build",
