@@ -1,0 +1,212 @@
+# ============================================================
+# DOCKER COMPOSE — Giraffos SII Development
+# ============================================================
+# Uso: docker-compose -f docker-compose.dev.yml up --build
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL — Base de datos para Odoo 18
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: giraffos_sii_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-odoo_dev_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-giraffos_sii}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Puerto 5433 para no conflictar con Postgres local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - giraffos_sii_net
+
+  # ----------------------------------------------------------
+  # Redis — Sesiones, caché y queues
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: giraffos_sii_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_dev_pass} --appendonly yes
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6380:6379"  # Puerto 6380 para no conflictar con Redis local
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis_dev_pass}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - giraffos_sii_net
+
+  # ----------------------------------------------------------
+  # Odoo 18 Community — Back Office ERP
+  # ----------------------------------------------------------
+  odoo:
+    image: odoo:18.0
+    container_name: giraffos_sii_odoo
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: postgres
+      PORT: 5432
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD:-odoo_dev_pass}
+    volumes:
+      - odoo_filestore:/var/lib/odoo
+      - odoo_sessions:/var/lib/odoo/sessions
+      - ./infra/odoo/addons:/mnt/extra-addons    # Módulos custom SII
+      - ./infra/odoo/odoo.conf:/etc/odoo/odoo.conf
+    ports:
+      - "8069:8069"
+      - "8072:8072"   # Longpolling
+    command: -- --db_filter=^giraffos_sii$
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8069/web/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - giraffos_sii_net
+
+  # ----------------------------------------------------------
+  # SII Bridge — Python FastAPI (firma XML, SOAP, CAF)
+  # ----------------------------------------------------------
+  sii-bridge:
+    build:
+      context: ./apps/sii-bridge
+      dockerfile: Dockerfile.dev
+    container_name: giraffos_sii_bridge
+    restart: unless-stopped
+    environment:
+      PYTHON_ENV: development
+      SII_AMBIENTE: ${SII_AMBIENTE:-certificacion}
+      SII_RUT_EMPRESA: ${SII_RUT_EMPRESA:-}
+      SII_CERT_PATH: ${SII_CERT_PATH:-/secrets/certificado.pfx}
+      SII_CERT_PASSWORD: ${SII_CERT_PASSWORD:-}
+      SII_URL_CERT: ${SII_URL_CERT:-https://maullin.sii.cl}
+      SII_URL_PROD: ${SII_URL_PROD:-https://palena.sii.cl}
+      ODOO_URL: http://odoo:8069
+      ODOO_DB: ${ODOO_DB:-giraffos_sii}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_pass}@redis:6379
+      PORT: 8001
+    volumes:
+      - ./apps/sii-bridge:/app         # Hot-reload Python
+      - ./secrets:/secrets:ro          # Certificados digitales (read-only)
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+      odoo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - giraffos_sii_net
+
+  # ----------------------------------------------------------
+  # BFF — Fastify Node.js (API Gateway + Auth + Multi-tenant)
+  # ----------------------------------------------------------
+  bff:
+    build:
+      context: ./apps/bff
+      dockerfile: Dockerfile.dev
+    container_name: giraffos_sii_bff
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: ${BFF_PORT:-4000}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_prod_min32}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_in_prod_min32}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      ODOO_URL: http://odoo:8069
+      ODOO_DB: ${ODOO_DB:-giraffos_sii}
+      ODOO_ADMIN_PASSWORD: ${ODOO_ADMIN_PASSWORD:-odoo_dev_pass}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_dev_pass}@redis:6379
+      SII_BRIDGE_URL: http://sii-bridge:8001
+    volumes:
+      - ./apps/bff/src:/app/src        # Hot-reload TypeScript
+    ports:
+      - "4000:4000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      sii-bridge:
+        condition: service_healthy
+      odoo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - giraffos_sii_net
+
+  # ----------------------------------------------------------
+  # Web — Next.js 14 Frontend
+  # ----------------------------------------------------------
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.dev
+    container_name: giraffos_sii_web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_BFF_URL: http://localhost:4000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Giraffos SII}
+      NEXT_PUBLIC_AMBIENTE: development
+    volumes:
+      - ./apps/web/src:/app/src        # Hot-reload Next.js
+      - ./apps/web/public:/app/public
+    ports:
+      - "3000:3000"
+    depends_on:
+      bff:
+        condition: service_healthy
+    networks:
+      - giraffos_sii_net
+
+# ----------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+  odoo_filestore:
+    driver: local
+  odoo_sessions:
+    driver: local
+
+# ----------------------------------------------------------
+# Networks
+# ----------------------------------------------------------
+networks:
+  giraffos_sii_net:
+    driver: bridge
+    name: giraffos_sii_network

@@ -1,0 +1,7 @@
+# Placeholder para módulos custom Odoo SII
+# Los módulos custom de Odoo se colocan aquí.
+# Estructura de módulo estándar Odoo:
+# /infra/odoo/addons/
+#   l10n_cl_sii/           ← Módulo principal SII Chile
+#   l10n_cl_dte/           ← Documentos Tributarios Electrónicos
+#   l10n_cl_caf/           ← Gestión de Folios (CAF)

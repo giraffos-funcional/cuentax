@@ -1,0 +1,26 @@
+{
+  "name": "giraffos-sii",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Giraffos SII — Sistema de Facturación Electrónica con conexión directa al SII Chile",
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "clean": "pnpm -r clean"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^18.6.1",
+    "@commitlint/config-conventional": "^18.6.1",
+    "husky": "^9.0.11",
+    "prettier": "^3.2.5",
+    "turbo": "^1.13.4"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.4"
+}
