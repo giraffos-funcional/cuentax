@@ -1,15 +1,14 @@
 /**
- * CUENTAX — DTE Repository
- * Persiste y consulta DTEs en PostgreSQL.
+ * CUENTAX — DTE Repository (Drizzle ORM — implementación real)
+ * Reemplaza el mock anterior con queries reales a PostgreSQL.
  */
 
+import { eq, and, desc, sql, gte, lte, count } from 'drizzle-orm'
+import { db } from '@/db/client'
+import { dteDocuments, dteStatusEnum } from '@/db/schema'
 import { logger } from '@/core/logger'
 
-// En producción usar Drizzle ORM o Prisma. Por ahora mock con postgres driver.
-// La interfaz está lista para conectar cualquier ORM.
-
-interface DTERecord {
-  id?: string
+type InsertDTE = {
   company_id: number
   tipo_dte: number
   folio?: number
@@ -17,13 +16,16 @@ interface DTERecord {
   estado: string
   rut_receptor: string
   razon_social_receptor: string
+  monto_neto?: number
+  monto_iva?: number
   monto_total: number
+  fecha_emision?: string
   xml_firmado_b64?: string
-  created_at?: string
-  updated_at?: string
+  items_json?: unknown
+  observaciones?: string
 }
 
-interface FindManyFilters {
+type FindFilters = {
   company_id: number
   status?: string
   tipo_dte?: number
@@ -34,32 +36,117 @@ interface FindManyFilters {
 }
 
 class DTERepository {
-  // TODO: Conectar con postgres cuando se configure la DB
-  // private readonly db: Pool
+  async save(record: InsertDTE): Promise<string> {
+    const [inserted] = await db
+      .insert(dteDocuments)
+      .values({
+        company_id:            record.company_id,
+        tipo_dte:              record.tipo_dte,
+        folio:                 record.folio,
+        track_id:              record.track_id,
+        estado:                (record.estado as any) ?? 'borrador',
+        rut_receptor:          record.rut_receptor,
+        razon_social_receptor: record.razon_social_receptor,
+        monto_neto:            record.monto_neto ?? 0,
+        monto_iva:             record.monto_iva ?? 0,
+        monto_total:           record.monto_total,
+        fecha_emision:         record.fecha_emision ?? new Date().toISOString().slice(0, 10),
+        xml_firmado_b64:       record.xml_firmado_b64,
+        items_json:            record.items_json as any,
+        observaciones:         record.observaciones,
+      })
+      .returning({ id: dteDocuments.id })
 
-  async save(record: DTERecord): Promise<string> {
-    // TODO: INSERT INTO dte_documents (...)
-    // const { rows } = await this.db.query(`INSERT INTO dte_documents (...) VALUES (...) RETURNING id`, [...])
-    // return rows[0].id
-    const fakeId = `dte_${Date.now()}_${Math.random().toString(36).slice(2)}`
-    logger.info({ fakeId, folio: record.folio }, 'DTE persistido (mock DB)')
-    return fakeId
+    logger.info({ id: inserted.id, folio: record.folio, track_id: record.track_id }, '✅ DTE guardado en DB')
+    return String(inserted.id)
   }
 
   async updateEstado(trackId: string, estado: string): Promise<void> {
-    // TODO: UPDATE dte_documents SET estado = $1, updated_at = NOW() WHERE track_id = $2
-    logger.info({ trackId, estado }, 'Estado DTE actualizado (mock DB)')
+    await db
+      .update(dteDocuments)
+      .set({ estado: estado as any, updated_at: new Date() })
+      .where(eq(dteDocuments.track_id, trackId))
+    logger.info({ trackId, estado }, 'Estado DTE actualizado')
   }
 
-  async findMany(filters: FindManyFilters): Promise<{ data: DTERecord[], total: number }> {
-    // TODO: SELECT * FROM dte_documents WHERE company_id = $1 AND ...
-    logger.debug({ filters }, 'DTE findMany (mock DB)')
-    return { data: [], total: 0 }
+  async findMany(filters: FindFilters): Promise<{ data: typeof dteDocuments.$inferSelect[], total: number }> {
+    const page  = filters.page  ?? 1
+    const limit = Math.min(filters.limit ?? 25, 100)
+    const offset = (page - 1) * limit
+
+    const conditions = [eq(dteDocuments.company_id, filters.company_id)]
+
+    if (filters.status)   conditions.push(eq(dteDocuments.estado, filters.status as any))
+    if (filters.tipo_dte) conditions.push(eq(dteDocuments.tipo_dte, filters.tipo_dte))
+    if (filters.desde)    conditions.push(gte(dteDocuments.fecha_emision, filters.desde))
+    if (filters.hasta)    conditions.push(lte(dteDocuments.fecha_emision, filters.hasta))
+
+    const where = and(...conditions)
+
+    const [data, [{ total }]] = await Promise.all([
+      db.select().from(dteDocuments)
+        .where(where)
+        .orderBy(desc(dteDocuments.created_at))
+        .limit(limit)
+        .offset(offset),
+      db.select({ total: count() }).from(dteDocuments).where(where),
+    ])
+
+    return { data, total: Number(total) }
   }
 
-  async findByFolio(companyId: number, folio: number): Promise<DTERecord | null> {
-    // TODO: SELECT * FROM dte_documents WHERE company_id = $1 AND folio = $2
-    return null
+  async findByFolio(companyId: number, folio: number) {
+    const [doc] = await db
+      .select()
+      .from(dteDocuments)
+      .where(and(eq(dteDocuments.company_id, companyId), eq(dteDocuments.folio, folio)))
+      .limit(1)
+    return doc ?? null
+  }
+
+  async findByTrackId(trackId: string) {
+    const [doc] = await db
+      .select()
+      .from(dteDocuments)
+      .where(eq(dteDocuments.track_id, trackId))
+      .limit(1)
+    return doc ?? null
+  }
+
+  /** DTEs pendientes de polling (enviados sin estado final) — para el job */
+  async findPendingPolling(): Promise<typeof dteDocuments.$inferSelect[]> {
+    return db
+      .select()
+      .from(dteDocuments)
+      .where(
+        and(
+          eq(dteDocuments.estado, 'enviado'),
+          sql`${dteDocuments.track_id} IS NOT NULL`,
+        ),
+      )
+      .limit(50)
+  }
+
+  /** Estadísticas del mes para el dashboard */
+  async getMonthStats(companyId: number, year: number, month: number) {
+    const desde = `${year}-${String(month + 1).padStart(2, '0')}-01`
+    const hasta  = `${year}-${String(month + 1).padStart(2, '0')}-31`
+
+    const rows = await db
+      .select({
+        estado: dteDocuments.estado,
+        count:  count(),
+        total:  sql<number>`SUM(${dteDocuments.monto_total})`,
+      })
+      .from(dteDocuments)
+      .where(and(
+        eq(dteDocuments.company_id, companyId),
+        gte(dteDocuments.fecha_emision, desde),
+        lte(dteDocuments.fecha_emision, hasta),
+      ))
+      .groupBy(dteDocuments.estado)
+
+    return rows
   }
 }
 

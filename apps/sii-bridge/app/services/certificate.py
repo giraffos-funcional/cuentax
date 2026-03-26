@@ -1,153 +1,146 @@
 """
-Servicio de firma digital XML — SII Chile
-==========================================
-Firma documentos XML DTE usando el certificado digital de la empresa.
-Compatible con el formato requerido por el SII (SHA1 + RSA).
+CUENTAX — Certificate Service (SII Bridge)
+===========================================
+Carga y gestiona el certificado digital PFX/P12 del SII.
+Implementa la firma XML con SHA1+RSA según el estándar SII Chile.
 
-Basado en el código validado de Boletax (Phase 4 Validation).
+El SII usa XMLDSig con:
+- Algoritmo de firma: RSA-SHA1 (obligatorio por SII)
+- Algoritmo de digest: SHA1
+- CanonicalizationMethod: C14N
 """
 
 import logging
-from pathlib import Path
+import base64
+import hashlib
+from datetime import datetime, timezone
+from typing import Optional
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from signxml import XMLSigner, XMLVerifier, methods
+from cryptography.hazmat.backends import default_backend
+from cryptography import x509
 from lxml import etree
-from typing import Optional
-
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+XMLDSIG_NS = "http://www.w3.org/2000/09/xmldsig#"
+C14N_METHOD = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 
-class SIICertificateService:
-    """
-    Gestiona el certificado digital PFX/P12 de la empresa.
-    Proporciona métodos de firma XML y criptografía compatibles con el SII.
-    """
 
+class CertificateService:
     def __init__(self):
         self._private_key = None
         self._certificate = None
-        self._loaded = False
-
-    def load_certificate(
-        self,
-        cert_path: Optional[str] = None,
-        cert_password: Optional[str] = None,
-    ) -> bool:
-        """
-        Carga el certificado digital PFX desde el filesystem.
-        
-        Args:
-            cert_path: Ruta al archivo .pfx/.p12
-            cert_password: Contraseña del certificado
-            
-        Returns:
-            True si el certificado se cargó correctamente
-        """
-        path = Path(cert_path or settings.SII_CERT_PATH)
-        password = (cert_password or settings.SII_CERT_PASSWORD).encode()
-
-        if not path.exists():
-            logger.warning(f"⚠️  Certificado no encontrado en: {path}")
-            logger.warning("   El sistema operará en modo sin firma (solo certificación)")
-            return False
-
-        try:
-            with open(path, "rb") as f:
-                pfx_data = f.read()
-
-            private_key, certificate, additional_certs = pkcs12.load_key_and_certificates(
-                pfx_data, password
-            )
-
-            self._private_key = private_key
-            self._certificate = certificate
-            self._loaded = True
-
-            logger.info(f"✅ Certificado cargado: {certificate.subject.rfc4514_string()}")
-            logger.info(f"   Válido hasta: {certificate.not_valid_after_utc}")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Error cargando certificado: {e}")
-            return False
+        self._rut_empresa: Optional[str] = None
+        self._vence: Optional[datetime] = None
 
     @property
     def is_loaded(self) -> bool:
-        """Indica si hay un certificado cargado y válido."""
-        return self._loaded
+        return self._private_key is not None and self._certificate is not None
 
-    def sign_xml(self, xml_element: etree._Element) -> etree._Element:
-        """
-        Firma un elemento XML DTE usando el certificado de la empresa.
-        
-        El SII requiere:
-        - Algoritmo de firma: SHA1withRSA (RSA-SHA1)
-        - Método de canonicalización: http://www.w3.org/TR/2001/REC-xml-c14n-20010315
-        - Algoritmo de digest: SHA1
-        
-        Args:
-            xml_element: Elemento XML lxml a firmar
-            
-        Returns:
-            Elemento XML firmado
-            
-        Raises:
-            RuntimeError: Si no hay certificado cargado
-        """
-        if not self._loaded:
-            raise RuntimeError(
-                "No hay certificado cargado. Carga el certificado antes de firmar."
-            )
-
+    def load_pfx(self, pfx_bytes: bytes, password: str, rut_empresa: str) -> dict:
         try:
-            signer = XMLSigner(
-                method=methods.enveloped,
-                signature_algorithm="rsa-sha1",
-                digest_algorithm="sha1",
-                c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
+            private_key, certificate, _ = pkcs12.load_key_and_certificates(
+                pfx_bytes,
+                password.encode() if isinstance(password, str) else password,
+                backend=default_backend(),
             )
-
-            signed_root = signer.sign(
-                xml_element,
-                key=self._private_key,
-                cert=self._certificate,
-            )
-
-            logger.debug("✅ XML firmado correctamente")
-            return signed_root
-
         except Exception as e:
-            logger.error(f"❌ Error firmando XML: {e}")
-            raise
+            raise ValueError(f"Error cargando PFX: {e}. Verifica la contraseña.")
 
-    def verify_xml_signature(self, signed_xml: etree._Element) -> bool:
-        """
-        Verifica la firma de un XML DTE.
-        
-        Args:
-            signed_xml: Elemento XML con firma para verificar
-            
-        Returns:
-            True si la firma es válida
-        """
+        if not private_key or not certificate:
+            raise ValueError("PFX no contiene clave privada o certificado")
+
+        self._private_key = private_key
+        self._certificate = certificate
+        self._rut_empresa = rut_empresa
+
+        not_after = (
+            certificate.not_valid_after_utc
+            if hasattr(certificate, 'not_valid_after_utc')
+            else certificate.not_valid_after.replace(tzinfo=timezone.utc)
+        )
+        self._vence = not_after
+        days_remaining = (not_after - datetime.now(timezone.utc)).days
+
+        logger.info(f"✅ Cert cargado — RUT: {rut_empresa}, Vence: {not_after.date()}, Días: {days_remaining}")
+
+        if days_remaining < 30:
+            logger.warning(f"⚠️  Certificado vence en {days_remaining} días!")
+
+        return {
+            "success": True,
+            "rut_empresa": rut_empresa,
+            "nombre_empresa": self._get_cn(certificate),
+            "vence": not_after.isoformat(),
+            "dias_para_vencer": days_remaining,
+            "mensaje": f"Certificado cargado. Vence en {days_remaining} días.",
+        }
+
+    def sign_xml(self, element: etree._Element) -> etree._Element:
+        """Firma XML con RSA-SHA1 según estándar SII Chile."""
+        if not self.is_loaded:
+            raise RuntimeError("Sin certificado cargado")
+
+        element_id = element.get("ID") or element.get("id") or ""
+        reference_uri = f"#{element_id}" if element_id else ""
+
+        # C14N del elemento
+        c14n_bytes = etree.tostring(element, method="c14n", exclusive=False, with_comments=False)
+
+        # Digest SHA1
+        digest = base64.b64encode(hashlib.sha1(c14n_bytes).digest()).decode()
+
+        # SignedInfo
+        signed_info_xml = f"""<SignedInfo xmlns="{XMLDSIG_NS}">
+            <CanonicalizationMethod Algorithm="{C14N_METHOD}"/>
+            <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
+            <Reference URI="{reference_uri}">
+                <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+                <DigestValue>{digest}</DigestValue>
+            </Reference>
+        </SignedInfo>"""
+
+        signed_info_c14n = etree.tostring(
+            etree.fromstring(signed_info_xml.encode()), method="c14n"
+        )
+
+        # Firma RSA-SHA1
+        sig_bytes = self._private_key.sign(signed_info_c14n, padding.PKCS1v15(), hashes.SHA1())
+        sig_b64 = base64.b64encode(sig_bytes).decode()
+
+        # Cert público en base64
+        cert_b64 = base64.b64encode(self._certificate.public_bytes(serialization.Encoding.DER)).decode()
+
+        # Nodo Signature
+        signature_xml = f"""<Signature xmlns="{XMLDSIG_NS}">
+            {signed_info_xml}
+            <SignatureValue>{sig_b64}</SignatureValue>
+            <KeyInfo><X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data></KeyInfo>
+        </Signature>"""
+
+        element.append(etree.fromstring(signature_xml.encode()))
+        logger.debug(f"XML firmado. Ref: {reference_uri}")
+        return element
+
+    def get_status(self) -> dict:
+        if not self.is_loaded:
+            return {"cargado": False}
+        days = (self._vence - datetime.now(timezone.utc)).days if self._vence else None
+        return {
+            "cargado": True,
+            "rut_empresa": self._rut_empresa,
+            "vence": self._vence.isoformat() if self._vence else None,
+            "dias_para_vencer": days,
+        }
+
+    @staticmethod
+    def _get_cn(cert: x509.Certificate) -> str:
         try:
-            verifier = XMLVerifier()
-            verifier.verify(signed_xml, x509_cert=self._certificate)
-            return True
-        except Exception as e:
-            logger.warning(f"⚠️  Verificación de firma fallida: {e}")
-            return False
-
-    def get_certificate_pem(self) -> Optional[str]:
-        """Retorna el certificado en formato PEM para inclusión en XML."""
-        if not self._certificate:
-            return None
-        return self._certificate.public_bytes(serialization.Encoding.PEM).decode()
+            return cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
+        except Exception:
+            return "Desconocido"
 
 
-# Singleton — el certificado se carga una vez al arrancar
-certificate_service = SIICertificateService()
+certificate_service = CertificateService()
