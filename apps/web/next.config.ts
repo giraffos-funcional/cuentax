@@ -4,12 +4,16 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   experimental: {
     serverActions: {
-      allowedOrigins: ['localhost:3000'],
+      allowedOrigins: [
+        'localhost:3000',
+        'cuentax.cl',
+        'www.cuentax.cl',
+      ],
     },
   },
   env: {
     NEXT_PUBLIC_BFF_URL: process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000',
-    NEXT_PUBLIC_APP_NAME: process.env['NEXT_PUBLIC_APP_NAME'] ?? 'Giraffos SII',
+    NEXT_PUBLIC_APP_NAME: process.env['NEXT_PUBLIC_APP_NAME'] ?? 'CUENTAX',
   },
   async headers() {
     return [
@@ -20,10 +24,13 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },
     ]
   },
+  compress: true,
+  poweredByHeader: false,
 }
 
 export default nextConfig
