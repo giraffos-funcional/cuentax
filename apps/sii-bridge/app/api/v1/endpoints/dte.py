@@ -1,94 +1,129 @@
 """
-Endpoint de emisión de DTE (Documento Tributario Electrónico).
-Implementación base — se expande en Sprint 2.
+CUENTAX — DTE Endpoints (Sprint 2 — implementación completa)
+Conecta: DTEEmissionService → DTEXMLGenerator → CertificateService → SII SOAP
 """
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Literal
-from app.services.certificate import certificate_service
-from app.core.config import settings
+from typing import Optional, Literal
+from app.services.dte_emission import dte_emission_service
+from app.services.sii_soap_client import sii_soap_client
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class DTERequest(BaseModel):
+class ItemDTE(BaseModel):
+    nombre: str
+    cantidad: float = 1
+    precio_unitario: float
+    descuento_pct: float = 0
+    exento: bool = False
+    codigo: Optional[str] = None
+    unidad: str = "UN"
+
+
+class EmitirDTERequest(BaseModel):
     tipo_dte: Literal[33, 39, 41, 56, 61, 110, 111, 112, 113]
-    """
-    Tipos de DTE soportados:
-    33  → Factura Electrónica
-    39  → Boleta Electrónica
-    41  → Boleta Electrónica No Afecta
-    56  → Nota de Débito Electrónica
-    61  → Nota de Crédito Electrónica
-    110 → Factura de Exportación Electrónica
-    111 → Liquidación Factura Exportación
-    112 → Nota Débito Exportación
-    113 → Nota Crédito Exportación
-    """
     rut_emisor: str
+    razon_social_emisor: str
+    giro_emisor: str
+    direccion_emisor: Optional[str] = None
+    comuna_emisor: Optional[str] = None
+    actividad_economica: int = 620200
     rut_receptor: str
     razon_social_receptor: str
     giro_receptor: str
-    direccion_receptor: str
-    items: list[dict]
-    referencia_dte: int | None = None  # Para NC/ND que referencian otro DTE
+    direccion_receptor: Optional[str] = None
+    email_receptor: Optional[str] = None
+    items: list[ItemDTE]
+    forma_pago: int = 1
+    fecha_emision: Optional[str] = None
+    fecha_vencimiento: Optional[str] = None
+    observaciones: Optional[str] = None
+    ref_tipo_doc: Optional[int] = None
+    ref_folio: Optional[int] = None
+    ref_fecha: Optional[str] = None
+    ref_motivo: Optional[str] = None
 
 
-class DTEResponse(BaseModel):
-    success: bool
-    folio: int | None = None
-    track_id: str | None = None
-    estado: str
-    mensaje: str
-    xml_firmado: str | None = None  # Base64 del XML firmado
+class AnularDTERequest(BaseModel):
+    tipo_original: int
+    folio_original: int
+    fecha_original: str
+    rut_emisor: str
+    razon_social_emisor: str
+    giro_emisor: str
+    rut_receptor: str
+    razon_social_receptor: str
+    giro_receptor: str
+    motivo: str
+    items: list[ItemDTE]  # Ítems del documento anulado
 
 
-@router.post("/emitir", response_model=DTEResponse)
-async def emitir_dte(request: DTERequest):
+@router.post("/emit")
+async def emit_dte(request: EmitirDTERequest):
+    """Emite un DTE completo (genera XML, firma, envía al SII)."""
+    payload = request.model_dump()
+    # Convertir items a dicts simples
+    payload["items"] = [item.model_dump() for item in request.items]
+
+    result = dte_emission_service.emit(payload)
+
+    if not result.get("success"):
+        status_code = {
+            "sin_certificado": 503,
+            "sin_folio": 422,
+            "error_validacion": 400,
+        }.get(result.get("estado", ""), 502)
+        raise HTTPException(status_code, detail=result)
+
+    return result
+
+
+@router.get("/status/{track_id}")
+async def get_dte_status(track_id: str, rut_emisor: str):
+    """Consulta el estado de un DTE enviado al SII por su track_id."""
+    token = sii_soap_client.get_token()
+    if not token:
+        raise HTTPException(503, detail={"error": "sin_token", "message": "Sin token SII activo"})
+
+    # TODO: implementar consulta real SOAP de estado
+    # Por ahora retorna estado pendiente
+    return {
+        "track_id": track_id,
+        "rut_emisor": rut_emisor,
+        "estado": "EPR",
+        "glosa": "En proceso de revisión",
+        "nota": "Implementación SOAP de consulta estado en progreso",
+    }
+
+
+@router.post("/anular")
+async def anular_dte(request: AnularDTERequest):
     """
-    Emite un Documento Tributario Electrónico.
-    
-    Flujo completo:
-    1. Validar RUT emisor y receptor
-    2. Obtener folio disponible (CAF)
-    3. Generar XML según esquema SII
-    4. Firmar XML con certificado empresa
-    5. Enviar al SII via SOAP
-    6. Retornar Track ID y estado
-    
-    ⚠️  Requiere certificado digital cargado para firma real.
-    En modo sin certificado, retorna error descriptivo.
+    Anula un DTE emitiendo una Nota de Crédito (tipo 61).
+    La NC referencia al documento original.
     """
-    if not certificate_service.is_loaded:
-        logger.warning(
-            f"Intento de emisión DTE tipo {request.tipo_dte} sin certificado cargado"
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "sin_certificado",
-                "mensaje": (
-                    "No hay certificado digital cargado. "
-                    "Configura el certificado en Configuración → Certificado SII."
-                ),
-                "ambiente": settings.SII_AMBIENTE,
-            },
-        )
+    # Construir payload de NC que referencia al original
+    nc_payload = {
+        "tipo_dte": 61,  # Nota de Crédito
+        "rut_emisor": request.rut_emisor,
+        "razon_social_emisor": request.razon_social_emisor,
+        "giro_emisor": request.giro_emisor,
+        "rut_receptor": request.rut_receptor,
+        "razon_social_receptor": request.razon_social_receptor,
+        "giro_receptor": request.giro_receptor,
+        "items": [item.model_dump() for item in request.items],
+        "ref_tipo_doc": request.tipo_original,
+        "ref_folio": request.folio_original,
+        "ref_fecha": request.fecha_original,
+        "ref_motivo": request.motivo,
+    }
 
-    # TODO Sprint 2: Implementar emisión completa
-    # Por ahora retorna estructura base para testing inicial
-    logger.info(
-        f"📄 Solicitud DTE tipo {request.tipo_dte} para RUT {request.rut_receptor}"
-    )
-    
-    raise HTTPException(
-        status_code=501,
-        detail={
-            "error": "no_implementado",
-            "mensaje": "La emisión DTE se implementa en Sprint 2. Estructura base lista.",
-            "sprint": "Sprint 2 — Emisión DTE + CAF",
-        },
-    )
+    result = dte_emission_service.emit(nc_payload)
+
+    if not result.get("success"):
+        raise HTTPException(422, detail=result)
+
+    return {**result, "tipo_generado": "Nota de Crédito", "doc_original": request.folio_original}

@@ -15,13 +15,22 @@ import { logger } from '@/core/logger'
 import { redis } from '@/adapters/redis.adapter'
 
 // Routes
-import { authRoutes }  from '@/routes/auth'
-import { dteRoutes }   from '@/routes/dte'
-import { cafRoutes }   from '@/routes/caf'
-import { siiRoutes }   from '@/routes/sii'
+import { authRoutes }     from '@/routes/auth'
+import { dteRoutes }      from '@/routes/dte'
+import { cafRoutes }      from '@/routes/caf'
+import { siiRoutes }      from '@/routes/sii'
+import { contactsRoutes } from '@/routes/contacts'
+import { productsRoutes } from '@/routes/products'
+import { reportesRoutes } from '@/routes/reportes'
+
+// Jobs
+import { dteStatusPoller } from '@/jobs/dte-status-poller'
+
+// DB
+import { pingDB } from '@/db/client'
 
 // Middleware
-import { authGuard }   from '@/middlewares/auth-guard'
+import { authGuard } from '@/middlewares/auth-guard'
 
 // Extend Fastify types
 declare module 'fastify' {
@@ -82,11 +91,18 @@ async function bootstrap() {
     })
   })
 
+  // ── Check DB ──────────────────────────────────────────────
+  const dbAlive = await pingDB()
+  logger.info(dbAlive ? '✅ PostgreSQL conectado' : '⚠️  PostgreSQL no disponible (usando mock DB)')
+
   // ── API Routes ────────────────────────────────────────────
-  await fastify.register(authRoutes, { prefix: '/api/v1/auth' })
-  await fastify.register(dteRoutes,  { prefix: '/api/v1/dte' })
-  await fastify.register(cafRoutes,  { prefix: '/api/v1/caf' })
-  await fastify.register(siiRoutes,  { prefix: '/api/v1/sii' })
+  await fastify.register(authRoutes,     { prefix: '/api/v1/auth' })
+  await fastify.register(dteRoutes,      { prefix: '/api/v1/dte' })
+  await fastify.register(cafRoutes,      { prefix: '/api/v1/caf' })
+  await fastify.register(siiRoutes,      { prefix: '/api/v1/sii' })
+  await fastify.register(contactsRoutes, { prefix: '/api/v1/contacts' })
+  await fastify.register(productsRoutes, { prefix: '/api/v1/products' })
+  await fastify.register(reportesRoutes, { prefix: '/api/v1/reportes' })
 
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {

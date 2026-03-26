@@ -1,80 +1,34 @@
-"""Endpoint de gestión del certificado digital."""
-
+"""
+CUENTAX — Certificate Endpoint (actualizado)
+Conecta con el CertificateService real que implementa XMLDSig.
+"""
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from pydantic import BaseModel
-import tempfile
-import os
 from app.services.certificate import certificate_service
 
 router = APIRouter()
 
 
-class CertificateStatusResponse(BaseModel):
-    loaded: bool
-    status: str
-    message: str
-    subject: str | None = None
-
-
-@router.get("/status", response_model=CertificateStatusResponse)
-async def get_certificate_status():
-    """
-    Retorna el estado actual del certificado digital cargado.
-    """
-    if certificate_service.is_loaded:
-        return CertificateStatusResponse(
-            loaded=True,
-            status="ok",
-            message="Certificado cargado y listo para firmar",
-        )
-    return CertificateStatusResponse(
-        loaded=False,
-        status="no_certificate",
-        message="Sin certificado — carga uno para habilitar firma digital",
-    )
-
-
-@router.post("/load", response_model=CertificateStatusResponse)
+@router.post("/load")
 async def load_certificate(
     file: UploadFile = File(..., description="Archivo .pfx o .p12"),
     password: str = Form(..., description="Contraseña del certificado"),
+    rut_empresa: str = Form(..., description="RUT de la empresa (12.345.678-9)"),
 ):
-    """
-    Carga un certificado digital PFX/P12.
-    
-    - El archivo se carga en memoria de forma segura
-    - No se persiste en disco (solo en memoria del proceso)
-    - Se valida antes de confirmar la carga
-    """
-    # Validar extensión
+    """Carga un certificado digital PFX/P12 en memoria de forma segura."""
     if not file.filename.lower().endswith((".pfx", ".p12")):
-        raise HTTPException(
-            status_code=400,
-            detail="Solo se aceptan archivos .pfx o .p12",
-        )
+        raise HTTPException(400, detail="Solo se aceptan archivos .pfx o .p12")
 
-    # Guardar temporalmente para cargar
-    with tempfile.NamedTemporaryFile(suffix=".pfx", delete=False) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
+    raw = await file.read()
+    if len(raw) == 0:
+        raise HTTPException(400, detail="Archivo vacío")
 
     try:
-        success = certificate_service.load_certificate(
-            cert_path=tmp_path,
-            cert_password=password,
-        )
-    finally:
-        os.unlink(tmp_path)  # Borrar siempre el archivo temporal
+        return certificate_service.load_pfx(raw, password, rut_empresa)
+    except ValueError as e:
+        raise HTTPException(422, detail=str(e))
 
-    if not success:
-        raise HTTPException(
-            status_code=400,
-            detail="Error cargando el certificado. Verifica el archivo y contraseña.",
-        )
 
-    return CertificateStatusResponse(
-        loaded=True,
-        status="ok",
-        message="Certificado cargado exitosamente",
-    )
+@router.get("/status")
+async def get_status():
+    """Estado del certificado cargado."""
+    return certificate_service.get_status()

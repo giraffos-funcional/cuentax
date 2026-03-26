@@ -14,29 +14,39 @@ import {
   LayoutDashboard, FileText, ArrowUpDown, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
-  Building2, Bell, Search, Menu
+  Building2, Bell, Search, Menu,
+  Tag, Users, FileX, BarChart3, Folders, Send
 } from 'lucide-react'
 
 const NAV_ITEMS = [
   {
     section: 'Principal',
     items: [
-      { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/dashboard/emitir', icon: FileText, label: 'Emitir DTE' },
-      { href: '/dashboard/documentos', icon: BookOpen, label: 'Documentos' },
+      { href: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/dashboard/emitir',      icon: Send,            label: 'Emitir DTE' },
+      { href: '/dashboard/documentos',  icon: BookOpen,        label: 'Documentos' },
+      { href: '/dashboard/cotizaciones',icon: FileText,        label: 'Cotizaciones' },
+      { href: '/dashboard/anulaciones', icon: FileX,           label: 'Anulaciones' },
     ],
   },
   {
     section: 'Contabilidad',
     items: [
-      { href: '/dashboard/cotizaciones', icon: FileText, label: 'Cotizaciones' },
-      { href: '/dashboard/reportes', icon: ArrowUpDown, label: 'Reportes' },
+      { href: '/dashboard/reportes', icon: BarChart3,    label: 'Reportes' },
+      { href: '/dashboard/folios',   icon: Folders,      label: 'Folios (CAF)' },
+    ],
+  },
+  {
+    section: 'Maestros',
+    items: [
+      { href: '/dashboard/contactos', icon: Users, label: 'Contactos' },
+      { href: '/dashboard/productos', icon: Tag,   label: 'Productos' },
     ],
   },
   {
     section: 'Sistema',
     items: [
-      { href: '/dashboard/configuracion', icon: Settings, label: 'Configuración SII' },
+      { href: '/dashboard/configuracion', icon: Settings, label: 'Config. SII' },
     ],
   },
 ]
@@ -218,12 +228,16 @@ export default function DashboardLayout({
 
   const getTitle = () => {
     const titles: Record<string, string> = {
-      '/dashboard': 'Panel Principal',
-      '/dashboard/emitir': 'Emitir DTE',
-      '/dashboard/documentos': 'Documentos',
-      '/dashboard/cotizaciones': 'Cotizaciones',
-      '/dashboard/reportes': 'Reportes',
-      '/dashboard/configuracion': 'Configuración SII',
+      '/dashboard':                  'Panel Principal',
+      '/dashboard/emitir':           'Emitir DTE',
+      '/dashboard/documentos':       'Documentos Emitidos',
+      '/dashboard/cotizaciones':     'Cotizaciones',
+      '/dashboard/anulaciones':      'Anulaciones (NC/ND)',
+      '/dashboard/reportes':         'Reportes',
+      '/dashboard/folios':           'Administración de Folios',
+      '/dashboard/contactos':        'Contactos',
+      '/dashboard/productos':        'Productos y Servicios',
+      '/dashboard/configuracion':    'Configuración SII',
     }
     return titles[pathname] ?? 'CUENTAX'
   }
