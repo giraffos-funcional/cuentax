@@ -9,15 +9,7 @@
  * 3. Subdominio (para futuro multi-tenant por subdominio)
  */
 
-import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify'
-
-// Extender el tipo de request para incluir company context
-declare module 'fastify' {
-  interface FastifyRequest {
-    companyId: number | null
-    companyRut: string | null
-  }
-}
+import type { FastifyRequest, FastifyReply } from 'fastify'
 
 const PUBLIC_ROUTES = ['/health', '/api/v1/auth/login', '/api/v1/auth/refresh']
 
@@ -26,8 +18,8 @@ export async function tenantMiddleware(
   reply: FastifyReply,
 ): Promise<void> {
   // Inicializar context
-  request.companyId = null
-  request.companyRut = null
+  request.companyId = undefined
+  request.companyRut = undefined
 
   // Rutas públicas no necesitan tenant
   if (PUBLIC_ROUTES.some((route) => request.url.startsWith(route))) {
@@ -48,10 +40,10 @@ export async function tenantMiddleware(
   try {
     const token = request.headers.authorization?.replace('Bearer ', '')
     if (token) {
-      const payload = request.server.jwt.decode<{ company_id: number; company_rut: string }>(token)
+      const payload = (request.server as any).jwt.decode(token) as { company_id: number; company_rut: string } | null
       if (payload?.company_id) {
         request.companyId = payload.company_id
-        request.companyRut = payload.company_rut ?? null
+        request.companyRut = payload.company_rut ?? undefined
         return
       }
     }

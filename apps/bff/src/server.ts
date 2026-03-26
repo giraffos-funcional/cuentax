@@ -6,6 +6,7 @@
  */
 
 import Fastify from 'fastify'
+import type { FastifyRequest, FastifyReply } from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import cookie from '@fastify/cookie'
@@ -37,7 +38,9 @@ declare module 'fastify' {
   interface FastifyRequest {
     companyId?: number
     companyRut?: string
-    authenticate?: () => Promise<void>
+  }
+  interface FastifyInstance {
+    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>
   }
 }
 
