@@ -1,0 +1,244 @@
+"""
+CUENTAX — Generador XML DTE Chile
+===================================
+Genera el XML de un DTE según el esquema oficial del SII.
+Soporta tipos: 33 (Factura), 39 (Boleta), 41 (Boleta No Afecta),
+               56 (ND), 61 (NC), 110/111/112/113 (Exportación)
+
+Referencia: https://www.sii.cl/factura_electronica/factura_mercado/formato_dte.pdf
+"""
+
+from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Optional
+from lxml import etree
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ── Schemas ───────────────────────────────────────────────────
+SII_DTE_NS    = "http://www.sii.cl/SiiDte"
+SII_XMLDSIG   = "http://www.w3.org/2000/09/xmldsig#"
+SII_XSD_TYPES = {
+    33:  "Factura Electrónica",
+    39:  "Boleta Electrónica",
+    41:  "Boleta Electrónica No Afecta",
+    56:  "Nota de Débito Electrónica",
+    61:  "Nota de Crédito Electrónica",
+    110: "Factura de Exportación Electrónica",
+    111: "Liquidación Factura Exportación",
+    112: "Nota Débito Exportación",
+    113: "Nota Crédito Exportación",
+}
+IVA_RATE = Decimal("0.19")
+
+
+@dataclass
+class DTEItem:
+    nombre: str
+    cantidad: Decimal
+    precio_unitario: Decimal
+    descuento_pct: Decimal = Decimal("0")
+    exento: bool = False
+    codigo: Optional[str] = None
+    unidad: str = "UN"
+
+    @property
+    def monto_item(self) -> Decimal:
+        bruto = self.cantidad * self.precio_unitario
+        descuento = bruto * (self.descuento_pct / 100)
+        return (bruto - descuento).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+
+@dataclass
+class DTEEmisor:
+    rut: str
+    razon_social: str
+    giro: str
+    direccion: str
+    comuna: str
+    ciudad: str
+    actividad_economica: int = 620200  # Desarrollo software por defecto
+
+
+@dataclass
+class DTEReceptor:
+    rut: str
+    razon_social: str
+    giro: str
+    direccion: str
+    comuna: str
+    ciudad: str
+    email: Optional[str] = None
+    # Para tipo 61/56 — referencia al DTE original
+    ref_tipo_doc: Optional[int] = None
+    ref_folio: Optional[int] = None
+    ref_fecha: Optional[str] = None
+    ref_motivo: Optional[str] = None
+
+
+@dataclass
+class DTEDocumento:
+    tipo_dte: int
+    folio: int
+    fecha_emision: str  # YYYY-MM-DD
+    emisor: DTEEmisor
+    receptor: DTEReceptor
+    items: list[DTEItem]
+    forma_pago: int = 1  # 1=Contado, 2=Crédito
+    fecha_vencimiento: Optional[str] = None
+    observaciones: Optional[str] = None
+
+
+class DTEXMLGenerator:
+    """
+    Genera el XML de un DTE según el formato oficial SII Chile.
+    El XML generado está listo para ser firmado por SIICertificateService.
+    """
+
+    def generate(self, doc: DTEDocumento) -> etree._Element:
+        """
+        Genera el XML completo del DTE.
+        
+        Returns:
+            Elemento XML lxml sin firmar, listo para firma.
+        """
+        if doc.tipo_dte not in SII_XSD_TYPES:
+            raise ValueError(f"Tipo DTE {doc.tipo_dte} no soportado")
+
+        # Calcular montos
+        totales = self._calculate_totals(doc)
+
+        # Root DTE
+        dte_root = etree.Element("DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
+        documento = etree.SubElement(dte_root, "Documento", attrib={"ID": f"DTE-{doc.folio}"})
+
+        # Encabezado
+        encabezado = etree.SubElement(documento, "Encabezado")
+        self._build_id_doc(encabezado, doc)
+        self._build_emisor(encabezado, doc.emisor)
+        self._build_receptor(encabezado, doc.receptor)
+        self._build_totales(encabezado, totales, doc.tipo_dte)
+
+        # Detalle de items
+        for i, item in enumerate(doc.items, start=1):
+            self._build_item(documento, item, i, doc.tipo_dte)
+
+        # Referencia (para NC/ND)
+        if doc.receptor.ref_tipo_doc and doc.receptor.ref_folio:
+            self._build_referencia(documento, doc)
+
+        # Observaciones
+        if doc.observaciones:
+            obs = etree.SubElement(documento, "Observaciones")
+            obs.text = doc.observaciones[:256]
+
+        logger.debug(f"XML DTE tipo {doc.tipo_dte} folio {doc.folio} generado")
+        return dte_root
+
+    def _build_id_doc(self, encabezado, doc: DTEDocumento):
+        id_doc = etree.SubElement(encabezado, "IdDoc")
+        self._elem(id_doc, "TipoDTE", str(doc.tipo_dte))
+        self._elem(id_doc, "Folio", str(doc.folio))
+        self._elem(id_doc, "FchEmis", doc.fecha_emision)
+        self._elem(id_doc, "FmaPago", str(doc.forma_pago))
+        if doc.fecha_vencimiento:
+            self._elem(id_doc, "FchVenc", doc.fecha_vencimiento)
+
+    def _build_emisor(self, encabezado, emisor: DTEEmisor):
+        e = etree.SubElement(encabezado, "Emisor")
+        self._elem(e, "RUTEmisor", emisor.rut)
+        self._elem(e, "RznSoc", emisor.razon_social[:100])
+        self._elem(e, "GiroEmis", emisor.giro[:80])
+        self._elem(e, "Acteco", str(emisor.actividad_economica))
+        self._elem(e, "DirOrigen", emisor.direccion[:70])
+        self._elem(e, "CmnaOrigen", emisor.comuna[:20])
+        self._elem(e, "CiudadOrigen", emisor.ciudad[:20])
+
+    def _build_receptor(self, encabezado, receptor: DTEReceptor):
+        r = etree.SubElement(encabezado, "Receptor")
+        self._elem(r, "RUTRecep", receptor.rut)
+        self._elem(r, "RznSocRecep", receptor.razon_social[:100])
+        self._elem(r, "GiroRecep", receptor.giro[:80])
+        self._elem(r, "DirRecep", receptor.direccion[:70])
+        self._elem(r, "CmnaRecep", receptor.comuna[:20])
+        self._elem(r, "CiudadRecep", receptor.ciudad[:20])
+        if receptor.email:
+            self._elem(r, "CorreoRecep", receptor.email)
+
+    def _build_totales(self, encabezado, totales: dict, tipo_dte: int):
+        t = etree.SubElement(encabezado, "Totales")
+        
+        # Boletas (39, 41) incluyen IVA en precio — reportan MntTotal directamente
+        if tipo_dte in (39, 41):
+            self._elem(t, "MntTotal", str(totales["total"]))
+        else:
+            if totales["neto"] > 0:
+                self._elem(t, "MntNeto", str(totales["neto"]))
+            if totales["exento"] > 0:
+                self._elem(t, "MntExe", str(totales["exento"]))
+            if totales["iva"] > 0:
+                self._elem(t, "TasaIVA", "19")
+                self._elem(t, "IVA", str(totales["iva"]))
+            self._elem(t, "MntTotal", str(totales["total"]))
+
+    def _build_item(self, documento, item: DTEItem, idx: int, tipo_dte: int):
+        det = etree.SubElement(documento, "Detalle")
+        self._elem(det, "NroLinDet", str(idx))
+        if item.codigo:
+            cd = etree.SubElement(det, "CdgItem")
+            self._elem(cd, "TpoCodigo", "INT1")
+            self._elem(cd, "VlrCodigo", item.codigo[:35])
+        self._elem(det, "NmbItem", item.nombre[:80])
+        self._elem(det, "QtyItem", str(item.cantidad))
+        self._elem(det, "UnmdItem", item.unidad)
+        self._elem(det, "PrcItem", str(item.precio_unitario))
+        if item.descuento_pct > 0:
+            self._elem(det, "DescuentoPct", str(item.descuento_pct))
+        self._elem(det, "MontoItem", str(item.monto_item))
+        if item.exento:
+            self._elem(det, "IndExe", "1")
+
+    def _build_referencia(self, documento, doc: DTEDocumento):
+        ref = etree.SubElement(documento, "Referencia")
+        self._elem(ref, "NroLinRef", "1")
+        self._elem(ref, "TpoDocRef", str(doc.receptor.ref_tipo_doc))
+        self._elem(ref, "FolioRef", str(doc.receptor.ref_folio))
+        self._elem(ref, "FchRef", doc.receptor.ref_fecha or doc.fecha_emision)
+        if doc.receptor.ref_motivo:
+            self._elem(ref, "RazonRef", doc.receptor.ref_motivo[:90])
+
+    def _calculate_totals(self, doc: DTEDocumento) -> dict:
+        neto = Decimal("0")
+        exento = Decimal("0")
+
+        for item in doc.items:
+            if item.exento or doc.tipo_dte == 41:
+                exento += item.monto_item
+            else:
+                neto += item.monto_item
+
+        # Boletas (39) el precio ya incluye IVA
+        if doc.tipo_dte in (39,):
+            total = neto + exento
+            iva = Decimal("0")
+        else:
+            iva = (neto * IVA_RATE).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            total = neto + iva + exento
+
+        return {
+            "neto": int(neto),
+            "exento": int(exento),
+            "iva": int(iva),
+            "total": int(total),
+        }
+
+    @staticmethod
+    def _elem(parent, tag: str, text: str) -> etree._Element:
+        el = etree.SubElement(parent, tag)
+        el.text = text
+        return el
+
+
+# Singleton
+dte_generator = DTEXMLGenerator()
