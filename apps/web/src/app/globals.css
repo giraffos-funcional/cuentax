@@ -1,7 +1,6 @@
 /* ==============================================================
    CUENTAX Design System — globals.css
-   Mia (Design Lead): "Un sistema de tokens que hace que
-   cada componente sea consistente sin esfuerzo."
+   Light Theme (Default) — Premium, clean, professional.
    ============================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -22,19 +21,19 @@
     --cx-indigo-500: #6366f1;
     --cx-indigo-600: #4f46e5;
 
-    /* Surfaces */
-    --cx-bg-base:    #080c14;
-    --cx-bg-surface: #0f1623;
-    --cx-bg-elevated:#161e2e;
+    /* Surfaces — Light */
+    --cx-bg-base:     #f8f9fc;
+    --cx-bg-surface:  #ffffff;
+    --cx-bg-elevated: #f1f3f9;
 
     /* Borders */
-    --cx-border:     rgba(255, 255, 255, 0.07);
-    --cx-border-hover: rgba(255, 255, 255, 0.12);
+    --cx-border:       rgba(0, 0, 0, 0.08);
+    --cx-border-hover: rgba(0, 0, 0, 0.14);
 
     /* Text */
-    --cx-text-primary:   #f8fafc;
-    --cx-text-secondary: #94a3b8;
-    --cx-text-muted:     #475569;
+    --cx-text-primary:   #1e293b;
+    --cx-text-secondary: #64748b;
+    --cx-text-muted:     #94a3b8;
   }
 
   * {
@@ -63,8 +62,8 @@
   /* Scrollbar */
   ::-webkit-scrollbar        { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+  ::-webkit-scrollbar-thumb  { background: rgba(0,0,0,0.10); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
 }
 
 /* ── Components ──────────────────────────────────────────────── */
@@ -73,9 +72,9 @@
   /* ── Inputs ─────────────────────────────────────────────── */
   .input-field {
     @apply w-full px-3.5 py-2.5 rounded-xl text-sm
-           bg-white/[0.04] border border-white/[0.08]
-           text-white placeholder-slate-600
-           focus:outline-none focus:border-violet-500/60 focus:bg-white/[0.06]
+           bg-white border border-slate-200
+           text-slate-800 placeholder-slate-400
+           focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:bg-white
            transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
@@ -84,26 +83,27 @@
   .btn-primary {
     @apply inline-flex items-center gap-2 px-4 py-2.5
            rounded-xl text-sm font-semibold text-white
-           bg-violet-600 hover:bg-violet-500
-           shadow-lg shadow-violet-500/20
+           bg-gradient-to-r from-violet-600 to-indigo-600
+           hover:from-violet-500 hover:to-indigo-500
+           shadow-md shadow-violet-500/20
            transition-all duration-150 active:scale-[0.98]
            disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
   .btn-secondary {
     @apply inline-flex items-center gap-2 px-4 py-2.5
-           rounded-xl text-sm font-medium text-slate-300
-           bg-white/[0.04] border border-white/[0.08]
-           hover:bg-white/[0.07] hover:text-white hover:border-white/10
+           rounded-xl text-sm font-medium text-slate-600
+           bg-white border border-slate-200
+           hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300
            transition-all duration-150 active:scale-[0.98]
            disabled:opacity-40 disabled:cursor-not-allowed;
   }
 
   .btn-danger {
     @apply inline-flex items-center gap-2 px-4 py-2.5
-           rounded-xl text-sm font-medium text-red-400
-           bg-red-500/10 border border-red-500/20
-           hover:bg-red-500/15 hover:text-red-300
+           rounded-xl text-sm font-medium text-red-600
+           bg-red-50 border border-red-200
+           hover:bg-red-100 hover:text-red-700
            transition-all duration-150;
   }
 
@@ -113,39 +113,39 @@
   }
 
   .badge-dte-draft {
-    @apply badge-dte bg-slate-500/15 text-slate-400 border border-slate-500/20;
+    @apply badge-dte bg-slate-100 text-slate-600 border border-slate-200;
   }
 
   .badge-dte-sent {
-    @apply badge-dte bg-blue-500/15 text-blue-400 border border-blue-500/20;
+    @apply badge-dte bg-blue-50 text-blue-700 border border-blue-200;
   }
 
   .badge-dte-accepted {
-    @apply badge-dte bg-emerald-500/15 text-emerald-400 border border-emerald-500/20;
+    @apply badge-dte bg-emerald-50 text-emerald-700 border border-emerald-200;
   }
 
   .badge-dte-rejected {
-    @apply badge-dte bg-red-500/15 text-red-400 border border-red-500/20;
+    @apply badge-dte bg-red-50 text-red-700 border border-red-200;
   }
 
   .badge-dte-cancelled {
-    @apply badge-dte bg-slate-600/15 text-slate-500 border border-slate-600/20;
+    @apply badge-dte bg-slate-100 text-slate-500 border border-slate-200;
   }
 
   /* ── Cards ──────────────────────────────────────────────── */
   .card {
-    @apply bg-slate-900/60 border border-white/[0.07] rounded-2xl
-           backdrop-blur-sm;
+    @apply bg-white border border-slate-200/80 rounded-2xl
+           shadow-sm;
   }
 
   .card-hover {
-    @apply card hover:bg-slate-900/80 hover:border-white/10
+    @apply card hover:shadow-md hover:border-slate-300
            transition-all duration-200 cursor-pointer;
   }
 
   /* ── Section ────────────────────────────────────────────── */
   .section-title {
-    @apply text-[10px] font-semibold text-slate-600 uppercase tracking-widest;
+    @apply text-[10px] font-semibold text-slate-400 uppercase tracking-widest;
   }
 }
 
@@ -162,21 +162,21 @@
 
   /* Gradient text */
   .gradient-text {
-    @apply bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent;
   }
 
-  /* Glass effect */
+  /* Glass effect — light version */
   .glass {
-    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.08];
+    @apply bg-white/70 backdrop-blur-xl border border-slate-200/60;
   }
 
   /* Glow effects */
   .glow-violet {
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+    box-shadow: 0 0 24px rgba(139, 92, 246, 0.15);
   }
 
   .glow-violet-sm {
-    box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.1);
   }
 }
 
@@ -199,9 +199,9 @@
 /* ── Skeleton loader ─────────────────────────────────────────── */
 .skeleton {
   background: linear-gradient(90deg,
-    rgba(255,255,255,0.04) 25%,
-    rgba(255,255,255,0.08) 50%,
-    rgba(255,255,255,0.04) 75%
+    rgba(0,0,0,0.04) 25%,
+    rgba(0,0,0,0.07) 50%,
+    rgba(0,0,0,0.04) 75%
   );
   background-size: 1000px 100%;
   animation: shimmer 1.5s infinite;

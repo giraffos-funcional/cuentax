@@ -49,7 +49,7 @@ export function LoginForm() {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       {/* Email */}
       <div>
-        <label className="block text-xs font-medium text-slate-400 mb-1.5">Email</label>
+        <label className="block text-xs font-medium text-slate-600 mb-1.5">Email</label>
         <input
           type="email"
           autoComplete="email"
@@ -57,12 +57,12 @@ export function LoginForm() {
           className="input-field"
           {...register('email')}
         />
-        {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email.message}</p>}
+        {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
       </div>
 
       {/* Password */}
       <div>
-        <label className="block text-xs font-medium text-slate-400 mb-1.5">Contraseña</label>
+        <label className="block text-xs font-medium text-slate-600 mb-1.5">Contraseña</label>
         <div className="relative">
           <input
             type={showPassword ? 'text' : 'password'}
@@ -74,12 +74,12 @@ export function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
           >
             {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
         </div>
-        {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password.message}</p>}
+        {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password.message}</p>}
       </div>
 
       {/* RUT empresa — Multi-tenant */}
@@ -87,7 +87,7 @@ export function LoginForm() {
         <button
           type="button"
           onClick={() => setShowRut(!showRut)}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-violet-400 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-600 transition-colors"
         >
           <Building2 size={12} />
           {showRut ? 'Ocultar empresa' : 'Ingresar como empresa específica (RUT)'}
@@ -106,9 +106,9 @@ export function LoginForm() {
 
       {/* Error global */}
       {errors.root && (
-        <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20">
-          <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-red-400">{errors.root.message}</p>
+        <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-200">
+          <AlertCircle size={14} className="text-red-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-600">{errors.root.message}</p>
         </div>
       )}
 
@@ -117,7 +117,6 @@ export function LoginForm() {
         type="submit"
         disabled={isSubmitting}
         className="btn-primary w-full justify-center mt-2"
-        style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
       >
         {isSubmitting ? (
           <><Loader2 size={14} className="animate-spin" /> Ingresando...</>
@@ -126,9 +125,9 @@ export function LoginForm() {
         )}
       </button>
 
-      <p className="text-center text-xs text-slate-600">
+      <p className="text-center text-xs text-slate-400">
         ¿Problemas para acceder?{' '}
-        <a href="#" className="text-violet-400 hover:text-violet-300 transition-colors">
+        <a href="#" className="text-violet-600 hover:text-violet-500 transition-colors">
           Contactar soporte
         </a>
       </p>

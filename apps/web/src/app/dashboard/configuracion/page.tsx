@@ -49,44 +49,44 @@ function SIIStatusPanel({ status, onCheckConnection }: {
       label: 'Certificado Digital',
       value: status.cert === 'loaded' ? 'Cargado ✓' : status.cert === 'error' ? 'Error al cargar' : 'No configurado',
       icon: FileKey2,
-      color: status.cert === 'loaded' ? 'text-emerald-400' : status.cert === 'error' ? 'text-red-400' : 'text-slate-500',
-      bg: status.cert === 'loaded' ? 'bg-emerald-500/10' : status.cert === 'error' ? 'bg-red-500/10' : 'bg-slate-800',
+      color: status.cert === 'loaded' ? 'text-emerald-700' : status.cert === 'error' ? 'text-red-600' : 'text-slate-500',
+      bg: status.cert === 'loaded' ? 'bg-emerald-50' : status.cert === 'error' ? 'bg-red-50' : 'bg-slate-100',
     },
     {
       label: 'Conexión SII',
       value: status.connection === 'ok' ? 'Conectado' : status.connection === 'error' ? 'Sin conexión' : status.connection === 'checking' ? 'Verificando...' : 'No verificado',
       icon: status.connection === 'ok' ? Wifi : WifiOff,
-      color: status.connection === 'ok' ? 'text-emerald-400' : status.connection === 'error' ? 'text-red-400' : 'text-slate-500',
-      bg: status.connection === 'ok' ? 'bg-emerald-500/10' : status.connection === 'error' ? 'bg-red-500/10' : 'bg-slate-800',
+      color: status.connection === 'ok' ? 'text-emerald-700' : status.connection === 'error' ? 'text-red-600' : 'text-slate-500',
+      bg: status.connection === 'ok' ? 'bg-emerald-50' : status.connection === 'error' ? 'bg-red-50' : 'bg-slate-100',
     },
     {
       label: 'Ambiente',
       value: status.ambiente === 'produccion' ? '🔴 Producción' : '🟡 Certificación',
       icon: Globe,
-      color: status.ambiente === 'produccion' ? 'text-red-300' : 'text-amber-300',
-      bg: status.ambiente === 'produccion' ? 'bg-red-500/10' : 'bg-amber-500/10',
+      color: status.ambiente === 'produccion' ? 'text-red-600' : 'text-amber-700',
+      bg: status.ambiente === 'produccion' ? 'bg-red-50' : 'bg-amber-50',
     },
     {
       label: 'Token SII',
       value: status.tokenActive ? 'Activo (2h)' : 'No generado',
       icon: Zap,
-      color: status.tokenActive ? 'text-emerald-400' : 'text-slate-500',
-      bg: status.tokenActive ? 'bg-emerald-500/10' : 'bg-slate-800',
+      color: status.tokenActive ? 'text-emerald-700' : 'text-slate-500',
+      bg: status.tokenActive ? 'bg-emerald-50' : 'bg-slate-100',
     },
   ]
 
   return (
-    <div className="bg-slate-900/60 border border-white/[0.07] rounded-2xl p-6">
+    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-violet-500/10 rounded-xl">
-            <Shield size={16} className="text-violet-400" />
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-2 bg-violet-50 rounded-xl shrink-0">
+            <Shield size={16} className="text-violet-600" />
           </div>
-          <h3 className="text-sm font-semibold text-white">Estado del Sistema SII</h3>
+          <h3 className="text-sm font-semibold text-slate-800 truncate">Estado del Sistema SII</h3>
         </div>
         <button
           onClick={onCheckConnection}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-300 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-600 transition-colors shrink-0"
         >
           <RefreshCw size={12} className={status.connection === 'checking' ? 'animate-spin' : ''} />
           Verificar
@@ -97,14 +97,14 @@ function SIIStatusPanel({ status, onCheckConnection }: {
         {statusItems.map((item) => (
           <div
             key={item.label}
-            className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]"
+            className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 min-w-0 overflow-hidden"
           >
-            <div className={`p-1.5 rounded-lg ${item.bg}`}>
+            <div className={`p-1.5 rounded-lg shrink-0 ${item.bg}`}>
               <item.icon size={13} className={item.color} />
             </div>
-            <div>
-              <p className="text-[10px] text-slate-600 uppercase tracking-wide">{item.label}</p>
-              <p className={`text-xs font-semibold ${item.color}`}>{item.value}</p>
+            <div className="min-w-0">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wide truncate">{item.label}</p>
+              <p className={`text-xs font-semibold truncate ${item.color}`}>{item.value}</p>
             </div>
           </div>
         ))}
@@ -279,7 +279,7 @@ export default function ConfiguracionSIIPage() {
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-white">Configuración SII</h1>
+        <h1 className="text-xl font-bold text-slate-800">Configuración SII</h1>
         <p className="text-sm text-slate-500 mt-1">
           Configura tu conexión directa al Servicio de Impuestos Internos de Chile
         </p>
@@ -295,14 +295,14 @@ export default function ConfiguracionSIIPage() {
             >
               <StepIndicator step={step.n} current={currentStep} />
               <div className="hidden sm:block text-left">
-                <p className={`text-xs font-semibold ${currentStep === step.n ? 'text-white' : currentStep > step.n ? 'text-emerald-400' : 'text-slate-600'}`}>
+                <p className={`text-xs font-semibold ${currentStep === step.n ? 'text-slate-800' : currentStep > step.n ? 'text-emerald-600' : 'text-slate-400'}`}>
                   {step.title}
                 </p>
-                <p className="text-[10px] text-slate-600">{step.desc}</p>
+                <p className="text-[10px] text-slate-400">{step.desc}</p>
               </div>
             </button>
             {i < STEPS.length - 1 && (
-              <ChevronRight size={14} className="text-slate-700 mx-1 shrink-0" />
+              <ChevronRight size={14} className="text-slate-300 mx-1 shrink-0" />
             )}
           </div>
         ))}
@@ -310,24 +310,24 @@ export default function ConfiguracionSIIPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Form Column */}
-        <div className="lg:col-span-3 bg-slate-900/60 border border-white/[0.07] rounded-2xl p-6">
+        <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           {currentStep === 1 && (
             <div className="space-y-5 animate-fade-in">
-              <h3 className="text-sm font-semibold text-white">Datos de la Empresa</h3>
+              <h3 className="text-sm font-semibold text-slate-800">Datos de la Empresa</h3>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-2">RUT Empresa</label>
+                <label className="block text-xs font-medium text-slate-600 mb-2">RUT Empresa</label>
                 <input type="text" placeholder="12.345.678-9" className="input-field" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-2">Razón Social</label>
+                <label className="block text-xs font-medium text-slate-600 mb-2">Razón Social</label>
                 <input type="text" placeholder="Mi Empresa SpA" className="input-field" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-2">Giro Comercial</label>
+                <label className="block text-xs font-medium text-slate-600 mb-2">Giro Comercial</label>
                 <input type="text" placeholder="Servicios de Software" className="input-field" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-2">Ambiente SII</label>
+                <label className="block text-xs font-medium text-slate-600 mb-2">Ambiente SII</label>
                 <div className="grid grid-cols-2 gap-3">
                   {['certificacion', 'produccion'].map((amb) => (
                     <button
@@ -336,13 +336,13 @@ export default function ConfiguracionSIIPage() {
                       className={`
                         p-3 rounded-xl border text-xs font-medium text-left transition-all
                         ${siiStatus.ambiente === amb
-                          ? 'border-violet-500/40 bg-violet-500/10 text-violet-300'
-                          : 'border-white/[0.07] text-slate-500 hover:border-white/10 hover:text-slate-400'
+                          ? 'border-violet-400 bg-violet-50 text-violet-700'
+                          : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600'
                         }
                       `}
                     >
                       <div className="font-bold mb-0.5 capitalize">{amb}</div>
-                      <div className="text-slate-600 text-[10px]">
+                      <div className="text-slate-400 text-[10px]">
                         {amb === 'certificacion' ? 'maullin.sii.cl' : 'palena.sii.cl'}
                       </div>
                     </button>
@@ -357,7 +357,7 @@ export default function ConfiguracionSIIPage() {
 
           {currentStep === 2 && (
             <div className="animate-fade-in space-y-4">
-              <h3 className="text-sm font-semibold text-white">Certificado Digital PFX</h3>
+              <h3 className="text-sm font-semibold text-slate-800">Certificado Digital PFX</h3>
               <CertificateUploader onSuccess={() => {
                 setSiiStatus(prev => ({ ...prev, cert: 'loaded' }))
                 setCurrentStep(3)
@@ -367,7 +367,7 @@ export default function ConfiguracionSIIPage() {
 
           {currentStep === 3 && (
             <div className="animate-fade-in space-y-5">
-              <h3 className="text-sm font-semibold text-white">Verificar Conexión</h3>
+              <h3 className="text-sm font-semibold text-slate-800">Verificar Conexión</h3>
               <p className="text-xs text-slate-500">
                 Verifica que CUENTAX puede comunicarse con el SII y obtener un token de sesión
                 usando tu certificado digital.
@@ -380,11 +380,11 @@ export default function ConfiguracionSIIPage() {
                 )}
               </button>
               {siiStatus.connection === 'ok' && (
-                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300 flex items-center gap-3 animate-fade-in">
+                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 flex items-center gap-3 animate-fade-in">
                   <CheckCircle2 size={16} />
                   <div>
                     <p className="font-semibold">¡Conexión exitosa!</p>
-                    <p className="text-xs text-emerald-500 mt-0.5">Token SII generado. Ya puedes emitir DTEs.</p>
+                    <p className="text-xs text-emerald-600 mt-0.5">Token SII generado. Ya puedes emitir DTEs.</p>
                   </div>
                 </div>
               )}
