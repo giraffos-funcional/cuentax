@@ -31,7 +31,7 @@ const MOCK_PRODUCTS: Product[] = [
 const formatCLP = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
-const CATEGORIAS = [...new Set(MOCK_PRODUCTS.map(p => p.categoria).filter(Boolean))]
+const CATEGORIAS = Array.from(new Set(MOCK_PRODUCTS.map(p => p.categoria).filter(Boolean))) as string[]
 
 export default function ProductosPage() {
   const [search, setSearch] = useState('')
