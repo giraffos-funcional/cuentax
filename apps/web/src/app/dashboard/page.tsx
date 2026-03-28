@@ -6,8 +6,9 @@
 'use client'
 
 import { TrendingUp, TrendingDown, FileText, CheckCircle2,
-         Clock, AlertTriangle, ArrowRight, Zap, Loader2 } from 'lucide-react'
+         Clock, AlertTriangle, ArrowRight, Zap, Loader2, Building2 } from 'lucide-react'
 import { useStats, useDTEs, useCAFStatus } from '@/hooks'
+import { useAuthStore } from '@/stores/auth.store'
 
 const formatCLP = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
@@ -130,6 +131,7 @@ function QuickActions() {
 
 // ── Page ──────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const user = useAuthStore(s => s.user)
   const { stats, isLoading: statsLoading } = useStats()
   const { documentos, isLoading: dtesLoading } = useDTEs({ page: 1 })
   const { cafs } = useCAFStatus()
@@ -152,6 +154,21 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Company Header */}
+      {user?.company_name && (
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-md shadow-violet-500/20">
+            <Building2 size={18} className="text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">{user.company_name}</h2>
+            {user.company_rut && (
+              <p className="text-xs text-slate-400 font-mono">{user.company_rut}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Alert SII */}
       <SIIAlert />
 
