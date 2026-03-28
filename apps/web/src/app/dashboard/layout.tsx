@@ -197,10 +197,14 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     setOpen(false)
     try {
       const { data } = await apiClient.post('/api/v1/companies/switch', { company_id: companyId })
-      useAuthStore.getState().setAuth(data.user, data.access_token)
-      window.location.reload()
+      if (data.access_token && data.user) {
+        useAuthStore.getState().setAuth(data.user, data.access_token)
+        // Navigate to dashboard root to avoid stale data errors
+        window.location.href = '/dashboard'
+      }
     } catch (err) {
       console.error('Error switching company:', err)
+      alert('Error al cambiar empresa')
     }
   }
 
