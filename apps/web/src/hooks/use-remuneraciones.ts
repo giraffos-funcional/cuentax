@@ -418,6 +418,34 @@ export function useIndicators(month?: number, year?: number) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Empresa (company info with logo)
+// ══════════════════════════════════════════════════════════════
+
+/** Datos de la empresa (con logo) */
+export function useCompany() {
+  const { data, error, isLoading, mutate } = useSWR(
+    '/api/v1/remuneraciones/empresa',
+    fetcher,
+  )
+  return {
+    empresa: data?.empresa ?? null,
+    isLoading,
+    error,
+    refresh: mutate,
+  }
+}
+
+/** Actualizar empresa (logo, datos) */
+export function useUpdateCompany() {
+  const update = async (payload: Record<string, unknown>) => {
+    const result = await apiClient.put('/api/v1/remuneraciones/empresa', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/empresa'))
+    return result
+  }
+  return { update }
+}
+
+// ══════════════════════════════════════════════════════════════
 // CRUD Mutations
 // ══════════════════════════════════════════════════════════════
 

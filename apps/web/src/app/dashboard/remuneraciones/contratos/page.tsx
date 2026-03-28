@@ -49,6 +49,11 @@ interface ContractFormData {
   date_start: string
   date_end: string
   structure_type_id: string
+  job_title: string
+  jornada: string
+  rep_legal_nombre: string
+  rep_legal_rut: string
+  domicilio_legal: string
 }
 
 const EMPTY_FORM: ContractFormData = {
@@ -61,6 +66,11 @@ const EMPTY_FORM: ContractFormData = {
   date_start: '',
   date_end: '',
   structure_type_id: '',
+  job_title: '',
+  jornada: 'completa',
+  rep_legal_nombre: '',
+  rep_legal_rut: '',
+  domicilio_legal: '',
 }
 
 function StateBadge({ state }: { state: string }) {
@@ -133,7 +143,7 @@ function ContractModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="card p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
+      <div className="card p-6 w-full max-w-2xl mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-bold text-[var(--cx-text-primary)]">{title}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors">
@@ -141,9 +151,10 @@ function ContractModal({
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-5">
+          {/* ── Empleado ────────────────────────────────────────── */}
           <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Empleado *</label>
+            <h3 className="text-xs font-bold text-[var(--cx-text-muted)] uppercase tracking-widest mb-2">Empleado</h3>
             <select value={form.employee_id} onChange={e => set('employee_id', e.target.value)} className="input-field text-sm w-full">
               <option value="">Seleccionar empleado...</option>
               {(empleados ?? []).map((e: any) => (
@@ -152,58 +163,114 @@ function ContractModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Sueldo Base *</label>
-              <input type="number" value={form.wage} onChange={e => set('wage', e.target.value)} placeholder="500000" className="input-field text-sm w-full" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Tipo Contrato</label>
-              <select value={form.type} onChange={e => set('type', e.target.value)} className="input-field text-sm w-full">
-                <option value="indefinido">Indefinido</option>
-                <option value="plazo_fijo">Plazo Fijo</option>
-                <option value="obra_faena">Obra o Faena</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Gratificación</label>
-              <select value={form.gratification_type} onChange={e => set('gratification_type', e.target.value)} className="input-field text-sm w-full">
-                <option value="art47">Art. 47 (mensual)</option>
-                <option value="art50">Art. 50 (anual)</option>
-                <option value="none">Sin gratificación</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Estructura Salarial</label>
-              <input value={form.structure_type_id} onChange={e => set('structure_type_id', e.target.value)} placeholder="ID estructura" className="input-field text-sm w-full" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Colación</label>
-              <input type="number" value={form.colacion} onChange={e => set('colacion', e.target.value)} placeholder="0" className="input-field text-sm w-full" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Movilización</label>
-              <input type="number" value={form.movilizacion} onChange={e => set('movilizacion', e.target.value)} placeholder="0" className="input-field text-sm w-full" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha Inicio *</label>
-              <input type="date" value={form.date_start} onChange={e => set('date_start', e.target.value)} className="input-field text-sm w-full" />
-            </div>
-            {form.type === 'plazo_fijo' && (
-              <div>
-                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha Fin</label>
-                <input type="date" value={form.date_end} onChange={e => set('date_end', e.target.value)} className="input-field text-sm w-full" />
+          {/* ── Detalles del Contrato ───────────────────────────── */}
+          <div>
+            <h3 className="text-xs font-bold text-[var(--cx-text-muted)] uppercase tracking-widest mb-2">Detalles del Contrato</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Cargo *</label>
+                  <input value={form.job_title} onChange={e => set('job_title', e.target.value)} placeholder="Ej: Desarrollador Senior" className="input-field text-sm w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Tipo Contrato</label>
+                  <select value={form.type} onChange={e => set('type', e.target.value)} className="input-field text-sm w-full">
+                    <option value="indefinido">Indefinido</option>
+                    <option value="plazo_fijo">Plazo Fijo</option>
+                    <option value="obra_faena">Obra o Faena</option>
+                  </select>
+                </div>
               </div>
-            )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha Ingreso *</label>
+                  <input type="date" value={form.date_start} onChange={e => set('date_start', e.target.value)} className="input-field text-sm w-full" />
+                </div>
+                {(form.type === 'plazo_fijo' || form.type === 'obra_faena') && (
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha Término</label>
+                    <input type="date" value={form.date_end} onChange={e => set('date_end', e.target.value)} className="input-field text-sm w-full" />
+                  </div>
+                )}
+                {form.type === 'indefinido' && <div />}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Jornada Laboral</label>
+                <select value={form.jornada} onChange={e => set('jornada', e.target.value)} className="input-field text-sm w-full">
+                  <option value="completa">Jornada Completa (45 hrs)</option>
+                  <option value="art22">Art. 22 Inc. 2 (Sin limite)</option>
+                  <option value="parcial">Jornada Parcial</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Remuneraciones ──────────────────────────────────── */}
+          <div>
+            <h3 className="text-xs font-bold text-[var(--cx-text-muted)] uppercase tracking-widest mb-2">Remuneraciones</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Sueldo Base (CLP) *</label>
+                  <input type="number" value={form.wage} onChange={e => set('wage', e.target.value)} placeholder="500000" className="input-field text-sm w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Gratificacion</label>
+                  <select value={form.gratification_type} onChange={e => set('gratification_type', e.target.value)} className="input-field text-sm w-full">
+                    <option value="art47">Art. 47 (mensual)</option>
+                    <option value="art50">Art. 50 (anual)</option>
+                    <option value="none">Sin gratificacion</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Colacion</label>
+                  <input type="number" value={form.colacion} onChange={e => set('colacion', e.target.value)} placeholder="0" className="input-field text-sm w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Movilizacion</label>
+                  <input type="number" value={form.movilizacion} onChange={e => set('movilizacion', e.target.value)} placeholder="0" className="input-field text-sm w-full" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Estructura Salarial</label>
+                <input value={form.structure_type_id} onChange={e => set('structure_type_id', e.target.value)} placeholder="ID estructura" className="input-field text-sm w-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Prevision (read-only from employee) ─────────────── */}
+          {form.employee_id && (
+            <div>
+              <h3 className="text-xs font-bold text-[var(--cx-text-muted)] uppercase tracking-widest mb-2">Prevision</h3>
+              <p className="text-xs text-[var(--cx-text-muted)] italic">AFP y sistema de salud se obtienen de la ficha del empleado seleccionado.</p>
+            </div>
+          )}
+
+          {/* ── Datos Empresa / Representante Legal ─────────────── */}
+          <div>
+            <h3 className="text-xs font-bold text-[var(--cx-text-muted)] uppercase tracking-widest mb-2">Representante Legal</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Nombre Rep. Legal</label>
+                  <input value={form.rep_legal_nombre} onChange={e => set('rep_legal_nombre', e.target.value)} placeholder="Nombre completo" className="input-field text-sm w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT Rep. Legal</label>
+                  <input value={form.rep_legal_rut} onChange={e => set('rep_legal_rut', e.target.value)} placeholder="12.345.678-9" className="input-field text-sm w-full" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Domicilio Legal (comuna)</label>
+                <input value={form.domicilio_legal} onChange={e => set('domicilio_legal', e.target.value)} placeholder="Ej: Santiago" className="input-field text-sm w-full" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -316,6 +383,11 @@ export default function ContratosPage() {
     date_start: editingContract.date_start ?? '',
     date_end: editingContract.date_end ?? '',
     structure_type_id: editingContract.structure_type_id ? String(editingContract.structure_type_id) : '',
+    job_title: editingContract.job_title ?? '',
+    jornada: editingContract.jornada ?? 'completa',
+    rep_legal_nombre: editingContract.rep_legal_nombre ?? '',
+    rep_legal_rut: editingContract.rep_legal_rut ?? '',
+    domicilio_legal: editingContract.domicilio_legal ?? '',
   } : EMPTY_FORM
 
   return (

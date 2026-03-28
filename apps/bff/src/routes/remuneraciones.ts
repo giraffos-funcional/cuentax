@@ -8,6 +8,7 @@
  * GET /api/v1/remuneraciones/empleados/:id
  * GET /api/v1/remuneraciones/liquidaciones
  * GET /api/v1/remuneraciones/liquidaciones/:id
+ * GET /api/v1/remuneraciones/liquidaciones/:id/pdf
  * GET /api/v1/remuneraciones/nominas
  * GET /api/v1/remuneraciones/nominas/:id
  * GET /api/v1/remuneraciones/ausencias
@@ -25,6 +26,7 @@
  * POST   /api/v1/remuneraciones/contratos
  * PUT    /api/v1/remuneraciones/contratos/:id
  * POST   /api/v1/remuneraciones/contratos/:id/close
+ * GET    /api/v1/remuneraciones/contratos/:id/pdf
  * POST   /api/v1/remuneraciones/ausencias
  * PUT    /api/v1/remuneraciones/ausencias/:id/approve
  * PUT    /api/v1/remuneraciones/ausencias/:id/refuse
@@ -41,12 +43,18 @@
  * DELETE /api/v1/remuneraciones/asistencia/:id
  * POST   /api/v1/remuneraciones/indicadores
  * PUT    /api/v1/remuneraciones/indicadores/:id
+ * GET    /api/v1/remuneraciones/empresa
+ * PUT    /api/v1/remuneraciones/empresa
  */
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
 import { odooHRAdapter } from '@/adapters/odoo-hr.adapter'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { logger } from '@/core/logger'
+import { generatePayslipPDF } from '@/services/payslip-pdf.service'
+import type { PayslipPDFData, PayslipPDFLine } from '@/services/payslip-pdf.service'
+import { generateContractPDF } from '@/services/contract-pdf.service'
+import type { ContractPDFData } from '@/services/contract-pdf.service'
 
 export async function remuneracionesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -232,6 +240,224 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         source: 'error',
         liquidacion: null,
         lineas: [],
+      })
+    }
+  })
+
+  // ── GET /liquidaciones/:id/pdf — Download payslip as PDF ──
+  fastify.get('/liquidaciones/:id/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const payslipId = Number((req.params as { id: string }).id)
+
+    const MONTHS_ES = [
+      '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ]
+
+    try {
+      // 1. Get payslip header
+      const payslipResults = await odooAccountingAdapter.searchRead(
+        'hr.payslip',
+        [['id', '=', payslipId], ['company_id', '=', user.company_id]],
+        [
+          'number', 'name', 'employee_id', 'date_from', 'date_to',
+          'company_id', 'state', 'struct_id', 'net_wage', 'basic_wage',
+          'gross_wage', 'line_ids', 'contract_id',
+        ],
+        { limit: 1 },
+      )
+      const payslip = payslipResults[0] as Record<string, unknown> | undefined
+
+      if (!payslip) {
+        return reply.status(404).send({ error: 'Liquidacion no encontrada' })
+      }
+
+      // 2. Get payslip lines
+      const rawLines = await odooHRAdapter.getPayslipLines(payslipId) as Array<Record<string, unknown>>
+
+      // 3. Get employee data (including Chilean localization fields)
+      const employeeId = Array.isArray(payslip.employee_id)
+        ? (payslip.employee_id as [number, string])[0]
+        : Number(payslip.employee_id)
+
+      const employeeResults = await odooAccountingAdapter.searchRead(
+        'hr.employee',
+        [['id', '=', employeeId], ['company_id', '=', user.company_id]],
+        [
+          'name', 'identification_id', 'job_title', 'department_id',
+          'contract_id', 'date_start',
+          // Chilean localization fields (l10n_cl_hr)
+          'l10n_cl_rut', 'afp_id', 'isapre_id', 'isapre_plan',
+        ],
+        { limit: 1 },
+      )
+      const employee = employeeResults[0] as Record<string, unknown> | undefined
+
+      // 4. Get company data (with logo)
+      const companyResults = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', user.company_id]],
+        ['name', 'vat', 'street', 'city', 'state_id', 'country_id', 'image_1920'],
+        { limit: 1 },
+      )
+      const company = companyResults[0] as Record<string, unknown> | undefined
+
+      // 5. Get contract for wage
+      const contractId = Array.isArray(payslip.contract_id)
+        ? (payslip.contract_id as [number, string])[0]
+        : Number(payslip.contract_id ?? 0)
+
+      let wage = Number(payslip.basic_wage ?? 0)
+      if (contractId) {
+        const contractResults = await odooAccountingAdapter.searchRead(
+          'hr.contract',
+          [['id', '=', contractId]],
+          ['wage'],
+          { limit: 1 },
+        )
+        const contract = contractResults[0] as Record<string, unknown> | undefined
+        if (contract?.wage) wage = Number(contract.wage)
+      }
+
+      // 6. Get UF value from indicators for the payslip period
+      const dateFrom = String(payslip.date_from ?? '')
+      const periodDate = dateFrom ? new Date(dateFrom + 'T12:00:00') : new Date()
+      const periodMonth = periodDate.getMonth() + 1
+      const periodYear = periodDate.getFullYear()
+
+      let ufValue = 0
+      try {
+        const indicatorResults = await odooAccountingAdapter.searchRead(
+          'l10n_cl.indicators',
+          [
+            ['company_id', '=', user.company_id],
+            ['month', '=', periodMonth],
+            ['year', '=', periodYear],
+          ],
+          ['uf'],
+          { limit: 1 },
+        )
+        const indicator = indicatorResults[0] as Record<string, unknown> | undefined
+        if (indicator?.uf) ufValue = Number(indicator.uf)
+      } catch {
+        // UF not found — will show 0
+      }
+
+      // 7. Map payslip lines to PDF format
+      const lines: PayslipPDFLine[] = rawLines.map((l) => {
+        const catId = l.category_id
+        const catName = Array.isArray(catId) ? String((catId as [number, string])[1]) : String(catId ?? '')
+        // Derive category code from the Odoo category name
+        let category = 'ALW'
+        const catUpper = catName.toUpperCase()
+        if (catUpper.includes('BASIC') || catUpper.includes('BASE')) category = 'BASIC'
+        else if (catUpper.includes('NOTIMP') || catUpper.includes('NO IMP')) category = 'ALWNOTIMP'
+        else if (catUpper.includes('PREV') || catUpper.includes('AFP') || catUpper.includes('CESANT')) category = 'DEDPREV'
+        else if (catUpper.includes('SALUD') || catUpper.includes('ISAPRE') || catUpper.includes('FONASA')) category = 'DEDSALUD'
+        else if (catUpper.includes('TRIB') || catUpper.includes('IMPUESTO') || catUpper.includes('TAX')) category = 'DEDTRIB'
+        else if (catUpper.includes('DED') || catUpper.includes('DESC')) category = 'DED'
+        else if (catUpper.includes('GROSS') || catUpper.includes('BRUT')) category = 'GROSS'
+        else if (catUpper.includes('NET') || catUpper.includes('LIQ')) category = 'NET'
+        else if (catUpper.includes('COMP')) category = 'COMP'
+
+        return {
+          code: String(l.code ?? ''),
+          name: String(l.name ?? ''),
+          category,
+          total: Number(l.total ?? l.amount ?? 0),
+        }
+      })
+
+      // 8. Calculate totals from lines
+      const imponibleCats = new Set(['BASIC', 'ALW', 'GROSS'])
+      const noImponibleCats = new Set(['ALWNOTIMP'])
+      const descuentoCats = new Set(['DEDPREV', 'DEDSALUD', 'DEDTRIB', 'DED'])
+      const excludedCodes = new Set(['GROSS', 'NET', 'COMP'])
+
+      const totalImponible = lines
+        .filter((l) => imponibleCats.has(l.category) && !excludedCodes.has(l.code))
+        .reduce((sum, l) => sum + l.total, 0)
+
+      const totalNoImponible = lines
+        .filter((l) => noImponibleCats.has(l.category))
+        .reduce((sum, l) => sum + l.total, 0)
+
+      const totalHaberes = totalImponible + totalNoImponible
+
+      const totalDescuentos = lines
+        .filter((l) => descuentoCats.has(l.category))
+        .reduce((sum, l) => sum + Math.abs(l.total), 0)
+
+      const totalPagar = Number(payslip.net_wage ?? (totalHaberes - totalDescuentos))
+
+      // Extract employee fields with safe fallbacks
+      const employeeName = String(employee?.name ?? 'Sin nombre')
+      const employeeRut = String(employee?.l10n_cl_rut ?? employee?.identification_id ?? 'Sin RUT')
+      const employeeStartDate = String(employee?.date_start ?? '-')
+      const employeeJobTitle = String(employee?.job_title ?? '-')
+      const employeeDepartment = Array.isArray(employee?.department_id)
+        ? String((employee.department_id as [number, string])[1])
+        : String(employee?.department_id ?? '-')
+      const employeeAfp = Array.isArray(employee?.afp_id)
+        ? String((employee.afp_id as [number, string])[1])
+        : String(employee?.afp_id ?? '-')
+      const employeeIsapre = Array.isArray(employee?.isapre_id)
+        ? String((employee.isapre_id as [number, string])[1])
+        : String(employee?.isapre_id ?? 'FONASA')
+      const employeeIsapreUf = employee?.isapre_plan ? Number(employee.isapre_plan) : undefined
+
+      // Build company address
+      const companyAddress = [company?.street, company?.city]
+        .filter(Boolean)
+        .map(String)
+        .join(', ') || '-'
+
+      const monthName = MONTHS_ES[periodMonth] ?? String(periodMonth)
+
+      // 9. Build PDF data payload
+      const pdfData: PayslipPDFData = {
+        company_name: String(company?.name ?? 'Sin empresa'),
+        company_rut: String(company?.vat ?? '-'),
+        company_address: companyAddress,
+        company_logo: company?.image_1920 ? String(company.image_1920) : undefined,
+
+        employee_name: employeeName,
+        employee_rut: employeeRut,
+        employee_start_date: employeeStartDate,
+        employee_job_title: employeeJobTitle,
+        employee_department: employeeDepartment,
+        employee_afp: employeeAfp,
+        employee_health_plan: employeeIsapre,
+        employee_isapre_uf: employeeIsapreUf,
+
+        month: monthName,
+        year: periodYear,
+        uf_value: ufValue,
+
+        wage,
+        lines,
+
+        total_imponible: totalImponible,
+        total_no_imponible: totalNoImponible,
+        total_haberes: totalHaberes,
+        total_descuentos: totalDescuentos,
+        total_pagar: totalPagar,
+      }
+
+      // 10. Generate and return PDF
+      const pdfBuffer = await generatePayslipPDF(pdfData)
+
+      const safeName = employeeName.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, '').replace(/\s+/g, '-')
+      const filename = `liquidacion-${monthName.toLowerCase()}-${periodYear}-${safeName}.pdf`
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error generating payslip PDF')
+      return reply.status(500).send({
+        source: 'error',
+        error: 'Error al generar PDF de liquidacion',
       })
     }
   })
@@ -791,6 +1017,178 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // ── GET /contratos/:id/pdf ─────────────────────────────────
+  // Generates a Chilean employment contract PDF from Odoo data
+  fastify.get('/contratos/:id/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const contractId = Number(id)
+
+    try {
+      // 1. Fetch contract from Odoo
+      const contracts = await odooAccountingAdapter.searchRead(
+        'hr.contract',
+        [
+          ['id', '=', contractId],
+          ['company_id', '=', user.company_id],
+        ],
+        [
+          'name', 'employee_id', 'job_id', 'wage', 'date_start', 'date_end',
+          'state', 'struct_id', 'resource_calendar_id',
+          'x_colacion', 'x_movilizacion', 'x_contract_type', 'x_jornada',
+          'x_jurisdiction_commune',
+        ],
+        { limit: 1 },
+      )
+
+      if (contracts.length === 0) {
+        return reply.status(404).send({
+          source: 'error',
+          message: 'Contrato no encontrado',
+        })
+      }
+
+      const contract = contracts[0] as Record<string, unknown>
+      const employeeRef = contract['employee_id'] as [number, string] | undefined
+
+      if (!employeeRef || !employeeRef[0]) {
+        return reply.status(400).send({
+          source: 'error',
+          message: 'Contrato sin empleado asociado',
+        })
+      }
+
+      // 2. Fetch employee with extended fields
+      const employees = await odooAccountingAdapter.searchRead(
+        'hr.employee',
+        [
+          ['id', '=', employeeRef[0]],
+          ['company_id', '=', user.company_id],
+        ],
+        [
+          'name', 'identification_id', 'marital', 'birthday', 'country_id',
+          'work_email', 'work_phone', 'job_title',
+          'address_home_id', 'private_street', 'private_city',
+          'x_commune', 'x_nationality', 'x_afp', 'x_health_system',
+          'x_private_address', 'x_private_commune',
+        ],
+        { limit: 1 },
+      )
+
+      const employee = (employees[0] ?? {}) as Record<string, unknown>
+
+      // 3. Fetch company with logo
+      const companies = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', user.company_id]],
+        [
+          'name', 'vat', 'street', 'city', 'email', 'image_1920',
+          'x_commune', 'x_rep_legal_name', 'x_rep_legal_rut',
+        ],
+        { limit: 1 },
+      )
+
+      const company = (companies[0] ?? {}) as Record<string, unknown>
+
+      // 4. Build ContractPDFData from Odoo records
+      const jobRef = contract['job_id'] as [number, string] | false
+      const countryRef = employee['country_id'] as [number, string] | false
+
+      // Determine contract type
+      let contractType: ContractPDFData['contract_type'] = 'indefinido'
+      const rawType = String(contract['x_contract_type'] ?? contract['name'] ?? '')
+      if (rawType.toLowerCase().includes('fijo') || rawType.toLowerCase().includes('plazo')) {
+        contractType = 'plazo_fijo'
+      } else if (rawType.toLowerCase().includes('obra') || rawType.toLowerCase().includes('faena')) {
+        contractType = 'obra_faena'
+      }
+
+      // Determine jornada
+      const calRef = contract['resource_calendar_id'] as [number, string] | false
+      let jornada = String(contract['x_jornada'] ?? '')
+      if (!jornada && calRef) {
+        const calName = calRef[1]?.toLowerCase() ?? ''
+        if (calName.includes('art') && calName.includes('22')) {
+          jornada = 'art22'
+        } else {
+          jornada = 'completa'
+        }
+      }
+      if (!jornada) jornada = 'completa'
+
+      // Map marital status
+      const maritalMap: Record<string, string> = {
+        single: 'Soltero/a',
+        married: 'Casado/a',
+        cohabitant: 'Conviviente Civil',
+        widower: 'Viudo/a',
+        divorced: 'Divorciado/a',
+      }
+
+      const pdfData: ContractPDFData = {
+        // Company
+        company_name: String(company['name'] ?? ''),
+        company_rut: String(company['vat'] ?? ''),
+        company_address: String(company['street'] ?? ''),
+        company_commune: String(company['x_commune'] ?? company['city'] ?? ''),
+        company_city: String(company['city'] ?? ''),
+        company_email: String(company['email'] ?? ''),
+        company_logo: company['image_1920'] ? String(company['image_1920']) : undefined,
+        rep_legal_name: String(company['x_rep_legal_name'] ?? ''),
+        rep_legal_rut: String(company['x_rep_legal_rut'] ?? ''),
+
+        // Employee
+        employee_name: String(employee['name'] ?? ''),
+        employee_rut: String(employee['identification_id'] ?? ''),
+        employee_nationality: countryRef ? countryRef[1] : String(employee['x_nationality'] ?? 'Chilena'),
+        employee_marital: maritalMap[String(employee['marital'] ?? 'single')] ?? 'Soltero/a',
+        employee_birthday: String(employee['birthday'] ?? ''),
+        employee_address: String(employee['x_private_address'] ?? employee['private_street'] ?? ''),
+        employee_commune: String(employee['x_private_commune'] ?? employee['private_city'] ?? ''),
+        employee_email: String(employee['work_email'] ?? ''),
+        employee_phone: String(employee['work_phone'] ?? ''),
+        employee_afp: String(employee['x_afp'] ?? ''),
+        employee_health: String(employee['x_health_system'] ?? 'Fonasa'),
+
+        // Contract
+        contract_type: contractType,
+        start_date: String(contract['date_start'] ?? ''),
+        end_date: contract['date_end'] ? String(contract['date_end']) : undefined,
+        job_title: jobRef ? jobRef[1] : String(employee['job_title'] ?? ''),
+        jornada,
+        wage: Number(contract['wage'] ?? 0),
+        colacion: Number(contract['x_colacion'] ?? 0),
+        movilizacion: Number(contract['x_movilizacion'] ?? 0),
+        jurisdiction_commune: String(
+          contract['x_jurisdiction_commune'] ?? company['x_commune'] ?? company['city'] ?? '',
+        ),
+      }
+
+      // 5. Generate PDF
+      const pdfBuffer = await generateContractPDF(pdfData)
+
+      // 6. Send as download
+      const safeName = pdfData.employee_name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .toLowerCase()
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="contrato-${safeName}.pdf"`)
+      reply.header('Content-Length', pdfBuffer.length)
+
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, contractId }, 'Error generating contract PDF')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error al generar PDF del contrato',
+      })
+    }
+  })
+
   // ── POST /ausencias ───────────────────────────────────────
   fastify.post('/ausencias', async (req, reply) => {
     const user = (req as any).user
@@ -1257,6 +1655,39 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         source: 'error',
         message: 'Error interno al actualizar indicadores',
       })
+    }
+  })
+
+  // ── GET /empresa ────────────────────────────────────────────
+  // Company info with logo (image_1920 base64 from res.company)
+  fastify.get('/empresa', async (req, reply) => {
+    const user = (req as any).user
+    try {
+      const companies = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', user.company_id]],
+        ['name', 'vat', 'street', 'city', 'state_id', 'country_id', 'phone', 'email', 'website', 'image_1920'],
+        { limit: 1 },
+      )
+      const company = companies[0] ?? null
+      return reply.send({ source: 'odoo', empresa: company })
+    } catch (err) {
+      logger.error({ err }, 'Error fetching company data')
+      return reply.send({ source: 'error', empresa: null })
+    }
+  })
+
+  // ── PUT /empresa ────────────────────────────────────────────
+  // Update company data (including logo via image_1920 base64)
+  fastify.put('/empresa', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown>
+    try {
+      const success = await odooAccountingAdapter.write('res.company', [user.company_id], body)
+      return reply.send({ source: 'odoo', success })
+    } catch (err) {
+      logger.error({ err }, 'Error updating company')
+      return reply.send({ source: 'error', success: false })
     }
   })
 }
