@@ -25,9 +25,11 @@ import { productsRoutes } from '@/routes/products'
 import { reportesRoutes } from '@/routes/reportes'
 import { contabilidadRoutes } from '@/routes/contabilidad'
 import { remuneracionesRoutes } from '@/routes/remuneraciones'
+import { indicatorsRoutes } from '@/routes/indicators'
 
 // Jobs
 import { dteStatusPoller } from '@/jobs/dte-status-poller'
+import { previredScheduler } from '@/jobs/previred-scraper'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -199,6 +201,7 @@ async function bootstrap() {
   await fastify.register(reportesRoutes,      { prefix: '/api/v1/reportes' })
   await fastify.register(contabilidadRoutes,  { prefix: '/api/v1/contabilidad' })
   await fastify.register(remuneracionesRoutes, { prefix: '/api/v1/remuneraciones' })
+  await fastify.register(indicatorsRoutes, { prefix: '/api/v1/indicators' })
 
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {
@@ -229,6 +232,9 @@ async function bootstrap() {
     logger.info(`   Ambiente: ${config.NODE_ENV}`)
     logger.info(`   SII Bridge: ${config.SII_BRIDGE_URL}`)
     logger.info(`   Odoo: ${config.ODOO_URL}`)
+
+    // ── Background Jobs ───────────────────────────────────────
+    previredScheduler.start()
   } catch (err) {
     logger.error(err, 'Error al iniciar BFF')
     process.exit(1)
@@ -238,6 +244,7 @@ async function bootstrap() {
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   logger.info(`${signal} recibido — cerrando servidor...`)
+  previredScheduler.stop()
   await fastify.close()
   await redis.quit()
   process.exit(0)
