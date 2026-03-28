@@ -181,8 +181,11 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now()
       )`)
 
-      // One-time cleanup: remove all companies without Odoo link
-      await db.execute(sql`DELETE FROM "companies" WHERE "odoo_company_id" IS NULL`)
+      // One-time cleanup: remove orphan companies (no Odoo link or placeholder RUTs)
+      await db.execute(sql`DELETE FROM "contacts" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "rut" = '00.000.000-0')`)
+      await db.execute(sql`DELETE FROM "products" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "rut" = '00.000.000-0')`)
+      await db.execute(sql`DELETE FROM "dte_documents" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "rut" = '00.000.000-0')`)
+      await db.execute(sql`DELETE FROM "companies" WHERE "odoo_company_id" IS NULL OR "rut" = '00.000.000-0'`)
 
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
