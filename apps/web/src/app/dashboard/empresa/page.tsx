@@ -22,19 +22,33 @@ export default function EmpresaPage() {
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Direct fetch - bypasses SWR cache entirely
-  const fetchEmpresa = useCallback(async () => {
+  // Fetch empresa with retry - handles the post-switch token recovery race condition
+  const fetchEmpresa = useCallback(async (retries = 3) => {
     setIsLoading(true)
     setError(null)
-    try {
-      const { data } = await apiClient.get('/api/v1/remuneraciones/empresa')
-      setEmpresa(data?.empresa ?? null)
-    } catch (err: any) {
-      setError(err)
-    } finally {
-      setIsLoading(false)
+    for (let i = 0; i < retries; i++) {
+      try {
+        const { data } = await apiClient.get('/api/v1/remuneraciones/empresa')
+        const emp = data?.empresa ?? null
+        // Verify we got data for the RIGHT company (not stale from old token)
+        if (emp && companyId && emp.id !== companyId) {
+          // Token refresh returned old company data - wait and retry
+          await new Promise(r => setTimeout(r, 1500))
+          continue
+        }
+        setEmpresa(emp)
+        setIsLoading(false)
+        return
+      } catch (err: any) {
+        if (i < retries - 1) {
+          await new Promise(r => setTimeout(r, 1500))
+          continue
+        }
+        setError(err)
+      }
     }
-  }, [])
+    setIsLoading(false)
+  }, [companyId])
 
   // Fetch on mount and when companyId changes
   useEffect(() => {
