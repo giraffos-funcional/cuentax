@@ -181,10 +181,8 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now()
       )`)
 
-      // Clean up: remove orphan companies without odoo_company_id and with placeholder RUTs
-      await db.execute(sql`DELETE FROM "companies" WHERE "odoo_company_id" IS NULL AND "rut" IN ('00.000.000-0')`)
-      // Deactivate companies without odoo link (will be re-created properly)
-      await db.execute(sql`UPDATE "companies" SET "activo" = false WHERE "odoo_company_id" IS NULL AND "activo" = true`)
+      // One-time cleanup: remove all companies without Odoo link
+      await db.execute(sql`DELETE FROM "companies" WHERE "odoo_company_id" IS NULL`)
 
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {

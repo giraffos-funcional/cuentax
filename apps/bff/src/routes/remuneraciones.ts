@@ -2,6 +2,8 @@
  * CUENTAX — Remuneraciones Routes (BFF)
  * ======================================
  * Empleados, liquidaciones, nominas, ausencias, contratos y asistencia desde Odoo HR.
+ *
+ * READ:
  * GET /api/v1/remuneraciones/empleados
  * GET /api/v1/remuneraciones/empleados/:id
  * GET /api/v1/remuneraciones/liquidaciones
@@ -15,6 +17,30 @@
  * GET /api/v1/remuneraciones/contratos
  * GET /api/v1/remuneraciones/asistencia
  * GET /api/v1/remuneraciones/stats
+ *
+ * WRITE:
+ * POST   /api/v1/remuneraciones/empleados
+ * PUT    /api/v1/remuneraciones/empleados/:id
+ * DELETE /api/v1/remuneraciones/empleados/:id
+ * POST   /api/v1/remuneraciones/contratos
+ * PUT    /api/v1/remuneraciones/contratos/:id
+ * POST   /api/v1/remuneraciones/contratos/:id/close
+ * POST   /api/v1/remuneraciones/ausencias
+ * PUT    /api/v1/remuneraciones/ausencias/:id/approve
+ * PUT    /api/v1/remuneraciones/ausencias/:id/refuse
+ * DELETE /api/v1/remuneraciones/ausencias/:id
+ * POST   /api/v1/remuneraciones/liquidaciones
+ * POST   /api/v1/remuneraciones/liquidaciones/:id/compute
+ * POST   /api/v1/remuneraciones/liquidaciones/:id/confirm
+ * DELETE /api/v1/remuneraciones/liquidaciones/:id
+ * POST   /api/v1/remuneraciones/nominas
+ * POST   /api/v1/remuneraciones/nominas/:id/generate
+ * POST   /api/v1/remuneraciones/nominas/:id/close
+ * POST   /api/v1/remuneraciones/asistencia
+ * PUT    /api/v1/remuneraciones/asistencia/:id
+ * DELETE /api/v1/remuneraciones/asistencia/:id
+ * POST   /api/v1/remuneraciones/indicadores
+ * PUT    /api/v1/remuneraciones/indicadores/:id
  */
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
@@ -562,6 +588,674 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         payroll_total: 0,
         leaves_this_month: 0,
         pending_leaves: 0,
+      })
+    }
+  })
+
+  // ═══════════════════════════════════════════════════════════
+  // WRITE OPERATIONS
+  // ═══════════════════════════════════════════════════════════
+
+  // ── POST /empleados ───────────────────────────────────────
+  fastify.post('/empleados', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['name']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campo requerido: name',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createEmployee(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear empleado en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating empleado')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear empleado',
+      })
+    }
+  })
+
+  // ── PUT /empleados/:id ────────────────────────────────────
+  fastify.put('/empleados/:id', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const employeeId = Number(id)
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || Object.keys(body).length === 0) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Body vacío — nada que actualizar',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.updateEmployee(user.company_id, employeeId, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al actualizar empleado en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        updated: true,
+      })
+    } catch (err) {
+      logger.error({ err, employeeId }, 'Error updating empleado')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al actualizar empleado',
+      })
+    }
+  })
+
+  // ── DELETE /empleados/:id ─────────────────────────────────
+  fastify.delete('/empleados/:id', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const employeeId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.deactivateEmployee(user.company_id, employeeId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al desactivar empleado en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        deactivated: true,
+      })
+    } catch (err) {
+      logger.error({ err, employeeId }, 'Error deactivating empleado')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al desactivar empleado',
+      })
+    }
+  })
+
+  // ── POST /contratos ───────────────────────────────────────
+  fastify.post('/contratos', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['employee_id'] || !body['name'] || !body['wage'] || !body['date_start']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: employee_id, name, wage, date_start',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createContract(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear contrato en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating contrato')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear contrato',
+      })
+    }
+  })
+
+  // ── PUT /contratos/:id ────────────────────────────────────
+  fastify.put('/contratos/:id', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const contractId = Number(id)
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || Object.keys(body).length === 0) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Body vacío — nada que actualizar',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.updateContract(user.company_id, contractId, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al actualizar contrato en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        updated: true,
+      })
+    } catch (err) {
+      logger.error({ err, contractId }, 'Error updating contrato')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al actualizar contrato',
+      })
+    }
+  })
+
+  // ── POST /contratos/:id/close ─────────────────────────────
+  fastify.post('/contratos/:id/close', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const contractId = Number(id)
+    const today = new Date().toISOString().split('T')[0]
+
+    try {
+      const result = await odooHRAdapter.updateContract(user.company_id, contractId, {
+        state: 'close',
+        date_end: today,
+      })
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al cerrar contrato en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        closed: true,
+        date_end: today,
+      })
+    } catch (err) {
+      logger.error({ err, contractId }, 'Error closing contrato')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al cerrar contrato',
+      })
+    }
+  })
+
+  // ── POST /ausencias ───────────────────────────────────────
+  fastify.post('/ausencias', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['employee_id'] || !body['holiday_status_id'] || !body['date_from'] || !body['date_to']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: employee_id, holiday_status_id, date_from, date_to',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createLeave(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear ausencia en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating ausencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear ausencia',
+      })
+    }
+  })
+
+  // ── PUT /ausencias/:id/approve ────────────────────────────
+  fastify.put('/ausencias/:id/approve', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const leaveId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.approveLeave(leaveId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al aprobar ausencia en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        approved: true,
+      })
+    } catch (err) {
+      logger.error({ err, leaveId }, 'Error approving ausencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al aprobar ausencia',
+      })
+    }
+  })
+
+  // ── PUT /ausencias/:id/refuse ─────────────────────────────
+  fastify.put('/ausencias/:id/refuse', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const leaveId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.refuseLeave(leaveId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al rechazar ausencia en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        refused: true,
+      })
+    } catch (err) {
+      logger.error({ err, leaveId }, 'Error refusing ausencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al rechazar ausencia',
+      })
+    }
+  })
+
+  // ── DELETE /ausencias/:id ─────────────────────────────────
+  fastify.delete('/ausencias/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const leaveId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.cancelLeave(leaveId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al cancelar ausencia en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        cancelled: true,
+      })
+    } catch (err) {
+      logger.error({ err, leaveId }, 'Error cancelling ausencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al cancelar ausencia',
+      })
+    }
+  })
+
+  // ── POST /liquidaciones ───────────────────────────────────
+  fastify.post('/liquidaciones', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['employee_id'] || !body['date_from'] || !body['date_to']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: employee_id, date_from, date_to',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createPayslip(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear liquidación en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating liquidación')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear liquidación',
+      })
+    }
+  })
+
+  // ── POST /liquidaciones/:id/compute ───────────────────────
+  fastify.post('/liquidaciones/:id/compute', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const payslipId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.computePayslip(payslipId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al calcular liquidación en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        computed: true,
+      })
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error computing liquidación')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al calcular liquidación',
+      })
+    }
+  })
+
+  // ── POST /liquidaciones/:id/confirm ───────────────────────
+  fastify.post('/liquidaciones/:id/confirm', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const payslipId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.confirmPayslip(payslipId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al confirmar liquidación en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        confirmed: true,
+      })
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error confirming liquidación')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al confirmar liquidación',
+      })
+    }
+  })
+
+  // ── DELETE /liquidaciones/:id ─────────────────────────────
+  fastify.delete('/liquidaciones/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const payslipId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.cancelPayslip(payslipId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al cancelar liquidación en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        cancelled: true,
+      })
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error cancelling liquidación')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al cancelar liquidación',
+      })
+    }
+  })
+
+  // ── POST /nominas ─────────────────────────────────────────
+  fastify.post('/nominas', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['name'] || !body['date_start'] || !body['date_end']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: name, date_start, date_end',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createPayslipRun(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear nómina en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating nómina')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear nómina',
+      })
+    }
+  })
+
+  // ── POST /nominas/:id/generate ────────────────────────────
+  fastify.post('/nominas/:id/generate', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const runId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.generatePayslips(runId, user.company_id)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al generar liquidaciones para nómina',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        generated: true,
+        count: result.count,
+      })
+    } catch (err) {
+      logger.error({ err, runId }, 'Error generating payslips for nómina')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al generar liquidaciones',
+      })
+    }
+  })
+
+  // ── POST /nominas/:id/close ───────────────────────────────
+  fastify.post('/nominas/:id/close', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const runId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.closePayslipRun(runId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al cerrar nómina en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        closed: true,
+      })
+    } catch (err) {
+      logger.error({ err, runId }, 'Error closing nómina')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al cerrar nómina',
+      })
+    }
+  })
+
+  // ── POST /asistencia ──────────────────────────────────────
+  fastify.post('/asistencia', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['employee_id'] || !body['check_in']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: employee_id, check_in',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createAttendance(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear registro de asistencia en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating asistencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear asistencia',
+      })
+    }
+  })
+
+  // ── PUT /asistencia/:id ───────────────────────────────────
+  fastify.put('/asistencia/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const attendanceId = Number(id)
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || Object.keys(body).length === 0) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Body vacío — nada que actualizar',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.updateAttendance(attendanceId, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al actualizar asistencia en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        updated: true,
+      })
+    } catch (err) {
+      logger.error({ err, attendanceId }, 'Error updating asistencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al actualizar asistencia',
+      })
+    }
+  })
+
+  // ── DELETE /asistencia/:id ────────────────────────────────
+  fastify.delete('/asistencia/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const attendanceId = Number(id)
+
+    try {
+      const result = await odooHRAdapter.deleteAttendance(attendanceId)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al eliminar asistencia en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        deleted: true,
+      })
+    } catch (err) {
+      logger.error({ err, attendanceId }, 'Error deleting asistencia')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al eliminar asistencia',
+      })
+    }
+  })
+
+  // ── POST /indicadores ─────────────────────────────────────
+  fastify.post('/indicadores', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || Object.keys(body).length === 0) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Body vacío — nada que crear',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.createIndicators(user.company_id, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear indicadores en Odoo',
+        })
+      }
+      return reply.status(201).send({
+        source: 'odoo',
+        id: result.id,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error creating indicadores')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear indicadores',
+      })
+    }
+  })
+
+  // ── PUT /indicadores/:id ──────────────────────────────────
+  fastify.put('/indicadores/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const indicatorId = Number(id)
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || Object.keys(body).length === 0) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Body vacío — nada que actualizar',
+      })
+    }
+
+    try {
+      const result = await odooHRAdapter.updateIndicators(indicatorId, body)
+      if (!result.success) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al actualizar indicadores en Odoo',
+        })
+      }
+      return reply.send({
+        source: 'odoo',
+        updated: true,
+      })
+    } catch (err) {
+      logger.error({ err, indicatorId }, 'Error updating indicadores')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al actualizar indicadores',
       })
     }
   })

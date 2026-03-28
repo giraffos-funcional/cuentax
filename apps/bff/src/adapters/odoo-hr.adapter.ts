@@ -414,7 +414,379 @@ export const odooHRAdapter = {
     }
   },
 
-  // ─── Attendance ───────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // WRITE OPERATIONS
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── Employee Write ─────────────────────────────────────
+
+  async createEmployee(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data, company_id: companyId }
+      const id = await odooAccountingAdapter.create('hr.employee', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create employee in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Employee created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating employee in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async updateEmployee(companyId: number, employeeId: number, data: Record<string, unknown>) {
+    try {
+      const ok = await odooAccountingAdapter.write('hr.employee', [employeeId], data)
+      if (!ok) {
+        logger.error({ employeeId, companyId }, 'Failed to update employee in Odoo')
+        return { success: false }
+      }
+      logger.info({ employeeId, companyId }, 'Employee updated in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, employeeId, companyId }, 'Error updating employee in Odoo')
+      return { success: false }
+    }
+  },
+
+  async deactivateEmployee(companyId: number, employeeId: number) {
+    try {
+      const ok = await odooAccountingAdapter.write('hr.employee', [employeeId], { active: false })
+      if (!ok) {
+        logger.error({ employeeId, companyId }, 'Failed to deactivate employee in Odoo')
+        return { success: false }
+      }
+      logger.info({ employeeId, companyId }, 'Employee deactivated in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, employeeId, companyId }, 'Error deactivating employee in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Contract Write ─────────────────────────────────────
+
+  async createContract(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data, company_id: companyId }
+      const id = await odooAccountingAdapter.create('hr.contract', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create contract in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Contract created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating contract in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async updateContract(companyId: number, contractId: number, data: Record<string, unknown>) {
+    try {
+      const ok = await odooAccountingAdapter.write('hr.contract', [contractId], data)
+      if (!ok) {
+        logger.error({ contractId, companyId }, 'Failed to update contract in Odoo')
+        return { success: false }
+      }
+      logger.info({ contractId, companyId }, 'Contract updated in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, contractId, companyId }, 'Error updating contract in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Leave Write ────────────────────────────────────────
+
+  async createLeave(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data }
+      const id = await odooAccountingAdapter.create('hr.leave', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create leave in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Leave created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating leave in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async approveLeave(leaveId: number) {
+    try {
+      await odooAccountingAdapter.callMethod('hr.leave', 'action_approve', [leaveId])
+      logger.info({ leaveId }, 'Leave approved in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, leaveId }, 'Error approving leave in Odoo')
+      return { success: false }
+    }
+  },
+
+  async refuseLeave(leaveId: number) {
+    try {
+      await odooAccountingAdapter.callMethod('hr.leave', 'action_refuse', [leaveId])
+      logger.info({ leaveId }, 'Leave refused in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, leaveId }, 'Error refusing leave in Odoo')
+      return { success: false }
+    }
+  },
+
+  async cancelLeave(leaveId: number) {
+    try {
+      // Reset to draft first, then unlink
+      await odooAccountingAdapter.callMethod('hr.leave', 'action_draft', [leaveId])
+      await odooAccountingAdapter.unlink('hr.leave', [leaveId])
+      logger.info({ leaveId }, 'Leave cancelled and deleted in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, leaveId }, 'Error cancelling leave in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Payslip Write ──────────────────────────────────────
+
+  async createPayslip(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data, company_id: companyId }
+      const id = await odooAccountingAdapter.create('hr.payslip', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create payslip in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Payslip created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating payslip in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async computePayslip(payslipId: number) {
+    try {
+      await odooAccountingAdapter.callMethod('hr.payslip', 'compute_sheet', [payslipId])
+      logger.info({ payslipId }, 'Payslip computed in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error computing payslip in Odoo')
+      return { success: false }
+    }
+  },
+
+  async confirmPayslip(payslipId: number) {
+    try {
+      await odooAccountingAdapter.callMethod('hr.payslip', 'action_payslip_done', [payslipId])
+      logger.info({ payslipId }, 'Payslip confirmed in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error confirming payslip in Odoo')
+      return { success: false }
+    }
+  },
+
+  async cancelPayslip(payslipId: number) {
+    try {
+      const ok = await odooAccountingAdapter.write('hr.payslip', [payslipId], { state: 'cancel' })
+      if (!ok) {
+        logger.error({ payslipId }, 'Failed to cancel payslip in Odoo')
+        return { success: false }
+      }
+      logger.info({ payslipId }, 'Payslip cancelled in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, payslipId }, 'Error cancelling payslip in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Payslip Run Write ──────────────────────────────────
+
+  async createPayslipRun(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data, company_id: companyId }
+      const id = await odooAccountingAdapter.create('hr.payslip.run', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create payslip run in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Payslip run created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating payslip run in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async generatePayslips(runId: number, companyId: number) {
+    try {
+      // 1. Get the payslip run to know the date range
+      const runs = await odooAccountingAdapter.searchRead(
+        'hr.payslip.run',
+        [['id', '=', runId]],
+        ['date_start', 'date_end'],
+        { limit: 1 },
+      )
+      const run = runs[0] as Record<string, unknown> | undefined
+      if (!run) {
+        logger.error({ runId }, 'Payslip run not found')
+        return { success: false, count: 0 }
+      }
+
+      // 2. Find all employees with active contracts (state='open')
+      const employees = await odooAccountingAdapter.searchRead(
+        'hr.contract',
+        [
+          ['company_id', '=', companyId],
+          ['state', '=', 'open'],
+        ],
+        ['employee_id'],
+        { limit: 1000 },
+      )
+
+      if (employees.length === 0) {
+        logger.warn({ runId, companyId }, 'No active contracts found for payslip generation')
+        return { success: true, count: 0 }
+      }
+
+      // 3. Create a payslip for each employee and link to the run
+      const payslipIds: number[] = []
+      for (const emp of employees) {
+        const record = emp as Record<string, unknown>
+        const employeeId = Array.isArray(record['employee_id'])
+          ? (record['employee_id'][0] as number)
+          : (record['employee_id'] as number)
+
+        const payslipId = await odooAccountingAdapter.create('hr.payslip', {
+          employee_id: employeeId,
+          company_id: companyId,
+          date_from: run['date_start'],
+          date_to: run['date_end'],
+          payslip_run_id: runId,
+        })
+
+        if (payslipId) {
+          payslipIds.push(payslipId)
+        }
+      }
+
+      // 4. Compute all created payslips
+      if (payslipIds.length > 0) {
+        await odooAccountingAdapter.callMethod('hr.payslip', 'compute_sheet', payslipIds)
+      }
+
+      logger.info({ runId, companyId, count: payslipIds.length }, 'Payslips generated for run')
+      return { success: true, count: payslipIds.length }
+    } catch (err) {
+      logger.error({ err, runId, companyId }, 'Error generating payslips for run')
+      return { success: false, count: 0 }
+    }
+  },
+
+  async closePayslipRun(runId: number) {
+    try {
+      const ok = await odooAccountingAdapter.write('hr.payslip.run', [runId], { state: 'close' })
+      if (!ok) {
+        logger.error({ runId }, 'Failed to close payslip run in Odoo')
+        return { success: false }
+      }
+      logger.info({ runId }, 'Payslip run closed in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, runId }, 'Error closing payslip run in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Attendance Write ───────────────────────────────────
+
+  async createAttendance(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data }
+      const id = await odooAccountingAdapter.create('hr.attendance', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create attendance in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Attendance created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating attendance in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async updateAttendance(attendanceId: number, data: Record<string, unknown>) {
+    try {
+      const ok = await odooAccountingAdapter.write('hr.attendance', [attendanceId], data)
+      if (!ok) {
+        logger.error({ attendanceId }, 'Failed to update attendance in Odoo')
+        return { success: false }
+      }
+      logger.info({ attendanceId }, 'Attendance updated in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, attendanceId }, 'Error updating attendance in Odoo')
+      return { success: false }
+    }
+  },
+
+  async deleteAttendance(attendanceId: number) {
+    try {
+      const ok = await odooAccountingAdapter.unlink('hr.attendance', [attendanceId])
+      if (!ok) {
+        logger.error({ attendanceId }, 'Failed to delete attendance in Odoo')
+        return { success: false }
+      }
+      logger.info({ attendanceId }, 'Attendance deleted in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, attendanceId }, 'Error deleting attendance in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Indicators Write ───────────────────────────────────
+
+  async createIndicators(companyId: number, data: Record<string, unknown>) {
+    try {
+      const values = { ...data, company_id: companyId }
+      const id = await odooAccountingAdapter.create('l10n_cl.indicators', values)
+      if (!id) {
+        logger.error({ companyId, data }, 'Failed to create indicators in Odoo')
+        return { success: false, id: 0 }
+      }
+      logger.info({ id, companyId }, 'Indicators created in Odoo')
+      return { success: true, id }
+    } catch (err) {
+      logger.error({ err, companyId }, 'Error creating indicators in Odoo')
+      return { success: false, id: 0 }
+    }
+  },
+
+  async updateIndicators(indicatorId: number, data: Record<string, unknown>) {
+    try {
+      const ok = await odooAccountingAdapter.write('l10n_cl.indicators', [indicatorId], data)
+      if (!ok) {
+        logger.error({ indicatorId }, 'Failed to update indicators in Odoo')
+        return { success: false }
+      }
+      logger.info({ indicatorId }, 'Indicators updated in Odoo')
+      return { success: true }
+    } catch (err) {
+      logger.error({ err, indicatorId }, 'Error updating indicators in Odoo')
+      return { success: false }
+    }
+  },
+
+  // ─── Attendance (Read) ──────────────────────────────────
 
   async getAttendance(
     companyId: number,

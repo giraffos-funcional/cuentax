@@ -416,3 +416,247 @@ export function useIndicators(month?: number, year?: number) {
     refresh: mutate,
   }
 }
+
+// ══════════════════════════════════════════════════════════════
+// CRUD Mutations
+// ══════════════════════════════════════════════════════════════
+
+// -- Empleados --
+
+/** Crear empleado */
+export function useCreateEmployee() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/empleados', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/empleados'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Actualizar empleado */
+export function useUpdateEmployee() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/remuneraciones/empleados/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/empleados'))
+    return result
+  }
+
+  return { update }
+}
+
+/** Eliminar empleado */
+export function useDeleteEmployee() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/remuneraciones/empleados/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/empleados'))
+  }
+
+  return { remove }
+}
+
+// -- Contratos --
+
+/** Crear contrato */
+export function useCreateContract() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/contratos', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/contratos'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Actualizar contrato */
+export function useUpdateContract() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/remuneraciones/contratos/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/contratos'))
+    return result
+  }
+
+  return { update }
+}
+
+/** Cerrar contrato */
+export function useCloseContract() {
+  const close = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/contratos/${id}/close`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/contratos'))
+    return result
+  }
+
+  return { close }
+}
+
+// -- Ausencias --
+
+/** Crear ausencia */
+export function useCreateLeave() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/ausencias', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/ausencias'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Aprobar ausencia */
+export function useApproveLeave() {
+  const approve = async (id: number) => {
+    const result = await apiClient.put(`/api/v1/remuneraciones/ausencias/${id}/approve`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/ausencias'))
+    return result
+  }
+
+  return { approve }
+}
+
+/** Rechazar ausencia */
+export function useRefuseLeave() {
+  const refuse = async (id: number) => {
+    const result = await apiClient.put(`/api/v1/remuneraciones/ausencias/${id}/refuse`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/ausencias'))
+    return result
+  }
+
+  return { refuse }
+}
+
+/** Cancelar ausencia */
+export function useCancelLeave() {
+  const cancel = async (id: number) => {
+    await apiClient.delete(`/api/v1/remuneraciones/ausencias/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/ausencias'))
+  }
+
+  return { cancel }
+}
+
+// -- Liquidaciones --
+
+/** Crear liquidación */
+export function useCreatePayslip() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/liquidaciones', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/liquidaciones'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Computar liquidación */
+export function useComputePayslip() {
+  const compute = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/liquidaciones/${id}/compute`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/liquidaciones'))
+    return result
+  }
+
+  return { compute }
+}
+
+/** Confirmar liquidación */
+export function useConfirmPayslip() {
+  const confirm = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/liquidaciones/${id}/confirm`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/liquidaciones'))
+    return result
+  }
+
+  return { confirm }
+}
+
+/** Cancelar liquidación */
+export function useCancelPayslip() {
+  const cancel = async (id: number) => {
+    await apiClient.delete(`/api/v1/remuneraciones/liquidaciones/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/liquidaciones'))
+  }
+
+  return { cancel }
+}
+
+// -- Nominas --
+
+/** Crear nómina */
+export function useCreatePayslipRun() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/nominas', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/nominas'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Generar liquidaciones de una nómina */
+export function useGeneratePayslips() {
+  const generate = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/nominas/${id}/generate`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/nominas'))
+    return result
+  }
+
+  return { generate }
+}
+
+/** Cerrar nómina */
+export function useClosePayslipRun() {
+  const close = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/nominas/${id}/close`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/nominas'))
+    return result
+  }
+
+  return { close }
+}
+
+// -- Asistencia --
+
+/** Crear registro de asistencia */
+export function useCreateAttendance() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/asistencia', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/asistencia'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Actualizar registro de asistencia */
+export function useUpdateAttendance() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/remuneraciones/asistencia/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/asistencia'))
+    return result
+  }
+
+  return { update }
+}
+
+/** Eliminar registro de asistencia */
+export function useDeleteAttendance() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/remuneraciones/asistencia/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/asistencia'))
+  }
+
+  return { remove }
+}
