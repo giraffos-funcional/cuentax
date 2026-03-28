@@ -8,10 +8,13 @@
 
 import { createSigner, createVerifier } from 'fast-jwt'
 import { randomUUID } from 'crypto'
+import { eq } from 'drizzle-orm'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
 import { odooAuthAdapter } from '@/adapters/odoo-auth.adapter'
 import { redis } from '@/adapters/redis.adapter'
+import { db } from '@/db/client'
+import { companies } from '@/db/schema'
 
 // ── JWT Payload Types ─────────────────────────────────────────
 export interface AccessTokenPayload {
@@ -21,6 +24,7 @@ export interface AccessTokenPayload {
   company_id: number
   company_name: string
   company_rut: string
+  company_ids: number[]
   jti: string        // JWT ID único (para blacklist)
   type: 'access'
 }
@@ -42,6 +46,8 @@ export interface AuthTokens {
     company_id: number
     company_name: string
     company_rut: string
+    company_ids: number[]
+    companies: Array<{ id: number; name: string; rut: string }>
   }
 }
 
@@ -140,6 +146,45 @@ export class AuthService {
     return val !== null
   }
 
+  /**
+   * Switch active company for the authenticated user.
+   * Validates access and issues new tokens with updated company context.
+   */
+  async switchCompany(
+    currentUser: { sub: string; email: string; name: string; company_ids: number[] },
+    newCompanyId: number,
+  ): Promise<AuthTokens | null> {
+    if (!currentUser.company_ids.includes(newCompanyId)) {
+      logger.warn({ userId: currentUser.sub, newCompanyId }, 'Switch to unauthorized company')
+      return null
+    }
+
+    const companyData = await this._getCompanyData(newCompanyId)
+    if (!companyData) return null
+
+    const user = {
+      uid: Number(currentUser.sub),
+      name: currentUser.name,
+      email: currentUser.email,
+      companyId: newCompanyId,
+      companyName: companyData.name,
+      companyRut: companyData.rut,
+      companyIds: currentUser.company_ids,
+      companies: [{ id: newCompanyId, name: companyData.name, rut: companyData.rut }],
+    }
+
+    return this._generateTokens(user)
+  }
+
+  private async _getCompanyData(companyId: number): Promise<{ name: string; rut: string } | null> {
+    try {
+      const [company] = await db.select().from(companies)
+        .where(eq(companies.odoo_company_id, companyId)).limit(1)
+      if (company) return { name: company.razon_social, rut: company.rut }
+      return null
+    } catch { return null }
+  }
+
   // ── Private ────────────────────────────────────────────────
   private async _generateTokens(user: {
     uid: number
@@ -148,9 +193,14 @@ export class AuthService {
     companyId: number
     companyName: string
     companyRut: string
+    companyIds?: number[]
+    companies?: Array<{ id: number; name: string; rut: string }>
   }): Promise<AuthTokens> {
     const accessJti  = randomUUID()
     const refreshJti = randomUUID()
+
+    const resolvedCompanyIds = user.companyIds ?? [user.companyId]
+    const resolvedCompanies  = user.companies  ?? [{ id: user.companyId, name: user.companyName, rut: user.companyRut }]
 
     const accessPayload: AccessTokenPayload = {
       sub: String(user.uid),
@@ -159,6 +209,7 @@ export class AuthService {
       company_id: user.companyId,
       company_name: user.companyName,
       company_rut: user.companyRut,
+      company_ids: resolvedCompanyIds,
       jti: accessJti,
       type: 'access',
     }
@@ -182,12 +233,14 @@ export class AuthService {
         companyId: user.companyId,
         companyName: user.companyName,
         companyRut: user.companyRut,
+        companyIds: resolvedCompanyIds,
+        companies: resolvedCompanies,
       }),
       'EX',
       REFRESH_TTL_SECONDS,
     )
 
-    logger.info({ uid: user.uid, companyId: user.companyId }, 'Auth tokens generated')
+    logger.info({ uid: user.uid, companyId: user.companyId, companyCount: resolvedCompanyIds.length }, 'Auth tokens generated')
 
     return {
       access_token:  accessToken,
@@ -200,6 +253,8 @@ export class AuthService {
         company_id:   user.companyId,
         company_name: user.companyName,
         company_rut:  user.companyRut,
+        company_ids:  resolvedCompanyIds,
+        companies:    resolvedCompanies,
       },
     }
   }

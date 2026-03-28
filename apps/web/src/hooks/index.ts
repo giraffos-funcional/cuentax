@@ -8,6 +8,7 @@
 import useSWR, { mutate as globalMutate } from 'swr'
 import useSWRMutation from 'swr/mutation'
 import { apiClient } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth.store'
 
 // ── Fetcher base ───────────────────────────────────────────────
 const fetcher = (url: string) => apiClient.get(url).then(r => r.data)
@@ -321,6 +322,20 @@ export function useDeleteProduct() {
   }
 
   return { remove }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Company Hooks
+// ══════════════════════════════════════════════════════════════
+
+/** Switch active company */
+export function useSwitchCompany() {
+  const switchTo = async (companyId: number) => {
+    const { data } = await apiClient.post('/api/v1/companies/switch', { company_id: companyId })
+    useAuthStore.getState().setAuth(data.user, data.access_token)
+    window.location.reload()
+  }
+  return { switchTo }
 }
 
 // ══════════════════════════════════════════════════════════════

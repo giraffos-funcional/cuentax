@@ -166,16 +166,82 @@ function NavSection({ section, icon: SectionIcon, items, collapsed, pathname, op
   )
 }
 
+// ── Company Switcher ─────────────────────────────────────────
+function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
+  const user = useAuthStore(s => s.user)
+  const [open, setOpen] = useState(false)
+
+  if (collapsed || !user) return null
+
+  const companies = user.companies ?? []
+  const hasMultiple = companies.length > 1
+
+  const handleSwitch = async (companyId: number) => {
+    setOpen(false)
+    try {
+      const { data } = await apiClient.post('/api/v1/companies/switch', { company_id: companyId })
+      useAuthStore.getState().setAuth(data.user, data.access_token)
+      window.location.reload()
+    } catch (err) {
+      console.error('Error switching company:', err)
+    }
+  }
+
+  return (
+    <div className="px-3 py-3 border-b border-[var(--cx-border-lighter)] relative">
+      <button
+        onClick={() => hasMultiple && setOpen(!open)}
+        className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] ${hasMultiple ? 'cursor-pointer hover:bg-[var(--cx-bg-elevated)]' : ''} transition-colors text-left`}
+      >
+        <Building2 size={14} className="text-[var(--cx-violet-600)] shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-[var(--cx-text-primary)] truncate">{user.company_name}</p>
+          <p className="text-[10px] text-[var(--cx-text-muted)]">
+            {hasMultiple ? 'Cambiar empresa' : 'Empresa activa'}
+          </p>
+        </div>
+        {hasMultiple && (
+          <ChevronRight size={12} className={`text-[var(--cx-text-muted)] transition-transform ${open ? 'rotate-90' : ''}`} />
+        )}
+      </button>
+
+      {open && hasMultiple && (
+        <div className="absolute left-3 right-3 top-full mt-1 z-30 rounded-xl bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] shadow-lg overflow-hidden">
+          {companies.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => c.id !== user.company_id && handleSwitch(c.id)}
+              className={`flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm transition-colors ${
+                c.id === user.company_id
+                  ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]'
+                  : 'text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)]'
+              }`}
+            >
+              <Building2 size={12} className="shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium truncate">{c.name}</p>
+                <p className="text-[10px] text-[var(--cx-text-muted)] font-mono">{c.rut}</p>
+              </div>
+              {c.id === user.company_id && (
+                <CheckCircle2 size={12} className="text-[var(--cx-active-icon)] shrink-0" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── SII Indicator ────────────────────────────────────────────
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
   siiStatus: 'ok' | 'warning' | 'error' | 'loading'
-  companyName: string
   ambiente: string
 }
 
-function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: SidebarProps) {
+function Sidebar({ collapsed, onToggle, siiStatus, ambiente }: SidebarProps) {
   const pathname = usePathname()
 
   // Determine which section should be open based on current path
@@ -251,18 +317,8 @@ function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: Side
         )}
       </div>
 
-      {/* Empresa activa */}
-      {!collapsed && (
-        <div className="px-3 py-3 border-b border-[var(--cx-border-lighter)]">
-          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] cursor-pointer hover:bg-[var(--cx-bg-elevated)] transition-colors">
-            <Building2 size={14} className="text-[var(--cx-violet-600)] shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-[var(--cx-text-primary)] truncate">{companyName}</p>
-              <p className="text-[10px] text-[var(--cx-text-muted)]">Empresa activa</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Company Switcher */}
+      <CompanySwitcher collapsed={collapsed} />
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
@@ -401,7 +457,6 @@ export default function DashboardLayout({
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
         siiStatus="warning"
-        companyName="Mi Empresa SpA"
         ambiente="certificacion"
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

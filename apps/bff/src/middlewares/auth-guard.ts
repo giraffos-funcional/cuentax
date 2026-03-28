@@ -23,6 +23,7 @@ declare module 'fastify' {
       company_id: number
       company_name: string
       company_rut: string
+      company_ids: number[]
       jti: string
     }
     // authenticate — registrado en server.ts
@@ -70,6 +71,7 @@ export async function authGuard(
       company_id:   payload.company_id as number,
       company_name: payload.company_name as string,
       company_rut:  payload.company_rut as string,
+      company_ids:  (payload.company_ids ?? [payload.company_id]) as number[],
       jti:          payload.jti as string,
     }
 

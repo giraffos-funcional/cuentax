@@ -7,6 +7,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+interface Company {
+  id: number
+  name: string
+  rut: string
+}
+
 interface User {
   uid: number
   name: string
@@ -14,6 +20,7 @@ interface User {
   company_id: number
   company_name: string
   company_rut: string
+  companies: Company[]
 }
 
 interface AuthState {

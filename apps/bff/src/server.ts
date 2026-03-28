@@ -17,6 +17,7 @@ import { redis } from '@/adapters/redis.adapter'
 
 // Routes
 import { authRoutes }     from '@/routes/auth'
+import { companyRoutes }  from '@/routes/company'
 import { dteRoutes }      from '@/routes/dte'
 import { cafRoutes }      from '@/routes/caf'
 import { siiRoutes }      from '@/routes/sii'
@@ -193,6 +194,7 @@ async function bootstrap() {
 
   // ── API Routes ────────────────────────────────────────────
   await fastify.register(authRoutes,     { prefix: '/api/v1/auth' })
+  await fastify.register(companyRoutes,  { prefix: '/api/v1/companies' })
   await fastify.register(dteRoutes,      { prefix: '/api/v1/dte' })
   await fastify.register(cafRoutes,      { prefix: '/api/v1/caf' })
   await fastify.register(siiRoutes,      { prefix: '/api/v1/sii' })

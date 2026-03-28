@@ -17,6 +17,12 @@ interface OdooAuthResult {
   companyRut: string
   email: string
   groups: string[]
+  companyIds: number[]
+  companies: Array<{
+    id: number
+    name: string
+    rut: string
+  }>
 }
 
 export class OdooAuthAdapter {
@@ -97,8 +103,10 @@ export class OdooAuthAdapter {
         return null
       }
 
-      // Leer RUT de la empresa (campo vat en res.company)
-      const companyResponse = await axios.post(
+      // Read ALL companies the user has access to
+      const companyIds = (user.company_ids ?? [user.company_id[0]]) as number[]
+
+      const companiesResponse = await axios.post(
         this.rpcUrl,
         {
           jsonrpc: '2.0',
@@ -107,32 +115,32 @@ export class OdooAuthAdapter {
           params: {
             service: 'object',
             method: 'execute_kw',
-            args: [
-              db,
-              uid,
-              password,
-              'res.company',
-              'read',
-              [[user.company_id[0]]],
-              { fields: ['name', 'vat', 'street', 'city', 'phone', 'email'] },
-            ],
+            args: [db, uid, password, 'res.company', 'read', [companyIds],
+              { fields: ['name', 'vat', 'street', 'city', 'phone', 'email'] }],
           },
         },
         { timeout: 10_000 },
       )
 
-      const company = companyResponse.data?.result?.[0]
+      const companiesData = (companiesResponse.data?.result ?? []) as any[]
+      const defaultCompany = companiesData.find((c: any) => c.id === user.company_id[0]) ?? companiesData[0]
 
-      logger.info({ uid, email, companyId: user.company_id[0] }, 'Odoo auth success')
+      logger.info({ uid, email, companyId: user.company_id[0], companyCount: companyIds.length }, 'Odoo auth success')
 
       return {
         uid,
         name: user.name as string,
         email: user.email as string,
         companyId: user.company_id[0] as number,
-        companyName: (company?.name ?? 'Empresa') as string,
-        companyRut: (company?.vat ?? '') as string,
+        companyName: (defaultCompany?.name ?? 'Empresa') as string,
+        companyRut: (defaultCompany?.vat ?? '') as string,
         groups: (user.groups_id ?? []) as string[],
+        companyIds,
+        companies: companiesData.map((c: any) => ({
+          id: c.id,
+          name: c.name ?? '',
+          rut: c.vat ?? '',
+        })),
       }
     } catch (error) {
       logger.error({ error, email }, 'Odoo RPC error during authentication')
