@@ -12,19 +12,9 @@ import {
 } from 'lucide-react'
 import { useIndicators } from '@/hooks/use-remuneraciones'
 import { apiClient } from '@/lib/api-client'
-
-const formatCLP = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-const formatUF = (n: number) =>
-  `$${new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+import { formatCLP, formatUF, MONTHS } from '@/lib/formatters'
 
 const formatPct = (n: number) => `${n.toFixed(2)}%`
-
-const MONTHS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
 
 // ── AFP data (static rates, updated via scraper) ──
 const AFP_DATA = [
@@ -164,7 +154,7 @@ export default function IndicadoresPage() {
         <div>
           <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Indicadores Previsionales</h1>
           <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">
-            Parametros para el calculo de remuneraciones — {MONTHS[month - 1]} {year}
+            Parámetros para el calculo de remuneraciones — {MONTHS[month - 1]} {year}
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -208,7 +198,7 @@ export default function IndicadoresPage() {
       {!isLoading && error && <ErrorState message={error?.message} />}
 
       {/* Valores Principales */}
-      <Section title="Valores y Parametros" icon={<DollarSign size={16} />}>
+      <Section title="Valores y Parámetros" icon={<DollarSign size={16} />}>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <ValueCard label="UF" value={formatUF(uf)} sublabel={`${MONTHS[month - 1]} ${year}`} />
           <ValueCard label="UTM" value={formatCLP(utm)} sublabel="Mensual" />
@@ -231,9 +221,9 @@ export default function IndicadoresPage() {
       </Section>
 
       {/* AFP Rates */}
-      <Section title="Tasas de Cotizacion AFP" icon={<Shield size={16} />}>
+      <Section title="Tasas de Cotización AFP" icon={<Shield size={16} />}>
         <div className="space-y-1">
-          <TableHeader cols={['AFP', 'Cotizacion Obligatoria', 'Comision', 'SIS (Empleador)', 'Total Trabajador']} />
+          <TableHeader cols={['AFP', 'Cotización Obligatoria', 'Comision', 'SIS (Empleador)', 'Total Trabajador']} />
           {AFP_DATA.map(afp => (
             <TableRow
               key={afp.code}
@@ -249,7 +239,7 @@ export default function IndicadoresPage() {
           ))}
         </div>
         <p className="text-xs text-[var(--cx-text-muted)] mt-3">
-          * AFP Modelo tiene la comision mas baja. SIS (Seguro de Invalidez y Sobrevivencia) es cargo del empleador.
+          * AFP Modelo tiene la comisión más baja. SIS (Seguro de Invalidez y Sobrevivencia) es cargo del empleador.
         </p>
       </Section>
 

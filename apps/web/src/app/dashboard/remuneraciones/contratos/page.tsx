@@ -14,15 +14,7 @@ import {
   useUpdateContract,
   useCloseContract,
 } from '@/hooks/use-remuneraciones'
-
-const formatCLP = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-const formatDate = (d: string) => {
-  if (!d) return '-'
-  const date = new Date(d)
-  return date.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
+import { formatCLP, formatDate } from '@/lib/formatters'
 
 const STATE_BADGES: Record<string, string> = {
   draft:  'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-secondary)] border border-[var(--cx-border-light)]',
@@ -473,7 +465,7 @@ export default function ContratosPage() {
                   <div className="col-span-1 flex justify-center">
                     <StateBadge state={contract.state ?? 'draft'} />
                   </div>
-                  <div className="col-span-2 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="col-span-2 flex justify-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => setEditingContract(contract)}
                       className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors"

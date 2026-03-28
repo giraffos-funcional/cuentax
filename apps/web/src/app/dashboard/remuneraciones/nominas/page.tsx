@@ -14,20 +14,7 @@ import {
   useGeneratePayslips,
   useClosePayslipRun,
 } from '@/hooks/use-remuneraciones'
-
-const formatCLP = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-const formatDate = (d: string) => {
-  if (!d) return '-'
-  const date = new Date(d)
-  return date.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-const MONTHS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
+import { formatCLP, formatDate, MONTHS } from '@/lib/formatters'
 
 const STATE_BADGES: Record<string, string> = {
   draft: 'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-secondary)] border border-[var(--cx-border-light)]',

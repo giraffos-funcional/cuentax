@@ -8,13 +8,15 @@
 
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   Shield, Upload, CheckCircle2, AlertTriangle, Wifi,
   WifiOff, RefreshCw, Eye, EyeOff, FileKey2, ChevronRight,
-  Lock, Globe, Zap, Info, Loader2, Link2
+  Lock, Globe, Zap, Info, Loader2, Link2, Building2
 } from 'lucide-react'
 import { useCertificateList, useSIIStatus } from '@/hooks'
+import { useAuthStore } from '@/stores/auth.store'
+import { apiClient } from '@/lib/api-client'
 
 // ── Step Indicator ────────────────────────────────────────────
 function StepIndicator({ step, current }: { step: number, current: number }) {
@@ -386,7 +388,11 @@ function CertificateStep({ onSuccess }: { onSuccess: () => void }) {
 
 // ── Page Principal ────────────────────────────────────────────
 export default function ConfiguracionSIIPage() {
-  const [currentStep, setCurrentStep] = useState(1)
+  const user = useAuthStore(s => s.user)
+  const hasCompanyData = !!(user?.company_name && user?.company_rut)
+
+  // If company data exists, start at step 2 (certificate); otherwise step 1
+  const [currentStep, setCurrentStep] = useState(hasCompanyData ? 2 : 1)
   const [siiStatus, setSiiStatus] = useState<SIIStatusState>({
     cert: 'none',
     connection: 'unknown',
@@ -394,10 +400,27 @@ export default function ConfiguracionSIIPage() {
     ambiente: 'certificacion',
   })
 
+  // Auto-advance past step 1 when company data becomes available
+  useEffect(() => {
+    if (hasCompanyData && currentStep === 1) {
+      setCurrentStep(2)
+    }
+  }, [hasCompanyData])
+
+  // Fix 2: Connect checkConnection to real API
   const checkConnection = async () => {
     setSiiStatus(prev => ({ ...prev, connection: 'checking' }))
-    await new Promise(r => setTimeout(r, 1500)) // Simulate API call
-    setSiiStatus(prev => ({ ...prev, connection: 'ok' }))
+    try {
+      const { data } = await apiClient.get('/api/v1/sii/connectivity')
+      setSiiStatus(prev => ({
+        ...prev,
+        connection: data.conectado ? 'ok' : 'error',
+        tokenActive: data.token_vigente ?? false,
+        ambiente: data.ambiente ?? prev.ambiente,
+      }))
+    } catch {
+      setSiiStatus(prev => ({ ...prev, connection: 'error' }))
+    }
   }
 
   const STEPS = [
@@ -410,8 +433,8 @@ export default function ConfiguracionSIIPage() {
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-slate-800">Configuración SII</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Configuración SII</h1>
+        <p className="text-sm text-[var(--cx-text-secondary)] mt-1">
           Configura tu conexión directa al Servicio de Impuestos Internos de Chile
         </p>
       </div>
@@ -426,14 +449,14 @@ export default function ConfiguracionSIIPage() {
             >
               <StepIndicator step={step.n} current={currentStep} />
               <div className="hidden sm:block text-left">
-                <p className={`text-xs font-semibold ${currentStep === step.n ? 'text-slate-800' : currentStep > step.n ? 'text-emerald-600' : 'text-slate-400'}`}>
+                <p className={`text-xs font-semibold ${currentStep === step.n ? 'text-[var(--cx-text-primary)]' : currentStep > step.n ? 'text-[var(--cx-status-ok-text)]' : 'text-[var(--cx-text-muted)]'}`}>
                   {step.title}
                 </p>
-                <p className="text-[10px] text-slate-400">{step.desc}</p>
+                <p className="text-[10px] text-[var(--cx-text-muted)]">{step.desc}</p>
               </div>
             </button>
             {i < STEPS.length - 1 && (
-              <ChevronRight size={14} className="text-slate-300 mx-1 shrink-0" />
+              <ChevronRight size={14} className="text-[var(--cx-text-muted)] mx-1 shrink-0" />
             )}
           </div>
         ))}
@@ -441,48 +464,42 @@ export default function ConfiguracionSIIPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Form Column */}
-        <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="lg:col-span-3 bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] rounded-2xl p-6 shadow-sm">
+          {/* Step 1: Read-only company info header */}
           {currentStep === 1 && (
             <div className="space-y-5 animate-fade-in">
-              <h3 className="text-sm font-semibold text-slate-800">Datos de la Empresa</h3>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">RUT Empresa</label>
-                <input type="text" placeholder="12.345.678-9" className="input-field" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">Razón Social</label>
-                <input type="text" placeholder="Mi Empresa SpA" className="input-field" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">Giro Comercial</label>
-                <input type="text" placeholder="Servicios de Software" className="input-field" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">Ambiente SII</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {['certificacion', 'produccion'].map((amb) => (
-                    <button
-                      key={amb}
-                      onClick={() => setSiiStatus(prev => ({ ...prev, ambiente: amb as any }))}
-                      className={`
-                        p-3 rounded-xl border text-xs font-medium text-left transition-all
-                        ${siiStatus.ambiente === amb
-                          ? 'border-violet-400 bg-violet-50 text-violet-700'
-                          : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600'
-                        }
-                      `}
-                    >
-                      <div className="font-bold mb-0.5 capitalize">{amb}</div>
-                      <div className="text-slate-400 text-[10px]">
-                        {amb === 'certificacion' ? 'maullin.sii.cl' : 'palena.sii.cl'}
-                      </div>
-                    </button>
-                  ))}
+              <h3 className="text-sm font-semibold text-[var(--cx-text-primary)]">Datos de la Empresa</h3>
+
+              {hasCompanyData ? (
+                <>
+                  <div className="p-4 rounded-xl bg-[var(--cx-status-ok-bg)] border border-[var(--cx-status-ok-border)] flex items-center gap-3">
+                    <Building2 size={16} className="text-[var(--cx-status-ok-text)] shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--cx-status-ok-text)]">{user?.company_name}</p>
+                      <p className="text-xs text-[var(--cx-status-ok-text)] opacity-80 font-mono mt-0.5">RUT: {user?.company_rut}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setCurrentStep(2)} className="btn-primary w-full justify-center">
+                    Continuar <ChevronRight size={14} />
+                  </button>
+                </>
+              ) : (
+                <div className="p-4 rounded-xl bg-[var(--cx-status-warn-bg)] border border-[var(--cx-status-warn-border)]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle size={14} className="text-[var(--cx-status-warn-text)]" />
+                    <p className="text-sm font-semibold text-[var(--cx-status-warn-text)]">Datos de empresa incompletos</p>
+                  </div>
+                  <p className="text-xs text-[var(--cx-status-warn-text)] opacity-80">
+                    Completa los datos de tu empresa en Mi Empresa antes de configurar el SII.
+                  </p>
+                  <a
+                    href="/dashboard/empresa"
+                    className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 rounded-xl bg-[var(--cx-status-warn-text)] text-white text-xs font-bold hover:opacity-90 transition-opacity"
+                  >
+                    Ir a Mi Empresa <ChevronRight size={12} />
+                  </a>
                 </div>
-              </div>
-              <button onClick={() => setCurrentStep(2)} className="btn-primary w-full justify-center">
-                Continuar <ChevronRight size={14} />
-              </button>
+              )}
             </div>
           )}
 
@@ -497,8 +514,8 @@ export default function ConfiguracionSIIPage() {
 
           {currentStep === 3 && (
             <div className="animate-fade-in space-y-5">
-              <h3 className="text-sm font-semibold text-slate-800">Verificar Conexión</h3>
-              <p className="text-xs text-slate-500">
+              <h3 className="text-sm font-semibold text-[var(--cx-text-primary)]">Verificar Conexión</h3>
+              <p className="text-xs text-[var(--cx-text-secondary)]">
                 Verifica que CUENTAX puede comunicarse con el SII y obtener un token de sesión
                 usando tu certificado digital.
               </p>
@@ -510,11 +527,20 @@ export default function ConfiguracionSIIPage() {
                 )}
               </button>
               {siiStatus.connection === 'ok' && (
-                <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 flex items-center gap-3 animate-fade-in">
+                <div className="p-4 rounded-xl bg-[var(--cx-status-ok-bg)] border border-[var(--cx-status-ok-border)] text-sm text-[var(--cx-status-ok-text)] flex items-center gap-3 animate-fade-in">
                   <CheckCircle2 size={16} />
                   <div>
-                    <p className="font-semibold">¡Conexión exitosa!</p>
-                    <p className="text-xs text-emerald-600 mt-0.5">Token SII generado. Ya puedes emitir DTEs.</p>
+                    <p className="font-semibold">Conexión exitosa</p>
+                    <p className="text-xs opacity-80 mt-0.5">Token SII generado. Ya puedes emitir DTEs.</p>
+                  </div>
+                </div>
+              )}
+              {siiStatus.connection === 'error' && (
+                <div className="p-4 rounded-xl bg-[var(--cx-status-error-bg)] border border-[var(--cx-status-error-border)] text-sm text-[var(--cx-status-error-text)] flex items-center gap-3 animate-fade-in">
+                  <AlertTriangle size={16} />
+                  <div>
+                    <p className="font-semibold">Error de conexión</p>
+                    <p className="text-xs opacity-80 mt-0.5">No se pudo conectar con el SII. Verifica tu certificado e intenta nuevamente.</p>
                   </div>
                 </div>
               )}

@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth.store'
+import { useSIIStatus } from '@/hooks'
 import { apiClient } from '@/lib/api-client'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -630,6 +631,16 @@ export default function DashboardLayout({
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
+  const { cert, connectivity } = useSIIStatus()
+
+  // Derive sidebar SII status from real hook data
+  const derivedSiiStatus: 'ok' | 'warning' | 'error' | 'loading' = (() => {
+    if (cert.cargado && connectivity.conectado) return 'ok'
+    if (cert.cargado && !connectivity.conectado) return 'warning'
+    if (!cert.cargado) return 'error'
+    return 'loading'
+  })()
+  const derivedAmbiente = connectivity.ambiente ?? 'certificacion'
 
   const getTitle = () => {
     const titles: Record<string, string> = {
@@ -668,8 +679,8 @@ export default function DashboardLayout({
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
-        siiStatus="warning"
-        ambiente="certificacion"
+        siiStatus={derivedSiiStatus}
+        ambiente={derivedAmbiente}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Topbar

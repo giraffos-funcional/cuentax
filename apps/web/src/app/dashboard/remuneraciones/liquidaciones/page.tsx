@@ -16,14 +16,7 @@ import {
   useConfirmPayslip,
   useCancelPayslip,
 } from '@/hooks/use-remuneraciones'
-
-const formatCLP = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-const MONTHS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
+import { formatCLP, MONTHS } from '@/lib/formatters'
 
 const STATE_BADGES: Record<string, string> = {
   draft:    'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-secondary)] border border-[var(--cx-border-light)]',

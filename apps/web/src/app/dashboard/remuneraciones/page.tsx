@@ -9,17 +9,7 @@ import { useState, useCallback } from 'react'
 import { Users, Building2, DollarSign, Calendar, Clock, Loader2, AlertCircle, LayoutDashboard, RefreshCw } from 'lucide-react'
 import { useHRStats, useIndicators } from '@/hooks/use-remuneraciones'
 import { apiClient } from '@/lib/api-client'
-
-const formatCLP = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-const formatUF = (n: number) =>
-  `$${new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
-
-const MONTHS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
+import { formatCLP, formatUF, MONTHS } from '@/lib/formatters'
 
 function LoadingState() {
   return (

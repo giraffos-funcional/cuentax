@@ -12,17 +12,7 @@ import {
   CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 import { useBalanceSheet, useIncomeStatement, useF29 } from '@/hooks'
-
-const formatCLP = (n: number) =>
-  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-const formatPct = (n: number) =>
-  isFinite(n) ? `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` : 'N/A'
-
-const MONTHS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
+import { formatCLP, formatPct, MONTHS } from '@/lib/formatters'
 
 function LoadingState() {
   return (

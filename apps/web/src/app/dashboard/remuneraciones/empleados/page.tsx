@@ -412,7 +412,7 @@ export default function EmpleadosPage() {
                   <div className="col-span-1 flex justify-center">
                     <StatusBadge active={emp.active !== false} />
                   </div>
-                  <div className="col-span-1 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="col-span-1 flex justify-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => setEditingEmployee(emp)}
                       className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors"

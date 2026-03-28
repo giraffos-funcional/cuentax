@@ -14,6 +14,7 @@ import {
   useUpdateAttendance,
   useDeleteAttendance,
 } from '@/hooks/use-remuneraciones'
+import { MONTHS } from '@/lib/formatters'
 
 const formatDateTime = (d: string) => {
   if (!d) return '-'
@@ -29,11 +30,6 @@ const formatHours = (h: number) => {
   const minutes = Math.round((h - hours) * 60)
   return `${hours}h ${minutes.toString().padStart(2, '0')}m`
 }
-
-const MONTHS = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
 
 // ── Types ──────────────────────────────────────────────────────
 interface AttendanceFormData {
@@ -353,7 +349,7 @@ export default function AsistenciaPage() {
                   <div className="col-span-2 text-right font-mono text-[var(--cx-text-primary)]">
                     {record.worked_hours != null ? formatHours(record.worked_hours) : '-'}
                   </div>
-                  <div className="col-span-2 flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="col-span-2 flex justify-center gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => setEditingRecord(record)}
                       className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors"

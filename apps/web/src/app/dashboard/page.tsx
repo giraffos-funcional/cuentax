@@ -30,35 +30,34 @@ interface KPICardProps {
 
 function KPICard({ label, value, subValue, trend, trendValue, accent = 'violet', icon }: KPICardProps) {
   const accentMap = {
-    violet: { ring: 'ring-violet-200', icon: 'bg-violet-50 text-violet-600', glow: 'shadow-violet-100' },
-    emerald: { ring: 'ring-emerald-200', icon: 'bg-emerald-50 text-emerald-600', glow: 'shadow-emerald-100' },
-    amber: { ring: 'ring-amber-200', icon: 'bg-amber-50 text-amber-600', glow: 'shadow-amber-100' },
-    blue: { ring: 'ring-blue-200', icon: 'bg-blue-50 text-blue-600', glow: 'shadow-blue-100' },
+    violet:  { icon: 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]' },
+    emerald: { icon: 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)]' },
+    amber:   { icon: 'bg-[var(--cx-status-warn-bg)] text-[var(--cx-status-warn-text)]' },
+    blue:    { icon: 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]' },
   }
   const colors = accentMap[accent as keyof typeof accentMap] ?? accentMap.violet
 
   return (
-    <div className={`
+    <div className="
       relative overflow-hidden
-      bg-white
-      border border-slate-200 rounded-2xl p-5
-      ring-1 ${colors.ring}
-      hover:shadow-md hover:border-slate-300
+      bg-[var(--cx-bg-surface)]
+      border border-[var(--cx-border-light)] rounded-2xl p-5
+      hover:bg-[var(--cx-hover-bg)]
       transition-all duration-200 group
-    `}>
+    ">
       <div className="relative flex items-start justify-between mb-4">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</span>
+        <span className="text-xs font-medium text-[var(--cx-text-secondary)] uppercase tracking-wide">{label}</span>
         <div className={`p-2 rounded-xl ${colors.icon}`}>
           {icon}
         </div>
       </div>
 
       <div className="relative">
-        <p className="text-2xl font-bold text-slate-800 mb-1 tracking-tight">{value}</p>
-        {subValue && <p className="text-xs text-slate-400">{subValue}</p>}
+        <p className="text-2xl font-bold text-[var(--cx-text-primary)] mb-1 tracking-tight">{value}</p>
+        {subValue && <p className="text-xs text-[var(--cx-text-muted)]">{subValue}</p>}
         {trend && trendValue && (
           <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${
-            trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-500' : 'text-slate-400'
+            trend === 'up' ? 'text-[var(--cx-status-ok-text)]' : trend === 'down' ? 'text-[var(--cx-status-error-text)]' : 'text-[var(--cx-text-muted)]'
           }`}>
             {trend === 'up' ? <TrendingUp size={12} /> : trend === 'down' ? <TrendingDown size={12} /> : null}
             {trendValue}
@@ -90,13 +89,13 @@ function SIIAlert() {
   // Don't show alert if certificate is loaded
   if (cert.cargado) {
     return (
-      <div className="flex items-center gap-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
-        <div className="p-2 bg-emerald-100 rounded-xl shrink-0">
-          <CheckCircle2 size={16} className="text-emerald-600" />
+      <div className="flex items-center gap-4 p-4 rounded-2xl bg-[var(--cx-status-ok-bg)] border border-[var(--cx-status-ok-border)]">
+        <div className="p-2 bg-[var(--cx-status-ok-bg)] rounded-xl shrink-0">
+          <CheckCircle2 size={16} className="text-[var(--cx-status-ok-text)]" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-emerald-800">Certificado digital configurado</p>
-          <p className="text-xs text-emerald-600 mt-0.5">
+          <p className="text-sm font-semibold text-[var(--cx-status-ok-text)]">Certificado digital configurado</p>
+          <p className="text-xs text-[var(--cx-status-ok-text)] opacity-80 mt-0.5">
             {cert.rut ? `RUT: ${cert.rut}` : ''}{cert.diasParaVencer ? ` · Vence en ${cert.diasParaVencer} días` : ''}
             {connectivity.conectado ? ' · SII conectado' : ''}
           </p>
@@ -106,19 +105,19 @@ function SIIAlert() {
   }
 
   return (
-    <div className="flex items-center gap-4 p-4 rounded-2xl bg-amber-50 border border-amber-200">
-      <div className="p-2 bg-amber-100 rounded-xl shrink-0">
-        <AlertTriangle size={16} className="text-amber-600" />
+    <div className="flex items-center gap-4 p-4 rounded-2xl bg-[var(--cx-status-warn-bg)] border border-[var(--cx-status-warn-border)]">
+      <div className="p-2 bg-[var(--cx-status-warn-bg)] rounded-xl shrink-0">
+        <AlertTriangle size={16} className="text-[var(--cx-status-warn-text)]" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-amber-800">Certificado digital no configurado</p>
-        <p className="text-xs text-amber-600 mt-0.5">
+        <p className="text-sm font-semibold text-[var(--cx-status-warn-text)]">Certificado digital no configurado</p>
+        <p className="text-xs text-[var(--cx-status-warn-text)] opacity-80 mt-0.5">
           Sin certificado no puedes emitir DTEs. Configúralo para habilitar la emisión.
         </p>
       </div>
       <a
         href="/dashboard/configuracion"
-        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition-colors whitespace-nowrap shrink-0"
+        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--cx-status-warn-text)] text-white text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
       >
         Configurar <ArrowRight size={12} />
       </a>
@@ -129,9 +128,9 @@ function SIIAlert() {
 // ── Quick Actions ─────────────────────────────────────────────
 function QuickActions() {
   const actions = [
-    { label: 'Nueva Factura', href: '/dashboard/emitir?tipo=33', icon: FileText, color: 'text-violet-700 bg-violet-50 border-violet-200 hover:bg-violet-100' },
-    { label: 'Nueva Boleta',  href: '/dashboard/emitir?tipo=39', icon: Zap,      color: 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100' },
-    { label: 'Nota de Crédito', href: '/dashboard/emitir?tipo=61', icon: ArrowRight, color: 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100' },
+    { label: 'Nueva Factura', href: '/dashboard/emitir?tipo=33', icon: FileText, color: 'text-[var(--cx-active-text)] bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] hover:bg-[var(--cx-hover-bg)]' },
+    { label: 'Nueva Boleta',  href: '/dashboard/emitir?tipo=39', icon: Zap,      color: 'text-[var(--cx-active-text)] bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] hover:bg-[var(--cx-hover-bg)]' },
+    { label: 'Nota de Crédito', href: '/dashboard/emitir?tipo=61', icon: ArrowRight, color: 'text-[var(--cx-status-ok-text)] bg-[var(--cx-status-ok-bg)] border-[var(--cx-status-ok-border)] hover:bg-[var(--cx-hover-bg)]' },
   ]
   return (
     <div className="flex gap-3">
@@ -181,9 +180,9 @@ export default function DashboardPage() {
             <Building2 size={18} className="text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-800">{user.company_name}</h2>
+            <h2 className="text-lg font-bold text-[var(--cx-text-primary)]">{user.company_name}</h2>
             {user.company_rut && (
-              <p className="text-xs text-slate-400 font-mono">{user.company_rut}</p>
+              <p className="text-xs text-[var(--cx-text-muted)] font-mono">{user.company_rut}</p>
             )}
           </div>
         </div>
@@ -230,52 +229,52 @@ export default function DashboardPage() {
 
       {/* Quick Actions */}
       <div>
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Acciones Rápidas</p>
+        <p className="text-xs font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest mb-3">Acciones Rápidas</p>
         <QuickActions />
       </div>
 
       {/* Actividad reciente */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-semibold text-slate-800">Documentos Recientes</h2>
-          <a href="/dashboard/documentos" className="text-xs text-violet-600 hover:text-violet-500 flex items-center gap-1 transition-colors">
+      <div className="bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--cx-border-lighter)]">
+          <h2 className="text-sm font-semibold text-[var(--cx-text-primary)]">Documentos Recientes</h2>
+          <a href="/dashboard/documentos" className="text-xs text-[var(--cx-active-text)] hover:opacity-80 flex items-center gap-1 transition-colors">
             Ver todos <ArrowRight size={12} />
           </a>
         </div>
 
         {dtesLoading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 size={18} className="animate-spin text-violet-500" />
-            <span className="ml-2 text-sm text-slate-400">Cargando documentos...</span>
+            <Loader2 size={18} className="animate-spin text-[var(--cx-active-text)]" />
+            <span className="ml-2 text-sm text-[var(--cx-text-muted)]">Cargando documentos...</span>
           </div>
         ) : recentDocs.length === 0 ? (
-          <div className="px-6 py-8 text-center text-sm text-slate-400">
+          <div className="px-6 py-8 text-center text-sm text-[var(--cx-text-muted)]">
             No hay documentos emitidos aún
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-[var(--cx-border-lighter)]">
             {recentDocs.map((doc: any) => (
               <div
                 key={doc.id ?? doc.folio}
-                className="flex items-center gap-4 px-6 py-3.5 hover:bg-slate-50 transition-colors cursor-pointer group"
+                className="flex items-center gap-4 px-6 py-3.5 hover:bg-[var(--cx-hover-bg)] transition-colors cursor-pointer group"
               >
-                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                  <FileText size={13} className="text-slate-400" />
+                <div className="w-8 h-8 rounded-lg bg-[var(--cx-bg-elevated)] flex items-center justify-center shrink-0">
+                  <FileText size={13} className="text-[var(--cx-text-muted)]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-800">
+                    <span className="text-sm font-medium text-[var(--cx-text-primary)]">
                       {TIPO_LABELS[doc.tipo_dte] ?? `Tipo ${doc.tipo_dte}`} #{doc.folio ?? '-'}
                     </span>
                     <StatusBadge status={doc.estado} />
                   </div>
-                  <p className="text-xs text-slate-400 truncate mt-0.5">{doc.razon_social_receptor}</p>
+                  <p className="text-xs text-[var(--cx-text-muted)] truncate mt-0.5">{doc.razon_social_receptor}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-semibold text-slate-800">{formatCLP(doc.monto_total)}</p>
-                  <p className="text-[11px] text-slate-400">{doc.fecha_emision}</p>
+                  <p className="text-sm font-semibold text-[var(--cx-text-primary)]">{formatCLP(doc.monto_total)}</p>
+                  <p className="text-[11px] text-[var(--cx-text-muted)]">{doc.fecha_emision}</p>
                 </div>
-                <ArrowRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
+                <ArrowRight size={14} className="text-[var(--cx-text-muted)] group-hover:text-[var(--cx-text-secondary)] transition-colors" />
               </div>
             ))}
           </div>

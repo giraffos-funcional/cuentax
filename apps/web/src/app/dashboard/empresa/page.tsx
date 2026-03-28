@@ -1,5 +1,5 @@
 /**
- * CUENTAX — Configuracion de Empresa
+ * CUENTAX — Configuración de Empresa
  * Edit company name, RUT, address, logo, rep legal.
  * Uses direct apiClient fetch (not SWR) to avoid stale cache after company switch.
  */
@@ -149,7 +149,7 @@ export default function EmpresaPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Configuracion de Empresa</h1>
+          <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Configuración de Empresa</h1>
           <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Datos que aparecen en liquidaciones y contratos</p>
         </div>
         <button
@@ -209,15 +209,15 @@ export default function EmpresaPage() {
         <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider mb-4">Datos de la Empresa</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razon Social *</label>
-            <input value={form.name} onChange={e => set('name', e.target.value)} className="input-field text-sm w-full" placeholder="Razon social..." />
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razón Social *</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)} className="input-field text-sm w-full" placeholder="Razón social..." />
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT</label>
             <input value={form.vat} onChange={e => set('vat', e.target.value)} className="input-field text-sm w-full" placeholder="76.543.210-K" />
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Direccion</label>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Dirección</label>
             <input value={form.street} onChange={e => set('street', e.target.value)} className="input-field text-sm w-full" placeholder="Av. Providencia 1208" />
           </div>
           <div>
@@ -225,7 +225,7 @@ export default function EmpresaPage() {
             <input value={form.city} onChange={e => set('city', e.target.value)} className="input-field text-sm w-full" placeholder="Santiago" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Telefono</label>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Teléfono</label>
             <input value={form.phone} onChange={e => set('phone', e.target.value)} className="input-field text-sm w-full" placeholder="+56 2 1234 5678" />
           </div>
           <div>
