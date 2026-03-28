@@ -922,15 +922,31 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const user = (req as any).user
     const body = req.body as Record<string, unknown> | undefined
 
-    if (!body || !body['employee_id'] || !body['name'] || !body['wage'] || !body['date_start']) {
+    if (!body || !body['employee_id'] || !body['wage'] || !body['date_start']) {
       return reply.status(400).send({
         source: 'error',
-        message: 'Campos requeridos: employee_id, name, wage, date_start',
+        message: 'Campos requeridos: employee_id, wage, date_start',
       })
     }
 
+    // Map frontend field names to Odoo field names
+    const odooData: Record<string, unknown> = {
+      employee_id: Number(body.employee_id),
+      wage: Number(body.wage),
+      date_start: body.date_start,
+      company_id: user.company_id,
+      name: body.name || `Contrato ${body.date_start}`,
+    }
+    if (body.date_end) odooData.date_end = body.date_end
+    if (body.type) odooData.l10n_cl_contract_type = body.type
+    if (body.gratification_type) odooData.l10n_cl_gratificacion_type = body.gratification_type
+    if (body.colacion) odooData.l10n_cl_colacion = Number(body.colacion)
+    if (body.movilizacion) odooData.l10n_cl_movilizacion = Number(body.movilizacion)
+    if (body.structure_type_id) odooData.struct_id = Number(body.structure_type_id)
+    odooData.state = 'open'
+
     try {
-      const result = await odooHRAdapter.createContract(user.company_id, body)
+      const result = await odooHRAdapter.createContract(user.company_id, odooData)
       if (!result.success) {
         return reply.status(500).send({
           source: 'error',
@@ -964,8 +980,21 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       })
     }
 
+    // Map frontend field names to Odoo field names
+    const odooData: Record<string, unknown> = {}
+    if (body.employee_id) odooData.employee_id = Number(body.employee_id)
+    if (body.wage) odooData.wage = Number(body.wage)
+    if (body.date_start) odooData.date_start = body.date_start
+    if (body.date_end !== undefined) odooData.date_end = body.date_end || false
+    if (body.type) odooData.l10n_cl_contract_type = body.type
+    if (body.gratification_type) odooData.l10n_cl_gratificacion_type = body.gratification_type
+    if (body.colacion !== undefined) odooData.l10n_cl_colacion = Number(body.colacion)
+    if (body.movilizacion !== undefined) odooData.l10n_cl_movilizacion = Number(body.movilizacion)
+    if (body.structure_type_id) odooData.struct_id = Number(body.structure_type_id)
+    if (body.name) odooData.name = body.name
+
     try {
-      const result = await odooHRAdapter.updateContract(user.company_id, contractId, body)
+      const result = await odooHRAdapter.updateContract(user.company_id, contractId, odooData)
       if (!result.success) {
         return reply.status(500).send({
           source: 'error',
