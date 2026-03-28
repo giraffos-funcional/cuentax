@@ -34,9 +34,9 @@ const TIPOS_SIN_CAF = [
 ]
 
 function StatusDot({ caf }: { caf: CAFStatus }) {
-  if (caf.folios_disponibles === 0) return <XCircle size={14} className="text-red-400" />
-  if (caf.necesita_renovacion) return <AlertTriangle size={14} className="text-amber-400" />
-  return <CheckCircle2 size={14} className="text-emerald-400" />
+  if (caf.folios_disponibles === 0) return <XCircle size={14} className="text-[var(--cx-status-error-text)]" />
+  if (caf.necesita_renovacion) return <AlertTriangle size={14} className="text-[var(--cx-status-warn-text)]" />
+  return <CheckCircle2 size={14} className="text-[var(--cx-status-ok-text)]" />
 }
 
 export default function FoliosPage() {
@@ -56,14 +56,14 @@ export default function FoliosPage() {
   return (
     <div className="space-y-5 animate-fade-in">
       <div>
-        <h1 className="text-xl font-bold text-white">Administración de Folios</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Códigos de Autorización de Folios (CAF) para cada tipo de DTE</p>
+        <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Administración de Folios</h1>
+        <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Códigos de Autorización de Folios (CAF) para cada tipo de DTE</p>
       </div>
 
       {/* Alertas urgentes */}
       {MOCK_CAFS.filter(c => c.necesita_renovacion).map(c => (
         <div key={c.tipo_dte} className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/[0.07] border border-amber-500/20">
-          <AlertTriangle size={16} className="text-amber-400 shrink-0" />
+          <AlertTriangle size={16} className="text-[var(--cx-status-warn-text)] shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-semibold text-amber-300">¡Folios bajos — {c.tipo_label}!</p>
             <p className="text-xs text-amber-400/70 mt-0.5">
@@ -88,42 +88,42 @@ export default function FoliosPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <StatusDot caf={caf} />
-                    <span className="text-sm font-bold text-white">
+                    <span className="text-sm font-bold text-[var(--cx-text-primary)]">
                       Tipo {caf.tipo_dte}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">{caf.tipo_label}</p>
+                  <p className="text-xs text-[var(--cx-text-secondary)] mt-0.5">{caf.tipo_label}</p>
                 </div>
-                <button className="p-1.5 text-slate-600 hover:text-slate-300 hover:bg-white/[0.04] rounded-lg transition-colors">
+                <button className="p-1.5 text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] rounded-lg transition-colors">
                   <RefreshCw size={12} />
                 </button>
               </div>
 
               {/* Progress bar */}
               <div>
-                <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+                <div className="flex justify-between text-xs text-[var(--cx-text-secondary)] mb-1.5">
                   <span>#{caf.folio_actual} / #{caf.folio_hasta}</span>
-                  <span className={pct > 90 ? 'text-red-400' : pct > 75 ? 'text-amber-400' : 'text-emerald-400'}>
+                  <span className={pct > 90 ? 'text-[var(--cx-status-error-text)]' : pct > 75 ? 'text-[var(--cx-status-warn-text)]' : 'text-[var(--cx-status-ok-text)]'}>
                     {caf.folios_disponibles} disponibles
                   </span>
                 </div>
-                <div className="w-full h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                <div className="w-full h-1.5 bg-[var(--cx-bg-elevated)] rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all ${barColor}`}
                     style={{ width: `${Math.min(pct, 100)}%` }}
                   />
                 </div>
-                <p className="text-[10px] text-slate-600 mt-1">{pct}% utilizado</p>
+                <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">{pct}% utilizado</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="p-2 rounded-lg bg-white/[0.03]">
-                  <p className="text-slate-600">Desde</p>
-                  <p className="text-white font-mono">#{caf.folio_desde}</p>
+                <div className="p-2 rounded-lg bg-[var(--cx-bg-elevated)]">
+                  <p className="text-[var(--cx-text-muted)]">Desde</p>
+                  <p className="text-[var(--cx-text-primary)] font-mono">#{caf.folio_desde}</p>
                 </div>
-                <div className="p-2 rounded-lg bg-white/[0.03]">
-                  <p className="text-slate-600">Hasta</p>
-                  <p className="text-white font-mono">#{caf.folio_hasta}</p>
+                <div className="p-2 rounded-lg bg-[var(--cx-bg-elevated)]">
+                  <p className="text-[var(--cx-text-muted)]">Hasta</p>
+                  <p className="text-[var(--cx-text-primary)] font-mono">#{caf.folio_hasta}</p>
                 </div>
               </div>
             </div>
@@ -136,13 +136,13 @@ export default function FoliosPage() {
         <p className="section-title mb-3">Tipos sin CAF cargado</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {TIPOS_SIN_CAF.map(t => (
-            <div key={t.tipo_dte} className="flex items-center gap-3 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] border-dashed">
-              <FileText size={14} className="text-slate-700" />
+            <div key={t.tipo_dte} className="flex items-center gap-3 p-4 rounded-xl bg-[var(--cx-bg-elevated)] border border-[var(--cx-border-light)] border-dashed">
+              <FileText size={14} className="text-[var(--cx-text-muted)]" />
               <div className="flex-1">
-                <p className="text-xs font-medium text-slate-400">Tipo {t.tipo_dte}</p>
-                <p className="text-[11px] text-slate-600">{t.label}</p>
+                <p className="text-xs font-medium text-[var(--cx-text-secondary)]">Tipo {t.tipo_dte}</p>
+                <p className="text-[11px] text-[var(--cx-text-muted)]">{t.label}</p>
               </div>
-              <button className="text-[11px] text-violet-400 hover:text-violet-300">Cargar</button>
+              <button className="text-[11px] text-[var(--cx-active-icon)] hover:text-[var(--cx-text-primary)]">Cargar</button>
             </div>
           ))}
         </div>
@@ -159,19 +159,19 @@ export default function FoliosPage() {
             relative flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-dashed transition-all
             ${dragOver
               ? 'border-violet-500/50 bg-violet-500/5'
-              : 'border-white/[0.08] hover:border-white/15'
+              : 'border-[var(--cx-border-light)] hover:border-[var(--cx-border-hover)]'
             }
           `}
         >
           {uploading ? (
-            <><RefreshCw size={20} className="text-violet-400 animate-spin" />
-            <p className="text-sm text-slate-400">Cargando CAF...</p></>
+            <><RefreshCw size={20} className="text-[var(--cx-active-icon)] animate-spin" />
+            <p className="text-sm text-[var(--cx-text-secondary)]">Cargando CAF...</p></>
           ) : (
             <>
-              <Upload size={20} className={dragOver ? 'text-violet-400' : 'text-slate-600'} />
+              <Upload size={20} className={dragOver ? 'text-[var(--cx-active-icon)]' : 'text-[var(--cx-text-muted)]'} />
               <div className="text-center">
-                <p className="text-sm text-slate-300">Arrastra el archivo CAF aquí</p>
-                <p className="text-xs text-slate-600 mt-0.5">o haz click para seleccionar · Solo archivos .xml del SII</p>
+                <p className="text-sm text-[var(--cx-text-primary)]">Arrastra el archivo CAF aquí</p>
+                <p className="text-xs text-[var(--cx-text-muted)] mt-0.5">o haz click para seleccionar · Solo archivos .xml del SII</p>
               </div>
               <label className="btn-secondary cursor-pointer">
                 <input type="file" accept=".xml" className="hidden" onChange={() => {}} />
@@ -179,9 +179,9 @@ export default function FoliosPage() {
               </label>
             </>
           )}
-          <div className="flex items-center gap-2 text-[11px] text-slate-600 mt-2">
+          <div className="flex items-center gap-2 text-[11px] text-[var(--cx-text-muted)] mt-2">
             <Info size={11} />
-            <span>Descarga el CAF desde <a href="https://misiir.sii.cl" target="_blank" rel="noopener" className="text-violet-400 hover:text-violet-300">misiir.sii.cl</a> → Factura Electrónica → Solicitar CAF</span>
+            <span>Descarga el CAF desde <a href="https://misiir.sii.cl" target="_blank" rel="noopener" className="text-[var(--cx-active-icon)] hover:text-[var(--cx-text-primary)]">misiir.sii.cl</a> → Factura Electrónica → Solicitar CAF</span>
           </div>
         </div>
       </div>

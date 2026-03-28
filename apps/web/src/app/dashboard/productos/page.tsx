@@ -47,8 +47,8 @@ export default function ProductosPage() {
     <div className="space-y-5 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Productos y Servicios</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} productos · Catálogo de la empresa</p>
+          <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Productos y Servicios</h1>
+          <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">{filtered.length} productos · Catálogo de la empresa</p>
         </div>
         <button className="btn-primary"><Plus size={14} /> Nuevo Producto</button>
       </div>
@@ -56,11 +56,11 @@ export default function ProductosPage() {
       {/* Filtros */}
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o código..." className="input-field pl-8 py-2 text-sm" />
         </div>
         {['todas', ...CATEGORIAS].map(c => (
-          <button key={c} onClick={() => setCat(c!)} className={`px-3 py-2 rounded-xl text-sm font-medium capitalize transition-all border ${cat === c ? 'bg-violet-500/15 text-violet-300 border-violet-500/20' : 'text-slate-400 border-white/[0.07] hover:text-slate-300'}`}>
+          <button key={c} onClick={() => setCat(c!)} className={`px-3 py-2 rounded-xl text-sm font-medium capitalize transition-all border ${cat === c ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-icon)] border-[var(--cx-active-border)]' : 'text-[var(--cx-text-secondary)] border-[var(--cx-border-light)] hover:text-[var(--cx-text-primary)]'}`}>
             {c}
           </button>
         ))}
@@ -68,7 +68,7 @@ export default function ProductosPage() {
 
       {/* Tabla */}
       <div className="card overflow-hidden">
-        <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-white/[0.06] text-[10px] font-semibold text-slate-600 uppercase tracking-widest">
+        <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-[var(--cx-border-light)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest">
           <div className="col-span-1">Código</div>
           <div className="col-span-4">Nombre</div>
           <div className="col-span-2">Categoría</div>
@@ -77,29 +77,29 @@ export default function ProductosPage() {
           <div className="col-span-2 text-right">Precio c/IVA</div>
         </div>
 
-        <div className="divide-y divide-white/[0.04]">
+        <div className="divide-y divide-[var(--cx-border-light)]">
           {filtered.map(p => (
-            <div key={p.id} className="grid grid-cols-12 gap-3 px-4 py-3.5 items-center hover:bg-white/[0.02] transition-colors group">
-              <div className="col-span-1 text-xs font-mono text-slate-500">{p.codigo ?? '—'}</div>
+            <div key={p.id} className="grid grid-cols-12 gap-3 px-4 py-3.5 items-center hover:bg-[var(--cx-hover-bg)] transition-colors group">
+              <div className="col-span-1 text-xs font-mono text-[var(--cx-text-secondary)]">{p.codigo ?? '—'}</div>
               <div className="col-span-4">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-white font-medium">{p.nombre}</span>
+                  <span className="text-sm text-[var(--cx-text-primary)] font-medium">{p.nombre}</span>
                   {p.exento && <span className="badge-dte bg-amber-500/10 text-amber-400 border border-amber-500/20">Exento</span>}
                 </div>
               </div>
               <div className="col-span-2">
-                <span className="flex items-center gap-1 text-xs text-slate-500">
+                <span className="flex items-center gap-1 text-xs text-[var(--cx-text-secondary)]">
                   <Tag size={10} />{p.categoria}
                 </span>
               </div>
-              <div className="col-span-1 text-xs text-slate-500">{p.unidad}</div>
-              <div className="col-span-2 text-right text-sm text-slate-300">{formatCLP(p.precio)}</div>
+              <div className="col-span-1 text-xs text-[var(--cx-text-secondary)]">{p.unidad}</div>
+              <div className="col-span-2 text-right text-sm text-[var(--cx-text-primary)]">{formatCLP(p.precio)}</div>
               <div className="col-span-2 text-right">
                 <div className="flex items-center justify-end gap-2">
-                  <span className="text-sm font-bold text-white">{formatCLP(p.precio_con_iva)}</span>
+                  <span className="text-sm font-bold text-[var(--cx-text-primary)]">{formatCLP(p.precio_con_iva)}</span>
                   <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    <button className="p-1 rounded text-slate-600 hover:text-violet-400"><Edit size={11} /></button>
-                    <button className="p-1 rounded text-slate-700 hover:text-red-400"><Trash2 size={11} /></button>
+                    <button className="p-1 rounded text-[var(--cx-text-muted)] hover:text-violet-400"><Edit size={11} /></button>
+                    <button className="p-1 rounded text-[var(--cx-text-muted)] hover:text-red-400"><Trash2 size={11} /></button>
                   </div>
                 </div>
               </div>

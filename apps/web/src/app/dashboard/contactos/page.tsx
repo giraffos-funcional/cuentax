@@ -49,8 +49,8 @@ export default function ContactosPage() {
     <div className="space-y-5 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Contactos</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} contactos · Clientes y proveedores</p>
+          <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Contactos</h1>
+          <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">{filtered.length} contactos · Clientes y proveedores</p>
         </div>
         <button className="btn-primary"><Plus size={14} /> Nuevo Contacto</button>
       </div>
@@ -58,11 +58,11 @@ export default function ContactosPage() {
       {/* Filtros */}
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre o RUT..." className="input-field pl-8 py-2 text-sm" />
         </div>
         {(['todos', 'clientes', 'proveedores'] as const).map(t => (
-          <button key={t} onClick={() => setTipo(t)} className={`px-3 py-2 rounded-xl text-sm font-medium capitalize transition-all border ${tipo === t ? 'bg-violet-500/15 text-violet-300 border-violet-500/20' : 'text-slate-400 border-white/[0.07] hover:text-slate-300'}`}>
+          <button key={t} onClick={() => setTipo(t)} className={`px-3 py-2 rounded-xl text-sm font-medium capitalize transition-all border ${tipo === t ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-icon)] border-[var(--cx-active-border)]' : 'text-[var(--cx-text-secondary)] border-[var(--cx-border-light)] hover:text-[var(--cx-text-primary)]'}`}>
             {t}
           </button>
         ))}
@@ -71,44 +71,44 @@ export default function ContactosPage() {
       {/* Grid de contactos */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map(c => (
-          <div key={c.id} className="card p-4 group hover:border-white/10 transition-all">
+          <div key={c.id} className="card p-4 group hover:border-[var(--cx-border-hover)] transition-all">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center border border-white/[0.06]">
-                  <Building2 size={16} className="text-slate-400" />
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center border border-[var(--cx-border-light)]">
+                  <Building2 size={16} className="text-white" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white">{c.razon_social}</p>
-                  <p className="text-xs text-slate-600 font-mono">{c.rut}</p>
+                  <p className="text-sm font-semibold text-[var(--cx-text-primary)]">{c.razon_social}</p>
+                  <p className="text-xs text-[var(--cx-text-muted)] font-mono">{c.rut}</p>
                 </div>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button className="p-1.5 rounded-lg text-slate-600 hover:text-slate-200 hover:bg-white/[0.05]"><Edit size={12} /></button>
+                <button className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]"><Edit size={12} /></button>
                 <button className="p-1.5 rounded-lg text-slate-700 hover:text-red-400 hover:bg-red-500/5"><Trash2 size={12} /></button>
               </div>
             </div>
 
-            <p className="text-xs text-slate-500 mb-3">{c.giro}</p>
+            <p className="text-xs text-[var(--cx-text-secondary)] mb-3">{c.giro}</p>
 
             <div className="space-y-1.5">
               {c.email && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Mail size={11} className="text-slate-700" />{c.email}
+                <div className="flex items-center gap-2 text-xs text-[var(--cx-text-secondary)]">
+                  <Mail size={11} className="text-[var(--cx-text-muted)]" />{c.email}
                 </div>
               )}
               {c.telefono && (
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Phone size={11} className="text-slate-700" />{c.telefono}
+                <div className="flex items-center gap-2 text-xs text-[var(--cx-text-secondary)]">
+                  <Phone size={11} className="text-[var(--cx-text-muted)]" />{c.telefono}
                 </div>
               )}
             </div>
 
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/[0.05]">
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-[var(--cx-border-light)]">
               <div className="flex gap-2">
-                {c.es_cliente && <span className="badge-dte bg-violet-500/10 text-violet-400 border border-violet-500/20">Cliente</span>}
+                {c.es_cliente && <span className="badge-dte bg-[var(--cx-active-bg)] text-[var(--cx-active-icon)] border border-[var(--cx-active-border)]">Cliente</span>}
                 {c.es_proveedor && <span className="badge-dte bg-blue-500/10 text-blue-400 border border-blue-500/20">Proveedor</span>}
               </div>
-              <div className="flex items-center gap-1 text-xs text-slate-600">
+              <div className="flex items-center gap-1 text-xs text-[var(--cx-text-muted)]">
                 <span>{c.dtesCount} DTEs</span>
                 <ArrowRight size={10} />
               </div>

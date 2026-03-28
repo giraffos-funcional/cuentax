@@ -76,8 +76,8 @@ export default function DocumentosPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white">Documentos</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} documentos · {formatCLP(totalPage)} total</p>
+          <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Documentos</h1>
+          <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">{filtered.length} documentos · {formatCLP(totalPage)} total</p>
         </div>
         <div className="flex gap-2">
           {selected.size > 0 && (
@@ -94,7 +94,7 @@ export default function DocumentosPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[200px]">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -127,13 +127,13 @@ export default function DocumentosPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900/60 border border-white/[0.07] rounded-2xl overflow-hidden">
+      <div className="card border border-[var(--cx-border-light)] rounded-2xl overflow-hidden">
         {/* Table Header */}
-        <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-white/[0.06] text-[10px] font-semibold text-slate-600 uppercase tracking-widest">
+        <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-[var(--cx-border-light)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest">
           <div className="col-span-1">
             <input type="checkbox" className="rounded" />
           </div>
-          <div className="col-span-1 flex items-center gap-1 cursor-pointer hover:text-slate-400">Folio <ArrowUpDown size={9} /></div>
+          <div className="col-span-1 flex items-center gap-1 cursor-pointer hover:text-[var(--cx-text-secondary)]">Folio <ArrowUpDown size={9} /></div>
           <div className="col-span-2">Tipo</div>
           <div className="col-span-3">Receptor</div>
           <div className="col-span-2">Fecha</div>
@@ -143,18 +143,18 @@ export default function DocumentosPage() {
 
         {/* Rows */}
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-16 text-slate-600">
+          <div className="flex flex-col items-center gap-2 py-16 text-[var(--cx-text-muted)]">
             <FileText size={28} />
             <p className="text-sm">No hay documentos que coincidan</p>
           </div>
         ) : (
-          <div className="divide-y divide-white/[0.04]">
+          <div className="divide-y divide-[var(--cx-border-light)]">
             {filtered.map((doc) => {
               const statusConf = STATUS_CONFIG[doc.status]
               return (
                 <div
                   key={doc.id}
-                  className={`grid grid-cols-12 gap-3 px-4 py-3.5 items-center hover:bg-white/[0.02] transition-colors group ${selected.has(doc.id) ? 'bg-violet-500/5' : ''}`}
+                  className={`grid grid-cols-12 gap-3 px-4 py-3.5 items-center hover:bg-[var(--cx-hover-bg)] transition-colors group ${selected.has(doc.id) ? 'bg-[var(--cx-active-bg)]' : ''}`}
                 >
                   <div className="col-span-1">
                     <input
@@ -164,18 +164,18 @@ export default function DocumentosPage() {
                       className="rounded border-slate-700 accent-violet-500"
                     />
                   </div>
-                  <div className="col-span-1 text-sm font-mono text-white font-semibold">#{doc.folio}</div>
+                  <div className="col-span-1 text-sm font-mono text-[var(--cx-text-primary)] font-semibold">#{doc.folio}</div>
                   <div className="col-span-2">
-                    <span className="badge-dte bg-slate-800 text-slate-300 border border-white/5">
+                    <span className="badge-dte bg-[var(--cx-bg-elevated)] text-[var(--cx-text-secondary)] border border-[var(--cx-border-light)]">
                       {doc.tipo}
                     </span>
                   </div>
                   <div className="col-span-3 min-w-0">
-                    <p className="text-sm text-white truncate font-medium">{doc.receptor_nombre}</p>
-                    <p className="text-[11px] text-slate-600">{doc.receptor_rut}</p>
+                    <p className="text-sm text-[var(--cx-text-primary)] truncate font-medium">{doc.receptor_nombre}</p>
+                    <p className="text-[11px] text-[var(--cx-text-muted)]">{doc.receptor_rut}</p>
                   </div>
-                  <div className="col-span-2 text-sm text-slate-400">{doc.fecha}</div>
-                  <div className="col-span-2 text-right text-sm font-semibold text-white">{formatCLP(doc.monto)}</div>
+                  <div className="col-span-2 text-sm text-[var(--cx-text-secondary)]">{doc.fecha}</div>
+                  <div className="col-span-2 text-right text-sm font-semibold text-[var(--cx-text-primary)]">{formatCLP(doc.monto)}</div>
                   <div className="col-span-1 flex items-center justify-center">
                     <span className={statusConf.cls}>{statusConf.label}</span>
                   </div>
@@ -186,9 +186,9 @@ export default function DocumentosPage() {
         )}
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-white/[0.06] flex items-center justify-between">
-          <p className="text-xs text-slate-600">{filtered.length} documentos</p>
-          <p className="text-sm font-semibold text-white">Total: {formatCLP(totalPage)}</p>
+        <div className="px-4 py-3 border-t border-[var(--cx-border-light)] flex items-center justify-between">
+          <p className="text-xs text-[var(--cx-text-muted)]">{filtered.length} documentos</p>
+          <p className="text-sm font-semibold text-[var(--cx-text-primary)]">Total: {formatCLP(totalPage)}</p>
         </div>
       </div>
     </div>

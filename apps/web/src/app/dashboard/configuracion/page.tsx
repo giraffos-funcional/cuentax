@@ -21,11 +21,11 @@ function StepIndicator({ step, current }: { step: number, current: number }) {
   const active = current === step
   return (
     <div className={`
-      w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold 
+      w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold
       ring-2 transition-all duration-300
-      ${done   ? 'bg-emerald-500 text-white ring-emerald-500/30' : ''}
-      ${active ? 'bg-violet-500 text-white ring-violet-500/30' : ''}
-      ${!done && !active ? 'bg-slate-800 text-slate-500 ring-white/5' : ''}
+      ${done   ? 'bg-emerald-500 text-white ring-[var(--cx-status-ok-border)]' : ''}
+      ${active ? 'bg-violet-500 text-white ring-[var(--cx-active-border)]' : ''}
+      ${!done && !active ? 'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-muted)] ring-[var(--cx-border-light)]' : ''}
     `}>
       {done ? <CheckCircle2 size={14} /> : step}
     </div>
@@ -173,10 +173,10 @@ function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
           border-2 border-dashed rounded-2xl p-8 cursor-pointer
           transition-all duration-200
           ${dragging
-            ? 'border-violet-400 bg-violet-500/5'
+            ? 'border-violet-400 bg-[var(--cx-active-bg)]'
             : file
-              ? 'border-emerald-500/40 bg-emerald-500/5'
-              : 'border-white/10 hover:border-violet-500/40 hover:bg-violet-500/5 bg-white/[0.02]'
+              ? 'border-[var(--cx-status-ok-border)] bg-[var(--cx-status-ok-bg)]'
+              : 'border-[var(--cx-border-hover)] hover:border-[var(--cx-active-border)] hover:bg-[var(--cx-active-bg)] bg-[var(--cx-bg-elevated)]'
           }
         `}
       >
@@ -190,26 +190,26 @@ function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
 
         {file ? (
           <>
-            <FileKey2 size={28} className="text-emerald-400 mb-3" />
-            <p className="text-sm font-semibold text-emerald-300">{file.name}</p>
-            <p className="text-xs text-slate-500 mt-1">{(file.size / 1024).toFixed(1)} KB — Haz clic para cambiar</p>
+            <FileKey2 size={28} className="text-[var(--cx-status-ok-text)] mb-3" />
+            <p className="text-sm font-semibold text-[var(--cx-status-ok-text)]">{file.name}</p>
+            <p className="text-xs text-[var(--cx-text-secondary)] mt-1">{(file.size / 1024).toFixed(1)} KB — Haz clic para cambiar</p>
           </>
         ) : (
           <>
-            <Upload size={24} className="text-slate-500 mb-3" />
-            <p className="text-sm font-medium text-slate-300">Arrastra tu certificado aquí</p>
-            <p className="text-xs text-slate-600 mt-1">Archivos .pfx o .p12</p>
+            <Upload size={24} className="text-[var(--cx-text-secondary)] mb-3" />
+            <p className="text-sm font-medium text-[var(--cx-text-primary)]">Arrastra tu certificado aquí</p>
+            <p className="text-xs text-[var(--cx-text-muted)] mt-1">Archivos .pfx o .p12</p>
           </>
         )}
       </div>
 
       {/* Password */}
       <div>
-        <label className="block text-xs font-medium text-slate-400 mb-2">
+        <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-2">
           Contraseña del certificado
         </label>
         <div className="relative">
-          <Lock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" />
+          <Lock size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
           <input
             type={showPassword ? 'text' : 'password'}
             value={password}
@@ -220,12 +220,12 @@ function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] transition-colors"
           >
             {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
           </button>
         </div>
-        <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600">
+        <div className="flex items-center gap-1.5 mt-2 text-[11px] text-[var(--cx-text-muted)]">
           <Info size={10} />
           El certificado se carga en memoria del servidor. No se almacena en disco.
         </div>

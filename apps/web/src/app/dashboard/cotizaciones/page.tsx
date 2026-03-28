@@ -57,9 +57,9 @@ export default function CotizacionesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white">Cotizaciones</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {filtered.length} cotizaciones · Tasa de cierre: <span className="text-emerald-400 font-semibold">{conversionRate}%</span>
+          <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Cotizaciones</h1>
+          <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">
+            {filtered.length} cotizaciones · Tasa de cierre: <span className="text-[var(--cx-status-ok-text)] font-semibold">{conversionRate}%</span>
           </p>
         </div>
         <button className="btn-primary">
@@ -71,11 +71,11 @@ export default function CotizacionesPage() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'Enviadas', value: totalEnviadas, color: 'text-blue-400 bg-blue-500/10' },
-          { label: 'Aceptadas', value: totalAceptadas, color: 'text-emerald-400 bg-emerald-500/10' },
-          { label: 'Tasa de Cierre', value: `${conversionRate}%`, color: 'text-violet-400 bg-violet-500/10' },
+          { label: 'Aceptadas', value: totalAceptadas, color: 'text-[var(--cx-status-ok-text)] bg-[var(--cx-status-ok-bg)]' },
+          { label: 'Tasa de Cierre', value: `${conversionRate}%`, color: 'text-[var(--cx-active-icon)] bg-[var(--cx-active-bg)]' },
         ].map(k => (
-          <div key={k.label} className="p-4 rounded-xl bg-slate-900/60 border border-white/[0.07]">
-            <p className="text-[10px] text-slate-600 uppercase tracking-wide mb-1">{k.label}</p>
+          <div key={k.label} className="card p-4">
+            <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-wide mb-1">{k.label}</p>
             <p className={`text-xl font-bold ${k.color.split(' ')[0]}`}>{k.value}</p>
           </div>
         ))}
@@ -89,8 +89,8 @@ export default function CotizacionesPage() {
             onClick={() => setFilter(f)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize ${
               filter === f
-                ? 'bg-violet-500/15 text-violet-300 border border-violet-500/20'
-                : 'bg-white/[0.03] text-slate-500 border border-white/[0.05] hover:text-slate-300'
+                ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-icon)] border border-[var(--cx-active-border)]'
+                : 'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-secondary)] border border-[var(--cx-border-light)] hover:text-[var(--cx-text-primary)]'
             }`}
           >
             {f === 'todas' ? 'Todas' : STATUS_CONFIG[f].label}
@@ -106,29 +106,29 @@ export default function CotizacionesPage() {
           return (
             <div
               key={c.id}
-              className="flex items-center gap-4 p-4 bg-slate-900/60 border border-white/[0.07] rounded-2xl hover:bg-slate-900/80 transition-all group"
+              className="flex items-center gap-4 p-4 card border-[var(--cx-border-light)] rounded-2xl hover:bg-[var(--cx-hover-bg)] transition-all group"
             >
-              <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center shrink-0">
-                <FileText size={16} className="text-violet-400" />
+              <div className="w-10 h-10 rounded-xl bg-[var(--cx-active-bg)] flex items-center justify-center shrink-0">
+                <FileText size={16} className="text-[var(--cx-active-icon)]" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-white">Cotización #{c.numero}</span>
+                  <span className="text-sm font-semibold text-[var(--cx-text-primary)]">Cotización #{c.numero}</span>
                   <span className={sc.cls}>{sc.label}</span>
                 </div>
-                <p className="text-xs text-slate-500 truncate mt-0.5">
+                <p className="text-xs text-[var(--cx-text-secondary)] truncate mt-0.5">
                   {c.cliente} · {c.rut} · {c.items_count} ítem{c.items_count !== 1 ? 's' : ''}
                 </p>
-                <p className="text-[11px] text-slate-600 mt-1">
+                <p className="text-[11px] text-[var(--cx-text-muted)] mt-1">
                   Válida hasta: {c.valida_hasta}
                 </p>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-base font-bold text-white">{formatCLP(c.monto)}</p>
-                <p className="text-xs text-slate-600">{c.fecha}</p>
+                <p className="text-base font-bold text-[var(--cx-text-primary)]">{formatCLP(c.monto)}</p>
+                <p className="text-xs text-[var(--cx-text-muted)]">{c.fecha}</p>
               </div>
               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.05]">
+                <button className="p-1.5 rounded-lg text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]">
                   <Eye size={13} />
                 </button>
                 {isAceptada && (
