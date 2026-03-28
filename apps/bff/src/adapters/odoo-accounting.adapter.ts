@@ -275,6 +275,29 @@ export class OdooAccountingAdapter {
     return this.rpcCall(model, method, [ids, ...args], kwargs)
   }
 
+  async search(
+    model: string,
+    domain: unknown[][],
+    opts: { limit?: number; offset?: number; order?: string } = {},
+  ): Promise<number[]> {
+    const result = await this.rpcCall(model, 'search', [domain], {
+      limit: opts.limit ?? 100,
+      offset: opts.offset ?? 0,
+      ...(opts.order ? { order: opts.order } : {}),
+    })
+    return Array.isArray(result) ? (result as number[]) : []
+  }
+
+  async read(
+    model: string,
+    ids: number[],
+    fields: string[],
+  ): Promise<unknown[]> {
+    if (ids.length === 0) return []
+    const result = await this.rpcCall(model, 'read', [ids, fields])
+    return Array.isArray(result) ? result : []
+  }
+
   async searchCount(model: string, domain: unknown[][]): Promise<number> {
     const result = await this.rpcCall(model, 'search_count', [domain])
     return typeof result === 'number' ? result : 0

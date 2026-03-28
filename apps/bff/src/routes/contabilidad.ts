@@ -61,14 +61,18 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const cuentas = await odooAccountingAdapter.searchRead(
-        'account.account',
-        domain,
-        ['code', 'name', 'account_type', 'current_balance', 'reconcile', 'company_id'],
-        { order: 'code asc', limit, offset },
-      )
+      // Odoo 18: search_read on account.account with computed fields (current_balance)
+      // throws ValueError. Use search + read instead.
+      const [ids, total] = await Promise.all([
+        odooAccountingAdapter.search('account.account', domain, { order: 'code asc', limit, offset }),
+        odooAccountingAdapter.searchCount('account.account', domain),
+      ])
 
-      const total = await odooAccountingAdapter.searchCount('account.account', domain)
+      const cuentas = await odooAccountingAdapter.read(
+        'account.account',
+        ids,
+        ['id', 'code', 'name', 'account_type', 'reconcile', 'company_id'],
+      )
 
       // Map Odoo field names to Spanish for frontend consistency
       const mapped = (cuentas as any[]).map((c: any) => ({
@@ -76,7 +80,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         codigo: c.code ?? '',
         nombre: c.name ?? '',
         tipo: c.account_type ?? '',
-        saldo: c.current_balance ?? 0,
+        saldo: 0, // current_balance not available via read; computed separately if needed
         reconciliable: c.reconcile ?? false,
       }))
 
