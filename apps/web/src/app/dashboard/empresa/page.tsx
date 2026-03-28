@@ -29,22 +29,24 @@ export default function EmpresaPage() {
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
 
   // Pre-fill form when company data loads
+  const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    if (empresa) {
+    if (empresa && !loaded) {
       setForm({
-        name: empresa.name ?? '',
-        vat: empresa.vat ?? '',
-        street: empresa.street ?? '',
-        city: empresa.city ?? '',
-        phone: empresa.phone ?? '',
-        email: empresa.email ?? '',
-        website: empresa.website ?? '',
+        name: empresa.name || '',
+        vat: empresa.vat === false ? '' : (empresa.vat || ''),
+        street: empresa.street === false ? '' : (empresa.street || ''),
+        city: empresa.city === false ? '' : (empresa.city || ''),
+        phone: empresa.phone === false ? '' : (empresa.phone || ''),
+        email: empresa.email === false ? '' : (empresa.email || ''),
+        website: empresa.website === false ? '' : (empresa.website || ''),
       })
-      if (empresa.image_1920) {
+      if (empresa.image_1920 && empresa.image_1920 !== false) {
         setLogoPreview(`data:image/png;base64,${empresa.image_1920}`)
       }
+      setLoaded(true)
     }
-  }, [empresa])
+  }, [empresa, loaded])
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -167,7 +169,7 @@ export default function EmpresaPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razon Social *</label>
-            <input value={form.name} onChange={e => set('name', e.target.value)} className="input-field text-sm w-full" placeholder="Mi Empresa SpA" />
+            <input value={form.name} onChange={e => set('name', e.target.value)} className="input-field text-sm w-full" placeholder="Razon social..." />
           </div>
           <div>
             <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT</label>
