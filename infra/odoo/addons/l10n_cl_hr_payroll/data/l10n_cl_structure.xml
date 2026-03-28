@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+    <data noupdate="0">
+
+        <!-- Chilean payroll structure type -->
+        <record id="cl_structure_type" model="hr.payroll.structure.type">
+            <field name="name">Trabajador Chileno</field>
+        </record>
+
+        <!-- Chilean monthly payroll structure -->
+        <record id="cl_structure_monthly" model="hr.payroll.structure">
+            <field name="name">Remuneración Mensual Chile</field>
+            <field name="code">CL_MONTHLY</field>
+            <field name="type_id" ref="cl_structure_type"/>
+        </record>
+
+    </data>
+</odoo>

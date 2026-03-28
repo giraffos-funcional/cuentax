@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+    <data noupdate="1">
+
+        <record id="afp_capital" model="l10n_cl.afp">
+            <field name="name">AFP Capital</field>
+            <field name="code">CAPITAL</field>
+            <field name="dependent_rate">1.44</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+        <record id="afp_cuprum" model="l10n_cl.afp">
+            <field name="name">AFP Cuprum</field>
+            <field name="code">CUPRUM</field>
+            <field name="dependent_rate">1.44</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+        <record id="afp_habitat" model="l10n_cl.afp">
+            <field name="name">AFP Habitat</field>
+            <field name="code">HABITAT</field>
+            <field name="dependent_rate">1.27</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+        <record id="afp_modelo" model="l10n_cl.afp">
+            <field name="name">AFP Modelo</field>
+            <field name="code">MODELO</field>
+            <field name="dependent_rate">0.58</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+        <record id="afp_planvital" model="l10n_cl.afp">
+            <field name="name">AFP PlanVital</field>
+            <field name="code">PLANVITAL</field>
+            <field name="dependent_rate">1.16</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+        <record id="afp_provida" model="l10n_cl.afp">
+            <field name="name">AFP ProVida</field>
+            <field name="code">PROVIDA</field>
+            <field name="dependent_rate">1.45</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+        <record id="afp_uno" model="l10n_cl.afp">
+            <field name="name">AFP Uno</field>
+            <field name="code">UNO</field>
+            <field name="dependent_rate">0.49</field>
+            <field name="mandatory_rate">10.0</field>
+            <field name="sis_rate">1.53</field>
+        </record>
+
+    </data>
+</odoo>

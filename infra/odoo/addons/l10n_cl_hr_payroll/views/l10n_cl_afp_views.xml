@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <record id="l10n_cl_afp_view_tree" model="ir.ui.view">
+        <field name="name">l10n_cl.afp.tree</field>
+        <field name="model">l10n_cl.afp</field>
+        <field name="arch" type="xml">
+            <list string="AFPs">
+                <field name="code"/>
+                <field name="name"/>
+                <field name="mandatory_rate"/>
+                <field name="dependent_rate"/>
+                <field name="sis_rate"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="l10n_cl_afp_view_form" model="ir.ui.view">
+        <field name="name">l10n_cl.afp.form</field>
+        <field name="model">l10n_cl.afp</field>
+        <field name="arch" type="xml">
+            <form string="AFP">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Nombre AFP"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="code"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="mandatory_rate"/>
+                            <field name="dependent_rate"/>
+                            <field name="sis_rate"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="l10n_cl_afp_action" model="ir.actions.act_window">
+        <field name="name">AFPs</field>
+        <field name="res_model">l10n_cl.afp</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

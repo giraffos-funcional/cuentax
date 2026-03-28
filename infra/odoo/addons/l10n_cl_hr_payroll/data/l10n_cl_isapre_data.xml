@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+    <data noupdate="1">
+
+        <record id="isapre_banmedica" model="l10n_cl.isapre">
+            <field name="name">Banmédica</field>
+            <field name="code">BANMEDICA</field>
+        </record>
+
+        <record id="isapre_colmena" model="l10n_cl.isapre">
+            <field name="name">Colmena Golden Cross</field>
+            <field name="code">COLMENA</field>
+        </record>
+
+        <record id="isapre_consalud" model="l10n_cl.isapre">
+            <field name="name">Consalud</field>
+            <field name="code">CONSALUD</field>
+        </record>
+
+        <record id="isapre_cruzblanca" model="l10n_cl.isapre">
+            <field name="name">Cruz Blanca</field>
+            <field name="code">CRUZBLANCA</field>
+        </record>
+
+        <record id="isapre_masvida" model="l10n_cl.isapre">
+            <field name="name">Nueva Masvida</field>
+            <field name="code">MASVIDA</field>
+        </record>
+
+        <record id="isapre_vidatres" model="l10n_cl.isapre">
+            <field name="name">Vida Tres</field>
+            <field name="code">VIDATRES</field>
+        </record>
+
+        <record id="isapre_esencial" model="l10n_cl.isapre">
+            <field name="name">Esencial</field>
+            <field name="code">ESENCIAL</field>
+        </record>
+
+    </data>
+</odoo>

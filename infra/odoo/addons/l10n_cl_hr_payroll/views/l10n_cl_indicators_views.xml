@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <record id="l10n_cl_indicators_view_tree" model="ir.ui.view">
+        <field name="name">l10n_cl.indicators.tree</field>
+        <field name="model">l10n_cl.indicators</field>
+        <field name="arch" type="xml">
+            <list string="Indicadores Económicos">
+                <field name="name"/>
+                <field name="uf"/>
+                <field name="utm"/>
+                <field name="uta"/>
+                <field name="imm"/>
+                <field name="tope_imponible_afp"/>
+                <field name="tope_imponible_salud"/>
+                <field name="tope_seg_cesantia"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="l10n_cl_indicators_view_form" model="ir.ui.view">
+        <field name="name">l10n_cl.indicators.form</field>
+        <field name="model">l10n_cl.indicators</field>
+        <field name="arch" type="xml">
+            <form string="Indicadores Económicos">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Período">
+                            <field name="month"/>
+                            <field name="year"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                        <group string="Valores">
+                            <field name="uf"/>
+                            <field name="utm"/>
+                            <field name="uta"/>
+                            <field name="imm"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Topes Imponibles (UF)">
+                            <field name="tope_imponible_afp"/>
+                            <field name="tope_imponible_salud"/>
+                            <field name="tope_seg_cesantia"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="l10n_cl_indicators_view_search" model="ir.ui.view">
+        <field name="name">l10n_cl.indicators.search</field>
+        <field name="model">l10n_cl.indicators</field>
+        <field name="arch" type="xml">
+            <search string="Indicadores Económicos">
+                <field name="month"/>
+                <field name="year"/>
+                <filter name="current_year" string="Año actual"
+                        domain="[('year', '=', context_today().strftime('%Y'))]"/>
+                <group expand="0" string="Agrupar por">
+                    <filter name="group_year" string="Año"
+                            context="{'group_by': 'year'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="l10n_cl_indicators_action" model="ir.actions.act_window">
+        <field name="name">Indicadores Económicos</field>
+        <field name="res_model">l10n_cl.indicators</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_current_year': 1}</field>
+    </record>
+
+</odoo>

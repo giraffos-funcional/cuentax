@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <record id="l10n_cl_isapre_view_tree" model="ir.ui.view">
+        <field name="name">l10n_cl.isapre.tree</field>
+        <field name="model">l10n_cl.isapre</field>
+        <field name="arch" type="xml">
+            <list string="Isapres">
+                <field name="code"/>
+                <field name="name"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="l10n_cl_isapre_view_form" model="ir.ui.view">
+        <field name="name">l10n_cl.isapre.form</field>
+        <field name="model">l10n_cl.isapre</field>
+        <field name="arch" type="xml">
+            <form string="Isapre">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Nombre Isapre"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <field name="code"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="l10n_cl_isapre_action" model="ir.actions.act_window">
+        <field name="name">Isapres</field>
+        <field name="res_model">l10n_cl.isapre</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

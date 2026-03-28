@@ -1,0 +1,30 @@
+# Copyright 2026 Giraffos
+# License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl).
+{
+    'name': 'Chile - Payroll',
+    'version': '18.0.1.0.0',
+    'category': 'Human Resources/Payroll',
+    'summary': 'Localización chilena para nómina - AFP, Isapre, Impuesto Único',
+    'description': 'Reglas salariales chilenas para el módulo OCA Payroll',
+    'author': 'Giraffos',
+    'website': 'https://giraffos.com',
+    'license': 'LGPL-3',
+    'depends': ['payroll', 'hr_contract'],
+    'data': [
+        'security/l10n_cl_hr_payroll_security.xml',
+        'security/ir.model.access.csv',
+        'data/l10n_cl_afp_data.xml',
+        'data/l10n_cl_isapre_data.xml',
+        'data/l10n_cl_rule_categories.xml',
+        'data/l10n_cl_structure.xml',
+        'data/l10n_cl_salary_rules.xml',
+        'views/l10n_cl_afp_views.xml',
+        'views/l10n_cl_isapre_views.xml',
+        'views/l10n_cl_indicators_views.xml',
+        'views/hr_employee_views.xml',
+        'views/hr_contract_views.xml',
+        'views/menu_views.xml',
+    ],
+    'installable': True,
+    'auto_install': False,
+}

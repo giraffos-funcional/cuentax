@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <!-- Top-level menu under Payroll > Configuration -->
+    <menuitem id="menu_l10n_cl_config"
+              name="Chile"
+              parent="payroll.menu_payroll_config"
+              sequence="100"/>
+
+    <menuitem id="menu_l10n_cl_afp"
+              name="AFPs"
+              parent="menu_l10n_cl_config"
+              action="l10n_cl_afp_action"
+              sequence="10"/>
+
+    <menuitem id="menu_l10n_cl_isapre"
+              name="Isapres"
+              parent="menu_l10n_cl_config"
+              action="l10n_cl_isapre_action"
+              sequence="20"/>
+
+    <menuitem id="menu_l10n_cl_indicators"
+              name="Indicadores Económicos"
+              parent="menu_l10n_cl_config"
+              action="l10n_cl_indicators_action"
+              sequence="30"/>
+
+</odoo>

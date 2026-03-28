@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <record id="hr_employee_view_form_inherit_l10n_cl" model="ir.ui.view">
+        <field name="name">hr.employee.form.inherit.l10n_cl</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Previsión Chile" name="l10n_cl_prevision">
+                    <group>
+                        <group string="Pensiones">
+                            <field name="l10n_cl_afp_id"/>
+                        </group>
+                        <group string="Salud">
+                            <field name="l10n_cl_health_plan"/>
+                            <field name="l10n_cl_isapre_id"
+                                   invisible="l10n_cl_health_plan != 'isapre'"/>
+                            <field name="l10n_cl_isapre_cotizacion_uf"
+                                   invisible="l10n_cl_health_plan != 'isapre'"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Cargas Familiares">
+                            <field name="l10n_cl_cargas_familiares"/>
+                        </group>
+                        <group string="Ahorro Previsional Voluntario">
+                            <field name="l10n_cl_apv_regime"/>
+                            <field name="l10n_cl_apv_amount"
+                                   invisible="not l10n_cl_apv_regime"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,423 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+    <data noupdate="0">
+
+        <!-- 1. BASIC - Sueldo Base (seq 1) -->
+        <record id="cl_rule_basic" model="hr.salary.rule">
+            <field name="name">Sueldo Base</field>
+            <field name="code">BASIC</field>
+            <field name="sequence">1</field>
+            <field name="category_id" ref="cl_categ_basic"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = contract.wage
+            </field>
+        </record>
+
+        <!-- 2. GRAT - Gratificación Legal (seq 5) -->
+        <record id="cl_rule_grat" model="hr.salary.rule">
+            <field name="name">Gratificación Legal</field>
+            <field name="code">GRAT</field>
+            <field name="sequence">5</field>
+            <field name="category_id" ref="cl_categ_alw"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = contract.l10n_cl_gratificacion_type == 'art47'
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+imm = indicators.imm if indicators else 500000
+grat = contract.wage * 0.25
+tope = imm * 4.75 / 12
+result = min(grat, tope)
+            </field>
+        </record>
+
+        <!-- 3. HEX25 - Horas Extra 25% (seq 8) -->
+        <record id="cl_rule_hex25" model="hr.salary.rule">
+            <field name="name">Horas Extra 25%</field>
+            <field name="code">HEX25</field>
+            <field name="sequence">8</field>
+            <field name="category_id" ref="cl_categ_alw"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = inputs.get('HEX25') and inputs['HEX25'].amount > 0
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+# Valor hora = sueldo / 30 / jornada_semanal * 7 / horas_jornada
+# Simplificado: sueldo / 30 / 8 * 1.25 (para jornada de 45 hrs)
+valor_hora = contract.wage / 30.0 / 8.0
+hex_input = inputs.get('HEX25')
+cantidad = hex_input.amount if hex_input else 0
+result = round(valor_hora * 1.25 * cantidad)
+            </field>
+        </record>
+
+        <!-- 4. HEX50 - Horas Extra 50% (seq 9) -->
+        <record id="cl_rule_hex50" model="hr.salary.rule">
+            <field name="name">Horas Extra 50%</field>
+            <field name="code">HEX50</field>
+            <field name="sequence">9</field>
+            <field name="category_id" ref="cl_categ_alw"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = inputs.get('HEX50') and inputs['HEX50'].amount > 0
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+valor_hora = contract.wage / 30.0 / 8.0
+hex_input = inputs.get('HEX50')
+cantidad = hex_input.amount if hex_input else 0
+result = round(valor_hora * 1.50 * cantidad)
+            </field>
+        </record>
+
+        <!-- 5. COLACION - Colación (seq 10) -->
+        <record id="cl_rule_colacion" model="hr.salary.rule">
+            <field name="name">Colación</field>
+            <field name="code">COLACION</field>
+            <field name="sequence">10</field>
+            <field name="category_id" ref="cl_categ_alwnotimp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = contract.l10n_cl_colacion > 0
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = contract.l10n_cl_colacion
+            </field>
+        </record>
+
+        <!-- 6. MOVILIZACION - Movilización (seq 11) -->
+        <record id="cl_rule_movilizacion" model="hr.salary.rule">
+            <field name="name">Movilización</field>
+            <field name="code">MOVILIZACION</field>
+            <field name="sequence">11</field>
+            <field name="category_id" ref="cl_categ_alwnotimp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = contract.l10n_cl_movilizacion > 0
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = contract.l10n_cl_movilizacion
+            </field>
+        </record>
+
+        <!-- 7. GROSS - Total Haberes Imponibles (seq 20) -->
+        <record id="cl_rule_gross" model="hr.salary.rule">
+            <field name="name">Total Haberes Imponibles</field>
+            <field name="code">GROSS</field>
+            <field name="sequence">20</field>
+            <field name="category_id" ref="cl_categ_gross"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = categories['BASIC'] + categories['ALW']
+            </field>
+        </record>
+
+        <!-- 8. TOPIMP - Cálculo Tope Imponible helper (seq 25) -->
+        <record id="cl_rule_topimp" model="hr.salary.rule">
+            <field name="name">Tope Imponible (referencia)</field>
+            <field name="code">TOPIMP</field>
+            <field name="sequence">25</field>
+            <field name="category_id" ref="cl_categ_ded"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="appears_on_payslip" eval="False"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+uf = indicators.uf if indicators else 38000
+tope_afp = (indicators.tope_imponible_afp if indicators else 84.3) * uf
+# Store as zero - this is a helper rule, actual values used inline
+result = 0
+            </field>
+        </record>
+
+        <!-- 9. AFP - Cotización AFP (seq 30) -->
+        <record id="cl_rule_afp" model="hr.salary.rule">
+            <field name="name">Cotización AFP</field>
+            <field name="code">AFP</field>
+            <field name="sequence">30</field>
+            <field name="category_id" ref="cl_categ_dedprev"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = bool(employee.l10n_cl_afp_id)
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+afp = employee.l10n_cl_afp_id
+tasa = (afp.mandatory_rate + afp.dependent_rate) / 100
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+uf = indicators.uf if indicators else 38000
+tope = (indicators.tope_imponible_afp if indicators else 84.3) * uf
+base = min(categories['GROSS'], tope)
+result = -round(base * tasa)
+            </field>
+        </record>
+
+        <!-- 10. SALUD - Cotización Salud (seq 35) -->
+        <record id="cl_rule_salud" model="hr.salary.rule">
+            <field name="name">Cotización Salud</field>
+            <field name="code">SALUD</field>
+            <field name="sequence">35</field>
+            <field name="category_id" ref="cl_categ_dedsalud"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+uf = indicators.uf if indicators else 38000
+tope = (indicators.tope_imponible_salud if indicators else 84.3) * uf
+base = min(categories['GROSS'], tope)
+if employee.l10n_cl_health_plan == 'fonasa':
+    result = -round(base * 0.07)
+elif employee.l10n_cl_health_plan == 'isapre':
+    cotizacion_uf = employee.l10n_cl_isapre_cotizacion_uf
+    cotizacion_pesos = round(cotizacion_uf * uf)
+    minimo = round(base * 0.07)
+    result = -max(cotizacion_pesos, minimo)
+else:
+    result = -round(base * 0.07)
+            </field>
+        </record>
+
+        <!-- 11. CESANTIA - Seguro de Cesantía Trabajador (seq 40) -->
+        <record id="cl_rule_cesantia" model="hr.salary.rule">
+            <field name="name">Seguro de Cesantía</field>
+            <field name="code">CESANTIA</field>
+            <field name="sequence">40</field>
+            <field name="category_id" ref="cl_categ_dedprev"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = contract.l10n_cl_contract_type == 'indefinido'
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+uf = indicators.uf if indicators else 38000
+tope = (indicators.tope_seg_cesantia if indicators else 126.6) * uf
+base = min(categories['GROSS'], tope)
+result = -round(base * 0.006)
+            </field>
+        </record>
+
+        <!-- 12. TRIBASE - Base Tributable helper (seq 45) -->
+        <record id="cl_rule_tribase" model="hr.salary.rule">
+            <field name="name">Base Tributable (referencia)</field>
+            <field name="code">TRIBASE</field>
+            <field name="sequence">45</field>
+            <field name="category_id" ref="cl_categ_ded"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="appears_on_payslip" eval="False"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+base = categories['GROSS'] + categories['DEDPREV'] + categories['DEDSALUD']
+if employee.l10n_cl_apv_regime == 'A' and employee.l10n_cl_apv_amount:
+    base -= employee.l10n_cl_apv_amount
+result = 0
+            </field>
+        </record>
+
+        <!-- 13. IMPUNICO - Impuesto Único de Segunda Categoría (seq 50) -->
+        <record id="cl_rule_impunico" model="hr.salary.rule">
+            <field name="name">Impuesto Único 2da Categoría</field>
+            <field name="code">IMPUNICO</field>
+            <field name="sequence">50</field>
+            <field name="category_id" ref="cl_categ_dedtrib"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+utm = indicators.utm if indicators else 67000
+base = categories['GROSS'] + categories['DEDPREV'] + categories['DEDSALUD']
+if employee.l10n_cl_apv_regime == 'A' and employee.l10n_cl_apv_amount:
+    base -= employee.l10n_cl_apv_amount
+base = max(base, 0)
+
+if base &lt;= 13.5 * utm:
+    result = 0
+elif base &lt;= 30 * utm:
+    result = -round(base * 0.04 - 0.54 * utm)
+elif base &lt;= 50 * utm:
+    result = -round(base * 0.08 - 1.74 * utm)
+elif base &lt;= 70 * utm:
+    result = -round(base * 0.135 - 4.49 * utm)
+elif base &lt;= 90 * utm:
+    result = -round(base * 0.23 - 11.14 * utm)
+elif base &lt;= 120 * utm:
+    result = -round(base * 0.304 - 17.8 * utm)
+elif base &lt;= 310 * utm:
+    result = -round(base * 0.35 - 23.32 * utm)
+else:
+    result = -round(base * 0.40 - 38.82 * utm)
+            </field>
+        </record>
+
+        <!-- 14. ASIGFAM - Asignación Familiar (seq 55) -->
+        <record id="cl_rule_asigfam" model="hr.salary.rule">
+            <field name="name">Asignación Familiar</field>
+            <field name="code">ASIGFAM</field>
+            <field name="sequence">55</field>
+            <field name="category_id" ref="cl_categ_alwnotimp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">python</field>
+            <field name="condition_python">
+result = employee.l10n_cl_cargas_familiares > 0
+            </field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+cargas = employee.l10n_cl_cargas_familiares
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+ingreso = categories['GROSS']
+if ingreso &lt;= 529000:
+    monto = 18832
+elif ingreso &lt;= 772000:
+    monto = 11556
+elif ingreso &lt;= 1203600:
+    monto = 3654
+else:
+    monto = 0
+result = cargas * monto
+            </field>
+        </record>
+
+        <!-- 15. TOTALDED - Total Deducciones (seq 60) -->
+        <record id="cl_rule_totalded" model="hr.salary.rule">
+            <field name="name">Total Deducciones</field>
+            <field name="code">TOTALDED</field>
+            <field name="sequence">60</field>
+            <field name="category_id" ref="cl_categ_ded"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = categories['DEDPREV'] + categories['DEDSALUD'] + categories['DEDTRIB']
+            </field>
+        </record>
+
+        <!-- 16. NET - Sueldo Líquido (seq 100) -->
+        <record id="cl_rule_net" model="hr.salary.rule">
+            <field name="name">Sueldo Líquido</field>
+            <field name="code">NET</field>
+            <field name="sequence">100</field>
+            <field name="category_id" ref="cl_categ_net"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = categories['GROSS'] + categories['ALWNOTIMP'] + categories['DED'] + categories['DEDPREV'] + categories['DEDSALUD'] + categories['DEDTRIB']
+            </field>
+        </record>
+
+        <!-- 17. SISEMPL - SIS Empleador (seq 110) -->
+        <record id="cl_rule_sisempl" model="hr.salary.rule">
+            <field name="name">SIS Empleador</field>
+            <field name="code">SISEMPL</field>
+            <field name="sequence">110</field>
+            <field name="category_id" ref="cl_categ_comp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+afp = employee.l10n_cl_afp_id
+if afp:
+    result = round(categories['GROSS'] * afp.sis_rate / 100)
+else:
+    result = round(categories['GROSS'] * 0.0153)
+            </field>
+        </record>
+
+        <!-- 18. CESEMPL - Cesantía Empleador (seq 115) -->
+        <record id="cl_rule_cesempl" model="hr.salary.rule">
+            <field name="name">Cesantía Empleador</field>
+            <field name="code">CESEMPL</field>
+            <field name="sequence">115</field>
+            <field name="category_id" ref="cl_categ_comp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+indicators = env['l10n_cl.indicators'].search([
+    ('month', '=', str(payslip.date_from.month)),
+    ('year', '=', payslip.date_from.year),
+], limit=1)
+uf = indicators.uf if indicators else 38000
+tope = (indicators.tope_seg_cesantia if indicators else 126.6) * uf
+base = min(categories['GROSS'], tope)
+if contract.l10n_cl_contract_type == 'indefinido':
+    result = round(base * 0.024)
+else:
+    result = round(base * 0.03)
+            </field>
+        </record>
+
+        <!-- 19. MUTUAL - Mutual de Seguridad Empleador (seq 120) -->
+        <record id="cl_rule_mutual" model="hr.salary.rule">
+            <field name="name">Mutual de Seguridad Empleador</field>
+            <field name="code">MUTUAL</field>
+            <field name="sequence">120</field>
+            <field name="category_id" ref="cl_categ_comp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = round(categories['GROSS'] * 0.0093)
+            </field>
+        </record>
+
+        <!-- 20. COSTOEMP - Costo Empresa Total (seq 130) -->
+        <record id="cl_rule_costoemp" model="hr.salary.rule">
+            <field name="name">Costo Empresa Total</field>
+            <field name="code">COSTOEMP</field>
+            <field name="sequence">130</field>
+            <field name="category_id" ref="cl_categ_comp"/>
+            <field name="struct_id" ref="cl_structure_monthly"/>
+            <field name="condition_select">none</field>
+            <field name="amount_select">code</field>
+            <field name="amount_python_compute">
+result = categories['GROSS'] + categories['ALWNOTIMP'] + categories['COMP']
+            </field>
+        </record>
+
+    </data>
+</odoo>
