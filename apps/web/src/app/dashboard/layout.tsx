@@ -181,12 +181,13 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
 
   // Fetch companies from API (includes newly created ones)
   const [companyList, setCompanyList] = useState<Array<{ id: number, name: string, rut: string }>>([])
+  const accessToken = useAuthStore(s => s.accessToken)
   useEffect(() => {
-    if (!user) return
+    if (!user || !accessToken) return
     apiClient.get('/api/v1/companies').then(res => {
       setCompanyList(res.data?.companies ?? [])
     }).catch(() => {})
-  }, [user, showCreate]) // re-fetch when modal closes (after create)
+  }, [user?.uid, accessToken, showCreate])
 
   if (collapsed || !user) return null
 
