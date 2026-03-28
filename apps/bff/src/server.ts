@@ -181,20 +181,7 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now()
       )`)
 
-      // One-time cleanup: truncate all companies to start fresh
-      // This runs on every boot but is idempotent — only deletes if orphans exist
-      const orphanCount = await db.execute(sql`SELECT COUNT(*) as cnt FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0 OR "rut" = '00.000.000-0'`)
-      const hasOrphans = Number((orphanCount as any)?.rows?.[0]?.cnt ?? 0) > 0
-      if (hasOrphans) {
-        logger.info('Cleaning up orphan companies...')
-        await db.execute(sql`DELETE FROM "caf_configs" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0)`)
-        await db.execute(sql`DELETE FROM "contacts" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0)`)
-        await db.execute(sql`DELETE FROM "products" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0)`)
-        await db.execute(sql`DELETE FROM "dte_documents" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0)`)
-        await db.execute(sql`DELETE FROM "quotations" WHERE "company_id" IN (SELECT "id" FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0)`)
-        await db.execute(sql`DELETE FROM "companies" WHERE "odoo_company_id" IS NULL OR "odoo_company_id" = 0`)
-        logger.info('Orphan companies cleaned')
-      }
+      // Cleanup disabled — was causing issues. Companies managed via UI only.
 
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
