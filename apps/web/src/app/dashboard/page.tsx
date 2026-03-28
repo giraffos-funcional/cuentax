@@ -7,7 +7,7 @@
 
 import { TrendingUp, TrendingDown, FileText, CheckCircle2,
          Clock, AlertTriangle, ArrowRight, Zap, Loader2, Building2 } from 'lucide-react'
-import { useStats, useDTEs, useCAFStatus } from '@/hooks'
+import { useStats, useDTEs, useCAFStatus, useSIIStatus } from '@/hooks'
 import { useAuthStore } from '@/stores/auth.store'
 
 const formatCLP = (n: number) =>
@@ -85,6 +85,26 @@ function StatusBadge({ status }: { status: string }) {
 
 // ── Alerta SII ────────────────────────────────────────────────
 function SIIAlert() {
+  const { cert, connectivity } = useSIIStatus()
+
+  // Don't show alert if certificate is loaded
+  if (cert.cargado) {
+    return (
+      <div className="flex items-center gap-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-200">
+        <div className="p-2 bg-emerald-100 rounded-xl shrink-0">
+          <CheckCircle2 size={16} className="text-emerald-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-emerald-800">Certificado digital configurado</p>
+          <p className="text-xs text-emerald-600 mt-0.5">
+            {cert.rut ? `RUT: ${cert.rut}` : ''}{cert.diasParaVencer ? ` · Vence en ${cert.diasParaVencer} días` : ''}
+            {connectivity.conectado ? ' · SII conectado' : ''}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex items-center gap-4 p-4 rounded-2xl bg-amber-50 border border-amber-200">
       <div className="p-2 bg-amber-100 rounded-xl shrink-0">
