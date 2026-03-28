@@ -155,7 +155,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
           ['move_id', 'account_id', 'name', 'debit', 'credit', 'partner_id'],
           {},
         )
-        for (const linea of lineas) {
+        for (const linea of lineas as any[]) {
           const mid = Array.isArray(linea.move_id) ? linea.move_id[0] : linea.move_id
           if (!lineasPorMove[mid]) lineasPorMove[mid] = []
           lineasPorMove[mid].push(linea)
@@ -326,7 +326,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         : []
 
       const accountTypeMap: Record<number, string> = {}
-      for (const a of accountsData) {
+      for (const a of accountsData as any[]) {
         accountTypeMap[a.id] = a.account_type ?? ''
       }
 
@@ -337,7 +337,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       let patrimonio           = 0
       let resultado            = 0
 
-      for (const g of groups) {
+      for (const g of groups as any[]) {
         const aid     = Array.isArray(g.account_id) ? g.account_id[0] : g.account_id
         const tipo    = accountTypeMap[aid] ?? ''
         const balance = g.balance ?? 0
@@ -442,7 +442,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         : []
 
       const accountTypeMap: Record<number, string> = {}
-      for (const a of accountsData) {
+      for (const a of accountsData as any[]) {
         accountTypeMap[a.id] = a.account_type ?? ''
       }
 
@@ -452,7 +452,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       let administrativos = 0
       let financieros     = 0
 
-      for (const g of groups) {
+      for (const g of groups as any[]) {
         const aid     = Array.isArray(g.account_id) ? g.account_id[0] : g.account_id
         const tipo    = accountTypeMap[aid] ?? ''
         const balance = g.balance ?? 0

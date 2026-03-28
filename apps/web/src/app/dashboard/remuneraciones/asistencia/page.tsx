@@ -69,7 +69,8 @@ export default function AsistenciaPage() {
   const [employeeSearch, setEmployeeSearch] = useState('')
   const [page, setPage] = useState(1)
 
-  const { attendance, total, employeeSummary, isLoading, error } = useAttendance(employeeSearch, month, year)
+  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const { registros, total, isLoading, error } = useAttendance(employeeId, month, year)
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
@@ -87,18 +88,29 @@ export default function AsistenciaPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      {employeeSummary && employeeSummary.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {employeeSummary.map((s: any) => (
-            <div key={s.employee_name} className="card border border-[var(--cx-border-light)] rounded-2xl p-4 text-center">
-              <p className="text-xs text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold truncate">{s.employee_name}</p>
-              <p className="text-xl font-bold text-[var(--cx-text-primary)] mt-1">{formatHours(s.total_hours)}</p>
-              <p className="text-[10px] text-[var(--cx-text-muted)]">{s.records} registro{s.records !== 1 ? 's' : ''}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Employee summary built from registros */}
+      {(() => {
+        const summaryMap = new Map<string, { total_hours: number; records: number }>()
+        for (const r of registros ?? []) {
+          const existing = summaryMap.get(r.employee_name) ?? { total_hours: 0, records: 0 }
+          existing.total_hours += r.worked_hours ?? 0
+          existing.records += 1
+          summaryMap.set(r.employee_name, existing)
+        }
+        const employeeSummary = Array.from(summaryMap.entries()).map(([name, data]) => ({ employee_name: name, ...data }))
+        if (employeeSummary.length === 0) return null
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {employeeSummary.map((s) => (
+              <div key={s.employee_name} className="card border border-[var(--cx-border-light)] rounded-2xl p-4 text-center">
+                <p className="text-xs text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold truncate">{s.employee_name}</p>
+                <p className="text-xl font-bold text-[var(--cx-text-primary)] mt-1">{formatHours(s.total_hours)}</p>
+                <p className="text-[10px] text-[var(--cx-text-muted)]">{s.records} registro{s.records !== 1 ? 's' : ''}</p>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -146,11 +158,11 @@ export default function AsistenciaPage() {
             <div className="col-span-3 text-right">Horas Trabajadas</div>
           </div>
 
-          {(attendance ?? []).length === 0 ? (
+          {(registros ?? []).length === 0 ? (
             <EmptyState hasFilter={hasFilter} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {(attendance ?? []).map((record: any) => (
+              {(registros ?? []).map((record: any) => (
                 <div
                   key={record.id}
                   className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors"
@@ -173,7 +185,7 @@ export default function AsistenciaPage() {
           )}
 
           {/* Pagination footer */}
-          {(attendance ?? []).length > 0 && (
+          {(registros ?? []).length > 0 && (
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
               <span className="text-xs text-[var(--cx-text-muted)]">
                 {total ?? 0} registro{(total ?? 0) !== 1 ? 's' : ''} encontrado{(total ?? 0) !== 1 ? 's' : ''}

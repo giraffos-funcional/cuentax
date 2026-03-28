@@ -169,7 +169,7 @@ export function useHRStats(year: number, month: number) {
     { refreshInterval: 120_000 },
   )
   return {
-    stats: (data?.stats as HRStats) ?? null,
+    stats: (data as HRStats) ?? null,
     isLoading,
     error,
   }
@@ -188,7 +188,7 @@ export function useEmployees(search?: string, departmentId?: number, page?: numb
     { refreshInterval: 60_000 },
   )
   return {
-    empleados: (data?.data as Employee[]) ?? [],
+    empleados: (data?.empleados as Employee[]) ?? [],
     total:     data?.total ?? 0,
     isLoading,
     error,
@@ -227,7 +227,7 @@ export function usePayslips(filters?: {
     { refreshInterval: 60_000 },
   )
   return {
-    liquidaciones: (data?.data as Payslip[]) ?? [],
+    liquidaciones: (data?.liquidaciones as Payslip[]) ?? [],
     total:         data?.total ?? 0,
     isLoading,
     error,
@@ -261,7 +261,7 @@ export function usePayslipRuns(mes?: number, year?: number, page?: number) {
     { refreshInterval: 60_000 },
   )
   return {
-    nominas: (data?.data as PayslipRun[]) ?? [],
+    nominas: (data?.nominas as PayslipRun[]) ?? [],
     total:   data?.total ?? 0,
     isLoading,
     error,
@@ -303,7 +303,7 @@ export function useLeaves(filters?: {
     { refreshInterval: 60_000 },
   )
   return {
-    ausencias: (data?.data as Leave[]) ?? [],
+    ausencias: (data?.ausencias as Leave[]) ?? [],
     total:     data?.total ?? 0,
     isLoading,
     error,
@@ -317,7 +317,7 @@ export function useLeaveTypes() {
     fetcher,
   )
   return {
-    tipos: (data?.data as LeaveType[]) ?? [],
+    tipos: (data?.tipos as LeaveType[]) ?? [],
     isLoading,
     error,
   }
@@ -333,7 +333,7 @@ export function useLeaveAllocations(employeeId?: number) {
     fetcher,
   )
   return {
-    asignaciones: (data?.data as LeaveAllocation[]) ?? [],
+    asignaciones: (data?.asignaciones as LeaveAllocation[]) ?? [],
     isLoading,
     error,
   }
@@ -346,7 +346,7 @@ export function useDepartments() {
     fetcher,
   )
   return {
-    departamentos: (data?.data as Department[]) ?? [],
+    departamentos: (data?.departamentos as Department[]) ?? [],
     isLoading,
     error,
   }
@@ -364,7 +364,8 @@ export function useContracts(employeeId?: number, state?: string) {
     { refreshInterval: 60_000 },
   )
   return {
-    contratos: (data?.data as Contract[]) ?? [],
+    contratos: (data?.contratos as Contract[]) ?? [],
+    total:     data?.total ?? 0,
     isLoading,
     error,
   }
@@ -383,7 +384,8 @@ export function useAttendance(employeeId?: number, mes?: number, year?: number) 
     { refreshInterval: 60_000 },
   )
   return {
-    registros: (data?.data as AttendanceRecord[]) ?? [],
+    registros: (data?.asistencia as AttendanceRecord[]) ?? [],
+    total:     data?.total ?? 0,
     isLoading,
     error,
   }

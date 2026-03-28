@@ -86,14 +86,15 @@ export default function AusenciasPage() {
   const [state, setState] = useState('')
   const [page, setPage] = useState(1)
 
-  const { leaves, total, summary, isLoading, error } = useLeaves({
-    employee_id: employeeSearch,
+  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const { ausencias, total, isLoading, error } = useLeaves({
+    employee_id: employeeId,
     state: state || undefined,
     mes: month,
     year,
     page,
   })
-  const { leaveTypes } = useLeaveTypes()
+  const { tipos } = useLeaveTypes()
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
@@ -111,18 +112,7 @@ export default function AusenciasPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      {summary && summary.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {summary.map((s: any) => (
-            <div key={s.type} className="card border border-[var(--cx-border-light)] rounded-2xl p-4 text-center">
-              <p className="text-xs text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold truncate">{s.type}</p>
-              <p className="text-xl font-bold text-[var(--cx-text-primary)] mt-1">{s.count}</p>
-              <p className="text-[10px] text-[var(--cx-text-muted)]">{s.days} día{s.days !== 1 ? 's' : ''}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Summary: total ausencias this period */}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -142,7 +132,7 @@ export default function AusenciasPage() {
           className="input-field py-2 text-sm w-auto"
         >
           <option value="">Todos los tipos</option>
-          {(leaveTypes ?? []).map((lt: any) => (
+          {(tipos ?? []).map((lt: any) => (
             <option key={lt.id} value={lt.id}>{lt.name}</option>
           ))}
         </select>
@@ -193,11 +183,11 @@ export default function AusenciasPage() {
             <div className="col-span-2 text-center">Estado</div>
           </div>
 
-          {(leaves ?? []).length === 0 ? (
+          {(ausencias ?? []).length === 0 ? (
             <EmptyState hasFilter={hasFilter} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {(leaves ?? []).map((leave: any) => (
+              {(ausencias ?? []).map((leave: any) => (
                 <div
                   key={leave.id}
                   className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors"
@@ -216,7 +206,7 @@ export default function AusenciasPage() {
           )}
 
           {/* Pagination footer */}
-          {(leaves ?? []).length > 0 && (
+          {(ausencias ?? []).length > 0 && (
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
               <span className="text-xs text-[var(--cx-text-muted)]">
                 {total ?? 0} ausencia{(total ?? 0) !== 1 ? 's' : ''} encontrada{(total ?? 0) !== 1 ? 's' : ''}

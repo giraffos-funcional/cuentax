@@ -85,7 +85,7 @@ export default function NominasPage() {
   const [page, setPage] = useState(1)
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
-  const { runs, total, isLoading, error } = usePayslipRuns(month, year, page)
+  const { nominas, total, isLoading, error } = usePayslipRuns(month, year, page)
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
@@ -140,11 +140,11 @@ export default function NominasPage() {
             <div className="col-span-2 text-right">N° Liquidaciones</div>
           </div>
 
-          {(runs ?? []).length === 0 ? (
+          {(nominas ?? []).length === 0 ? (
             <EmptyState hasFilter={hasFilter} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {(runs ?? []).map((run: any) => (
+              {(nominas ?? []).map((run: any) => (
                 <div key={run.id}>
                   <div
                     className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors cursor-pointer"
@@ -195,7 +195,7 @@ export default function NominasPage() {
           )}
 
           {/* Pagination footer */}
-          {(runs ?? []).length > 0 && (
+          {(nominas ?? []).length > 0 && (
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
               <span className="text-xs text-[var(--cx-text-muted)]">
                 {total ?? 0} nómina{(total ?? 0) !== 1 ? 's' : ''} encontrada{(total ?? 0) !== 1 ? 's' : ''}

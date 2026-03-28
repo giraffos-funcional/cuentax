@@ -26,16 +26,6 @@ function dateRange(year: number, month: number): { desde: string; hasta: string 
   return { desde, hasta }
 }
 
-/**
- * Parse an Odoo many2one field (returned as [id, name] or false).
- */
-function m2o(value: unknown): { id: number; name: string } {
-  if (Array.isArray(value)) {
-    return { id: value[0] as number, name: value[1] as string }
-  }
-  return { id: 0, name: '' }
-}
-
 // ---------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------
@@ -221,7 +211,7 @@ export const odooHRAdapter = {
     limit = 50,
   ) {
     const offset = (page - 1) * limit
-    const domain: unknown[][] = [['company_id', '=', companyId]]
+    const domain: unknown[][] = [['employee_company_id', '=', companyId]]
 
     if (employeeId) {
       domain.push(['employee_id', '=', employeeId])
@@ -260,7 +250,7 @@ export const odooHRAdapter = {
   // ─── Leave Allocations ────────────────────────────────────
 
   async getLeaveAllocations(companyId: number, employeeId?: number) {
-    const domain: unknown[][] = [['company_id', '=', companyId]]
+    const domain: unknown[][] = [['employee_company_id', '=', companyId]]
 
     if (employeeId) {
       domain.push(['employee_id', '=', employeeId])
@@ -354,25 +344,21 @@ export const odooHRAdapter = {
 
     try {
       const [
-        employeeRows,
-        departmentRows,
+        totalEmployees,
+        totalDepartments,
         payrollRows,
-        leavesRows,
-        pendingLeavesRows,
+        leavesThisMonth,
+        pendingLeaves,
       ] = await Promise.all([
-        // Total active employees
-        odooAccountingAdapter.searchRead(
+        // Total active employees (search_count instead of fetching records)
+        odooAccountingAdapter.searchCount(
           'hr.employee',
           [['company_id', '=', companyId], ['active', '=', true]],
-          ['id'],
-          { limit: 1 },
         ),
-        // Total departments
-        odooAccountingAdapter.searchRead(
+        // Total departments (search_count instead of fetching records)
+        odooAccountingAdapter.searchCount(
           'hr.department',
           [['company_id', 'in', [companyId, false]]],
-          ['id'],
-          { limit: 1 },
         ),
         // Payroll total for the month (sum net_wage)
         odooAccountingAdapter.readGroup(
@@ -386,46 +372,23 @@ export const odooHRAdapter = {
           ['net_wage:sum'],
           [],
         ),
-        // Leaves this month (approved)
-        odooAccountingAdapter.searchRead(
+        // Leaves this month (approved) — use employee_company_id for Odoo 18
+        odooAccountingAdapter.searchCount(
           'hr.leave',
           [
-            ['company_id', '=', companyId],
-            ['state', '=', 'validate'],
+            ['employee_company_id', '=', companyId],
             ['date_from', '>=', desde],
             ['date_to', '<=', hasta],
+            ['state', '=', 'validate'],
           ],
-          ['id'],
-          {},
         ),
-        // Pending leaves (any date)
-        odooAccountingAdapter.searchRead(
+        // Pending leaves (any date) — use employee_company_id for Odoo 18
+        odooAccountingAdapter.searchCount(
           'hr.leave',
           [
-            ['company_id', '=', companyId],
-            ['state', '=', 'confirm'],
+            ['employee_company_id', '=', companyId],
+            ['state', 'in', ['confirm', 'validate1']],
           ],
-          ['id'],
-          {},
-        ),
-      ])
-
-      // For total counts, we use the length of minimal reads.
-      // This is pragmatic; for large datasets a search_count RPC would be better,
-      // but we keep compatibility with the existing adapter API.
-      // We do a broader read to get real count
-      const [allEmployees, allDepartments] = await Promise.all([
-        odooAccountingAdapter.searchRead(
-          'hr.employee',
-          [['company_id', '=', companyId], ['active', '=', true]],
-          ['id'],
-          { limit: 10000 },
-        ),
-        odooAccountingAdapter.searchRead(
-          'hr.department',
-          [['company_id', 'in', [companyId, false]]],
-          ['id'],
-          { limit: 10000 },
         ),
       ])
 
@@ -433,11 +396,11 @@ export const odooHRAdapter = {
       const payrollTotal = (payrollRow['net_wage'] as number) ?? 0
 
       return {
-        total_employees: allEmployees.length,
-        total_departments: allDepartments.length,
+        total_employees: totalEmployees,
+        total_departments: totalDepartments,
         payroll_total: payrollTotal,
-        leaves_this_month: leavesRows.length,
-        pending_leaves: pendingLeavesRows.length,
+        leaves_this_month: leavesThisMonth,
+        pending_leaves: pendingLeaves,
       }
     } catch (err) {
       logger.error({ err, companyId }, 'Error fetching HR stats from Odoo')
@@ -462,7 +425,7 @@ export const odooHRAdapter = {
     limit = 50,
   ) {
     const offset = (page - 1) * limit
-    const domain: unknown[][] = [['company_id', '=', companyId]]
+    const domain: unknown[][] = [['employee_id.company_id', '=', companyId]]
 
     if (employeeId) {
       domain.push(['employee_id', '=', employeeId])

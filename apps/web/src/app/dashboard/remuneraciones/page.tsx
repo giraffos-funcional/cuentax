@@ -127,30 +127,27 @@ export default function RemuneracionesDashboardPage() {
           <KPICard
             icon={<Users size={20} />}
             label="Total Empleados"
-            value={String(stats.totalEmpleados ?? 0)}
-            trend={stats.trendEmpleados}
+            value={String(stats.total_employees ?? 0)}
           />
           <KPICard
             icon={<Building2 size={20} />}
             label="Departamentos"
-            value={String(stats.departamentos ?? 0)}
+            value={String(stats.total_departments ?? 0)}
           />
           <KPICard
             icon={<DollarSign size={20} />}
             label="Nómina Mensual"
-            value={formatCLP(stats.nominaMensual ?? 0)}
-            trend={stats.trendNomina}
+            value={formatCLP(stats.payroll_total ?? 0)}
           />
           <KPICard
             icon={<Calendar size={20} />}
             label="Ausencias del Mes"
-            value={String(stats.ausenciasMes ?? 0)}
-            trend={stats.trendAusencias}
+            value={String(stats.leaves_this_month ?? 0)}
           />
           <KPICard
             icon={<Clock size={20} />}
             label="Ausencias Pendientes"
-            value={String(stats.ausenciasPendientes ?? 0)}
+            value={String(stats.pending_leaves ?? 0)}
           />
         </div>
       )}

@@ -19,6 +19,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
 import { odooHRAdapter } from '@/adapters/odoo-hr.adapter'
+import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { logger } from '@/core/logger'
 
 export async function remuneracionesRoutes(fastify: FastifyInstance) {
@@ -38,17 +39,28 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const departmentId = q.department_id ? Number(q.department_id) : undefined
 
     try {
-      const empleados = await odooHRAdapter.getEmployees(
-        user.company_id,
-        q.search,
-        departmentId,
-        page,
-        limit,
-      )
+      const domain: unknown[][] = [
+        ['company_id', '=', user.company_id],
+        ['active', '=', true],
+      ]
+      if (departmentId) domain.push(['department_id', '=', departmentId])
+      if (q.search) domain.push('|' as any, ['name', 'ilike', q.search], ['work_email', 'ilike', q.search])
+
+      const [empleados, total] = await Promise.all([
+        odooHRAdapter.getEmployees(
+          user.company_id,
+          q.search,
+          departmentId,
+          page,
+          limit,
+        ),
+        odooAccountingAdapter.searchCount('hr.employee', domain),
+      ])
 
       return reply.send({
         source: 'odoo',
         empleados,
+        total,
         page,
         limit,
       })
@@ -57,6 +69,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       return reply.send({
         source: 'error',
         empleados: [],
+        total: 0,
         page,
         limit,
       })
@@ -115,19 +128,27 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const employeeId = q.employee_id ? Number(q.employee_id) : undefined
 
     try {
-      const liquidaciones = await odooHRAdapter.getPayslips(
-        user.company_id,
-        employeeId,
-        mes,
-        year,
-        page,
-        limit,
-      )
+      const countDomain: unknown[][] = [['company_id', '=', user.company_id]]
+      if (employeeId) countDomain.push(['employee_id', '=', employeeId])
+      if (mes && year) {
+        const monthStr = String(mes).padStart(2, '0')
+        const lastDay = new Date(year, mes, 0).getDate()
+        countDomain.push(['date_from', '>=', `${year}-${monthStr}-01`])
+        countDomain.push(['date_to', '<=', `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`])
+      } else if (year) {
+        countDomain.push(['date_from', '>=', `${year}-01-01`], ['date_to', '<=', `${year}-12-31`])
+      }
+
+      const [liquidaciones, total] = await Promise.all([
+        odooHRAdapter.getPayslips(user.company_id, employeeId, mes, year, page, limit),
+        odooAccountingAdapter.searchCount('hr.payslip', countDomain),
+      ])
 
       return reply.send({
         source: 'odoo',
         periodo: { year, mes },
         liquidaciones,
+        total,
         page,
         limit,
       })
@@ -137,6 +158,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         source: 'error',
         periodo: { year, mes },
         liquidaciones: [],
+        total: 0,
         page,
         limit,
       })
@@ -150,9 +172,18 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const payslipId = Number(id)
 
     try {
-      // Fetch the payslip header
-      const payslips = await odooHRAdapter.getPayslips(user.company_id)
-      const liquidacion = (payslips as any[]).find((p: any) => p.id === payslipId) ?? null
+      // Fetch the payslip header by ID directly (avoid fetching all payslips)
+      const results = await odooAccountingAdapter.searchRead(
+        'hr.payslip',
+        [['id', '=', payslipId], ['company_id', '=', user.company_id]],
+        [
+          'number', 'name', 'employee_id', 'date_from', 'date_to',
+          'company_id', 'state', 'struct_id', 'net_wage', 'basic_wage',
+          'gross_wage', 'line_ids',
+        ],
+        { limit: 1 },
+      )
+      const liquidacion = results[0] ?? null
 
       if (!liquidacion) {
         return reply.status(404).send({
@@ -195,18 +226,26 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const limit = Number(q.limit ?? 50)
 
     try {
-      const nominas = await odooHRAdapter.getPayslipRuns(
-        user.company_id,
-        mes,
-        year,
-        page,
-        limit,
-      )
+      const countDomain: unknown[][] = [['company_id', '=', user.company_id]]
+      if (mes && year) {
+        const monthStr = String(mes).padStart(2, '0')
+        const lastDay = new Date(year, mes, 0).getDate()
+        countDomain.push(['date_start', '>=', `${year}-${monthStr}-01`])
+        countDomain.push(['date_end', '<=', `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`])
+      } else if (year) {
+        countDomain.push(['date_start', '>=', `${year}-01-01`], ['date_end', '<=', `${year}-12-31`])
+      }
+
+      const [nominas, total] = await Promise.all([
+        odooHRAdapter.getPayslipRuns(user.company_id, mes, year, page, limit),
+        odooAccountingAdapter.searchCount('hr.payslip.run', countDomain),
+      ])
 
       return reply.send({
         source: 'odoo',
         periodo: { year, mes },
         nominas,
+        total,
         page,
         limit,
       })
@@ -216,6 +255,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         source: 'error',
         periodo: { year, mes },
         nominas: [],
+        total: 0,
         page,
         limit,
       })
@@ -229,9 +269,14 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const runId = Number(id)
 
     try {
-      // Fetch the payslip run header
-      const runs = await odooHRAdapter.getPayslipRuns(user.company_id)
-      const nomina = (runs as any[]).find((r: any) => r.id === runId) ?? null
+      // Fetch the payslip run header by ID directly (avoid fetching all runs)
+      const runResults = await odooAccountingAdapter.searchRead(
+        'hr.payslip.run',
+        [['id', '=', runId], ['company_id', '=', user.company_id]],
+        ['name', 'date_start', 'date_end', 'state', 'slip_ids', 'company_id'],
+        { limit: 1 },
+      )
+      const nomina = (runResults[0] as any) ?? null
 
       if (!nomina) {
         return reply.status(404).send({
@@ -240,14 +285,20 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         })
       }
 
-      // Fetch all payslips belonging to this run
+      // Fetch payslips belonging to this run by ID filter (avoid fetching all)
       const slipIds = Array.isArray(nomina.slip_ids) ? nomina.slip_ids : []
       let liquidaciones: unknown[] = []
 
       if (slipIds.length > 0) {
-        liquidaciones = await odooHRAdapter.getPayslips(user.company_id)
-        liquidaciones = (liquidaciones as any[]).filter((l: any) =>
-          slipIds.includes(l.id),
+        liquidaciones = await odooAccountingAdapter.searchRead(
+          'hr.payslip',
+          [['id', 'in', slipIds], ['company_id', '=', user.company_id]],
+          [
+            'number', 'name', 'employee_id', 'date_from', 'date_to',
+            'company_id', 'state', 'struct_id', 'net_wage', 'basic_wage',
+            'gross_wage', 'line_ids',
+          ],
+          { order: 'date_from desc' },
         )
       }
 
@@ -285,20 +336,28 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const employeeId = q.employee_id ? Number(q.employee_id) : undefined
 
     try {
-      const ausencias = await odooHRAdapter.getLeaves(
-        user.company_id,
-        employeeId,
-        q.state,
-        mes,
-        year,
-        page,
-        limit,
-      )
+      const countDomain: unknown[][] = [['employee_company_id', '=', user.company_id]]
+      if (employeeId) countDomain.push(['employee_id', '=', employeeId])
+      if (q.state) countDomain.push(['state', '=', q.state])
+      if (mes && year) {
+        const monthStr = String(mes).padStart(2, '0')
+        const lastDay = new Date(year, mes, 0).getDate()
+        countDomain.push(['date_from', '>=', `${year}-${monthStr}-01`])
+        countDomain.push(['date_to', '<=', `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`])
+      } else if (year) {
+        countDomain.push(['date_from', '>=', `${year}-01-01`], ['date_to', '<=', `${year}-12-31`])
+      }
+
+      const [ausencias, total] = await Promise.all([
+        odooHRAdapter.getLeaves(user.company_id, employeeId, q.state, mes, year, page, limit),
+        odooAccountingAdapter.searchCount('hr.leave', countDomain),
+      ])
 
       return reply.send({
         source: 'odoo',
         periodo: { year, mes },
         ausencias,
+        total,
         page,
         limit,
       })
@@ -308,6 +367,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         source: 'error',
         periodo: { year, mes },
         ausencias: [],
+        total: 0,
         page,
         limit,
       })
@@ -389,21 +449,26 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const employeeId = q.employee_id ? Number(q.employee_id) : undefined
 
     try {
-      const contratos = await odooHRAdapter.getContracts(
-        user.company_id,
-        employeeId,
-        q.state,
-      )
+      const countDomain: unknown[][] = [['company_id', '=', user.company_id]]
+      if (employeeId) countDomain.push(['employee_id', '=', employeeId])
+      if (q.state) countDomain.push(['state', '=', q.state])
+
+      const [contratos, total] = await Promise.all([
+        odooHRAdapter.getContracts(user.company_id, employeeId, q.state),
+        odooAccountingAdapter.searchCount('hr.contract', countDomain),
+      ])
 
       return reply.send({
         source: 'odoo',
         contratos,
+        total,
       })
     } catch (err) {
       logger.error({ err }, 'Error fetching contratos from Odoo')
       return reply.send({
         source: 'error',
         contratos: [],
+        total: 0,
       })
     }
   })
@@ -426,19 +491,27 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const employeeId = q.employee_id ? Number(q.employee_id) : undefined
 
     try {
-      const asistencia = await odooHRAdapter.getAttendance(
-        user.company_id,
-        employeeId,
-        mes,
-        year,
-        page,
-        limit,
-      )
+      const countDomain: unknown[][] = [['employee_id.company_id', '=', user.company_id]]
+      if (employeeId) countDomain.push(['employee_id', '=', employeeId])
+      if (mes && year) {
+        const monthStr = String(mes).padStart(2, '0')
+        const lastDay = new Date(year, mes, 0).getDate()
+        const hasta = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+        countDomain.push(['check_in', '>=', `${year}-${monthStr}-01`], ['check_in', '<=', `${hasta} 23:59:59`])
+      } else if (year) {
+        countDomain.push(['check_in', '>=', `${year}-01-01`], ['check_in', '<=', `${year}-12-31 23:59:59`])
+      }
+
+      const [asistencia, total] = await Promise.all([
+        odooHRAdapter.getAttendance(user.company_id, employeeId, mes, year, page, limit),
+        odooAccountingAdapter.searchCount('hr.attendance', countDomain),
+      ])
 
       return reply.send({
         source: 'odoo',
         periodo: { year, mes },
         asistencia,
+        total,
         page,
         limit,
       })
@@ -448,6 +521,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         source: 'error',
         periodo: { year, mes },
         asistencia: [],
+        total: 0,
         page,
         limit,
       })

@@ -80,7 +80,8 @@ export default function ContratosPage() {
   const [state, setState] = useState('')
   const [page, setPage] = useState(1)
 
-  const { contracts, total, isLoading, error } = useContracts(employeeSearch, state)
+  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const { contratos, total, isLoading, error } = useContracts(employeeId, state || undefined)
 
   const pageSize = 20
   const totalPages = Math.max(1, Math.ceil((total ?? 0) / pageSize))
@@ -140,11 +141,11 @@ export default function ContratosPage() {
             <div className="col-span-2 text-center">Estado</div>
           </div>
 
-          {(contracts ?? []).length === 0 ? (
+          {(contratos ?? []).length === 0 ? (
             <EmptyState hasFilter={hasFilter} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {(contracts ?? []).map((contract: any) => (
+              {(contratos ?? []).map((contract: any) => (
                 <div
                   key={contract.id}
                   className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors"
@@ -165,7 +166,7 @@ export default function ContratosPage() {
           )}
 
           {/* Pagination footer */}
-          {(contracts ?? []).length > 0 && (
+          {(contratos ?? []).length > 0 && (
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
               <span className="text-xs text-[var(--cx-text-muted)]">
                 {total ?? 0} contrato{(total ?? 0) !== 1 ? 's' : ''} encontrado{(total ?? 0) !== 1 ? 's' : ''}

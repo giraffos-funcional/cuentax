@@ -74,7 +74,7 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
 }
 
 function PayslipDetailRow({ payslipId }: { payslipId: number }) {
-  const { detail, isLoading, error } = usePayslipDetail(payslipId)
+  const { liquidacion, lineas, isLoading, error } = usePayslipDetail(payslipId)
 
   if (isLoading) {
     return (
@@ -87,7 +87,7 @@ function PayslipDetailRow({ payslipId }: { payslipId: number }) {
     )
   }
 
-  if (error || !detail?.lines?.length) {
+  if (error || !lineas?.length) {
     return (
       <div className="px-8 py-4 bg-[var(--cx-bg-elevated)]">
         <span className="text-xs text-[var(--cx-text-muted)]">Sin líneas de detalle disponibles</span>
@@ -107,7 +107,7 @@ function PayslipDetailRow({ payslipId }: { payslipId: number }) {
           <div className="col-span-2 text-right">Monto</div>
         </div>
         <div className="divide-y divide-[var(--cx-border-lighter)]">
-          {detail.lines.map((line: any, idx: number) => (
+          {lineas.map((line: any, idx: number) => (
             <div key={idx} className="grid grid-cols-12 gap-2 px-4 py-2 text-xs hover:bg-[var(--cx-hover-bg)] transition-colors">
               <div className="col-span-4 text-[var(--cx-text-primary)] truncate">{line.name}</div>
               <div className="col-span-2 font-mono text-[var(--cx-text-secondary)]">{line.code ?? '-'}</div>
@@ -132,7 +132,8 @@ export default function LiquidacionesPage() {
   const [page, setPage] = useState(1)
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
-  const { payslips, total, isLoading, error } = usePayslips({ employee_id: employeeSearch, mes: month, year, page })
+  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const { liquidaciones, total, isLoading, error } = usePayslips({ employee_id: employeeId, mes: month, year, page })
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
@@ -199,11 +200,11 @@ export default function LiquidacionesPage() {
             <div className="col-span-1 text-center">Estado</div>
           </div>
 
-          {(payslips ?? []).length === 0 ? (
+          {(liquidaciones ?? []).length === 0 ? (
             <EmptyState hasFilter={hasFilter} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {(payslips ?? []).map((ps: any) => (
+              {(liquidaciones ?? []).map((ps: any) => (
                 <div key={ps.id}>
                   <div
                     className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors cursor-pointer"
@@ -229,7 +230,7 @@ export default function LiquidacionesPage() {
           )}
 
           {/* Pagination footer */}
-          {(payslips ?? []).length > 0 && (
+          {(liquidaciones ?? []).length > 0 && (
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
               <span className="text-xs text-[var(--cx-text-muted)]">
                 {total ?? 0} liquidación{(total ?? 0) !== 1 ? 'es' : ''} encontrada{(total ?? 0) !== 1 ? 's' : ''}

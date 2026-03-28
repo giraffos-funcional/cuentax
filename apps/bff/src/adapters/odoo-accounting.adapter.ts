@@ -256,6 +256,11 @@ export class OdooAccountingAdapter {
     return result === true
   }
 
+  async searchCount(model: string, domain: unknown[][]): Promise<number> {
+    const result = await this.rpcCall(model, 'search_count', [domain])
+    return typeof result === 'number' ? result : 0
+  }
+
   async readGroup(
     model: string,
     domain: unknown[][],

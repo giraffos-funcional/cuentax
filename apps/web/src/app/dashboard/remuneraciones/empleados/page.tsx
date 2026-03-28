@@ -60,8 +60,8 @@ export default function EmpleadosPage() {
   const [departmentId, setDepartmentId] = useState('')
   const [page, setPage] = useState(1)
 
-  const { employees, total, isLoading, error } = useEmployees(search, departmentId, page)
-  const { departments } = useDepartments()
+  const { empleados, total, isLoading, error } = useEmployees(search, departmentId ? Number(departmentId) : undefined, page)
+  const { departamentos } = useDepartments()
 
   const pageSize = 20
   const totalPages = Math.max(1, Math.ceil((total ?? 0) / pageSize))
@@ -95,7 +95,7 @@ export default function EmpleadosPage() {
           className="input-field py-2 text-sm w-auto"
         >
           <option value="">Todos los departamentos</option>
-          {(departments ?? []).map((d: any) => (
+          {(departamentos ?? []).map((d: any) => (
             <option key={d.id} value={d.id}>{d.name}</option>
           ))}
         </select>
@@ -117,11 +117,11 @@ export default function EmpleadosPage() {
             <div className="col-span-1 text-center">Estado</div>
           </div>
 
-          {(employees ?? []).length === 0 ? (
+          {(empleados ?? []).length === 0 ? (
             <EmptyState search={search} departmentId={departmentId} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {(employees ?? []).map((emp: any) => (
+              {(empleados ?? []).map((emp: any) => (
                 <div
                   key={emp.id}
                   className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors"
@@ -140,7 +140,7 @@ export default function EmpleadosPage() {
           )}
 
           {/* Pagination footer */}
-          {(employees ?? []).length > 0 && (
+          {(empleados ?? []).length > 0 && (
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
               <span className="text-xs text-[var(--cx-text-muted)]">
                 {total ?? 0} empleado{(total ?? 0) !== 1 ? 's' : ''} encontrado{(total ?? 0) !== 1 ? 's' : ''}

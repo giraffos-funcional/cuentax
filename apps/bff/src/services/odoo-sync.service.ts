@@ -83,15 +83,18 @@ class OdooSyncService {
 
       // 1. Ensure the partner exists (find or create by RUT)
       const partnerId = await odooAccountingAdapter.findOrCreatePartner(
-        {
-          rut: dte.rut_receptor,
-          razon_social: dte.razon_social_receptor,
-          giro: dte.giro_receptor,
-          email: dte.email_receptor,
-          es_cliente: true,
-          es_proveedor: false,
-        },
         companyContext.company_id,
+        dte.rut_receptor,
+        {
+          name: dte.razon_social_receptor,
+          vat: dte.rut_receptor,
+          street: '',
+          email: dte.email_receptor ?? '',
+          phone: '',
+          is_company: true,
+          customer_rank: 1,
+          supplier_rank: 0,
+        },
       )
 
       if (!partnerId) {
@@ -109,17 +112,21 @@ class OdooSyncService {
       const invoiceLines = this.mapItemsToOdooLines(dte.items_json)
 
       // 4. Create the invoice (account.move in draft state)
-      const moveId = await odooAccountingAdapter.createInvoice(
-        {
-          move_type: moveType,
-          partner_id: partnerId,
-          invoice_date: dte.fecha_emision,
-          ref: `DTE ${dte.tipo_dte}/${dte.folio}`,
-          narration: dte.observaciones,
-          invoice_line_ids: invoiceLines,
-        },
-        companyContext.company_id,
-      )
+      const moveId = await odooAccountingAdapter.createInvoice({
+        move_type: moveType as 'out_invoice' | 'out_refund',
+        partner_id: partnerId,
+        invoice_date: dte.fecha_emision,
+        company_id: companyContext.company_id,
+        l10n_latam_document_number: String(dte.folio),
+        observaciones: dte.observaciones,
+        items: invoiceLines.map((line: any) => ({
+          product_id: 0,
+          name: line[2]?.name ?? '',
+          quantity: line[2]?.quantity ?? 1,
+          price_unit: line[2]?.price_unit ?? 0,
+          tax_ids: [],
+        })),
+      })
 
       if (!moveId) {
         logger.warn({ dte_id: dte.id }, 'Odoo sync — createInvoice returned no move_id')
@@ -127,7 +134,7 @@ class OdooSyncService {
       }
 
       // 5. Post (confirm) the invoice
-      await odooAccountingAdapter.postInvoice(moveId, companyContext.company_id)
+      await odooAccountingAdapter.postInvoice(moveId)
 
       // 6. Persist odoo_move_id back to dte_documents
       await dteRepository.updateOdooMoveId(dte.id, moveId)
@@ -153,7 +160,20 @@ class OdooSyncService {
     try {
       logger.info({ rut: contact.rut, companyId }, 'Syncing contact to Odoo')
 
-      const partnerId = await odooAccountingAdapter.findOrCreatePartner(contact, companyId)
+      const partnerId = await odooAccountingAdapter.findOrCreatePartner(
+        companyId,
+        contact.rut,
+        {
+          name: contact.razon_social,
+          vat: contact.rut,
+          street: contact.direccion ?? '',
+          email: contact.email ?? '',
+          phone: contact.telefono ?? '',
+          is_company: true,
+          customer_rank: contact.es_cliente ? 1 : 0,
+          supplier_rank: contact.es_proveedor ? 1 : 0,
+        },
+      )
 
       logger.info({ rut: contact.rut, partnerId }, 'Contact synced to Odoo')
       return partnerId
@@ -171,7 +191,16 @@ class OdooSyncService {
     try {
       logger.info({ nombre: product.nombre, companyId }, 'Syncing product to Odoo')
 
-      const productId = await odooAccountingAdapter.findOrCreateProduct(product, companyId)
+      const productId = await odooAccountingAdapter.findOrCreateProduct(
+        companyId,
+        product.codigo ?? product.nombre,
+        {
+          name: product.nombre,
+          default_code: product.codigo ?? '',
+          list_price: product.precio,
+          taxes_id: product.exento ? [] : [],
+        },
+      )
 
       logger.info({ nombre: product.nombre, productId }, 'Product synced to Odoo')
       return productId
