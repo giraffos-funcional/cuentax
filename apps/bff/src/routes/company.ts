@@ -80,7 +80,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       companies: allCompanies.map(c => ({
-        id: c.id,
+        id: c.odoo_company_id ?? c.id,
+        local_id: c.id,
         odoo_id: c.odoo_company_id,
         name: c.razon_social,
         rut: c.rut,
@@ -96,9 +97,13 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
     if (!company_id) return reply.status(400).send({ error: 'company_id required' })
 
-    // Look up the company in local DB
-    const [company] = await db.select().from(companies)
-      .where(eq(companies.id, company_id)).limit(1)
+    // Look up the company in local DB — try by odoo_company_id first (frontend sends Odoo ID), then by local id
+    let [company] = await db.select().from(companies)
+      .where(eq(companies.odoo_company_id, company_id)).limit(1)
+    if (!company) {
+      [company] = await db.select().from(companies)
+        .where(eq(companies.id, company_id)).limit(1)
+    }
 
     if (!company) return reply.status(404).send({ error: 'not_found', message: 'Empresa no encontrada' })
 
