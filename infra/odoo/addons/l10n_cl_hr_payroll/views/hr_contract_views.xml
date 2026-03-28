@@ -8,17 +8,11 @@
         <field name="model">hr.contract</field>
         <field name="inherit_id" ref="hr_contract.hr_contract_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//group[@name='main']" position="after">
-                <group string="Configuración Chile" name="l10n_cl_config">
-                    <group>
-                        <field name="l10n_cl_contract_type"/>
-                        <field name="l10n_cl_gratificacion_type"/>
-                    </group>
-                    <group>
-                        <field name="l10n_cl_colacion"/>
-                        <field name="l10n_cl_movilizacion"/>
-                    </group>
-                </group>
+            <xpath expr="//field[@name='wage']" position="after">
+                <field name="l10n_cl_contract_type"/>
+                <field name="l10n_cl_gratificacion_type"/>
+                <field name="l10n_cl_colacion"/>
+                <field name="l10n_cl_movilizacion"/>
             </xpath>
         </field>
     </record>

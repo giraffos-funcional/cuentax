@@ -6,7 +6,7 @@
     <!-- Top-level menu under Payroll > Configuration -->
     <menuitem id="menu_l10n_cl_config"
               name="Chile"
-              parent="payroll.menu_payroll_config"
+              parent="payroll.payroll_menu_configuration"
               sequence="100"/>
 
     <menuitem id="menu_l10n_cl_afp"
