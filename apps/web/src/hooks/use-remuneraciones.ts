@@ -429,10 +429,14 @@ export function useIndicators(month?: number, year?: number) {
 // Empresa (company info with logo)
 // ══════════════════════════════════════════════════════════════
 
-/** Datos de la empresa (con logo) */
+/** Datos de la empresa (con logo) - re-fetches when active company changes */
 export function useCompany() {
+  // Include company_id from auth store in SWR key so it re-fetches after company switch
+  const companyId = typeof window !== 'undefined'
+    ? JSON.parse(localStorage.getItem('cuentax-auth') ?? '{}')?.state?.user?.company_id
+    : undefined
   const { data, error, isLoading, mutate } = useSWR(
-    '/api/v1/remuneraciones/empresa',
+    `/api/v1/remuneraciones/empresa?_c=${companyId ?? ''}`,
     fetcher,
   )
   return {

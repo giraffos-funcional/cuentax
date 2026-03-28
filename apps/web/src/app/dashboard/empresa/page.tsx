@@ -28,10 +28,11 @@ export default function EmpresaPage() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
 
-  // Pre-fill form when company data loads
-  const [loaded, setLoaded] = useState(false)
+  // Pre-fill form when company data loads - reset when empresa changes (company switch)
+  const [loadedId, setLoadedId] = useState<number | null>(null)
   useEffect(() => {
-    if (empresa && !loaded) {
+    const currentId = empresa?.id ?? null
+    if (empresa && currentId !== loadedId) {
       setForm({
         name: empresa.name || '',
         vat: empresa.vat === false ? '' : (empresa.vat || ''),
@@ -44,9 +45,9 @@ export default function EmpresaPage() {
       if (empresa.logo && empresa.logo !== false) {
         setLogoPreview(`data:image/png;base64,${empresa.logo}`)
       }
-      setLoaded(true)
+      setLoadedId(currentId)
     }
-  }, [empresa, loaded])
+  }, [empresa, loadedId])
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
