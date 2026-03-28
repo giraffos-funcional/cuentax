@@ -10,6 +10,7 @@
 
 import { siiBridgeAdapter, type DTEPayload, type DTEResult } from '@/adapters/sii-bridge.adapter'
 import { odooAuthAdapter } from '@/adapters/odoo-auth.adapter'
+import { odooSyncService } from '@/services/odoo-sync.service'
 import { logger } from '@/core/logger'
 import { dteRepository } from '@/repositories/dte.repository'
 import { z } from 'zod'
@@ -114,6 +115,26 @@ export class DTEService {
       track_id: result.track_id,
       estado: result.estado,
     }, 'DTE emitido')
+
+    // 5. Sync to Odoo accounting (non-blocking)
+    if (dbId && result.folio) {
+      odooSyncService.syncDTEToOdoo({
+        id: dbId,
+        company_id: companyContext.company_id,
+        tipo_dte: input.tipo_dte,
+        folio: result.folio,
+        rut_receptor: input.rut_receptor,
+        razon_social_receptor: input.razon_social_receptor,
+        giro_receptor: input.giro_receptor,
+        email_receptor: input.email_receptor,
+        items_json: input.items,
+        monto_total: this._calcTotal(input.items, input.tipo_dte),
+        fecha_emision: input.items ? new Date().toISOString().slice(0, 10) : '',
+        observaciones: input.observaciones,
+      }, companyContext).catch(err => {
+        logger.warn({ err, folio: result.folio }, 'Odoo sync failed — DTE was emitted successfully')
+      })
+    }
 
     return { ...result, db_id: dbId }
   }

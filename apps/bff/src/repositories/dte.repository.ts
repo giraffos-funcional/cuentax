@@ -127,6 +127,15 @@ class DTERepository {
       .limit(50)
   }
 
+  /** Update Odoo move ID after sync */
+  async updateOdooMoveId(id: string, odooMoveId: number): Promise<void> {
+    await db
+      .update(dteDocuments)
+      .set({ odoo_move_id: odooMoveId, updated_at: new Date() })
+      .where(eq(dteDocuments.id, Number(id)))
+    logger.info({ id, odooMoveId }, 'Odoo move_id linked to DTE')
+  }
+
   /** Estadísticas del mes para el dashboard */
   async getMonthStats(companyId: number, year: number, month: number) {
     const desde = `${year}-${String(month + 1).padStart(2, '0')}-01`

@@ -10,6 +10,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { contactsRepository } from '@/repositories/contacts.repository'
+import { odooSyncService } from '@/services/odoo-sync.service'
+import { logger } from '@/core/logger'
 
 const contactSchema = z.object({
   rut: z.string().min(9),
@@ -54,6 +56,12 @@ export async function contactsRoutes(fastify: FastifyInstance) {
     const parse = contactSchema.safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
     const contact = await contactsRepository.create({ ...parse.data, company_id: user.company_id })
+
+    // Sync to Odoo (non-blocking)
+    odooSyncService.syncContactToOdoo(parse.data, user.company_id).catch(err => {
+      logger.warn({ err, rut: parse.data.rut }, 'Odoo contact sync failed')
+    })
+
     return reply.status(201).send(contact)
   })
 

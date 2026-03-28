@@ -5,6 +5,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { productsRepository } from '@/repositories/products.repository'
+import { odooSyncService } from '@/services/odoo-sync.service'
+import { logger } from '@/core/logger'
 
 const productSchema = z.object({
   codigo: z.string().optional(),
@@ -40,6 +42,17 @@ export async function productsRoutes(fastify: FastifyInstance) {
       company_id: user.company_id,
       precio_con_iva: parse.data.exento ? parse.data.precio : Math.round(parse.data.precio * 1.19),
     })
+
+    // Sync to Odoo (non-blocking)
+    odooSyncService.syncProductToOdoo({
+      codigo: parse.data.codigo,
+      nombre: parse.data.nombre,
+      precio: parse.data.precio,
+      exento: parse.data.exento,
+    }, user.company_id).catch(err => {
+      logger.warn({ err, nombre: parse.data.nombre }, 'Odoo product sync failed')
+    })
+
     return reply.status(201).send(p)
   })
 

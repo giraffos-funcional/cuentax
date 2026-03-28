@@ -1,18 +1,16 @@
 /**
  * CUENTAX — Reports Routes (BFF)
- * Genera LCV (Libros Compra/Venta) y F29 desde los DTEs de la DB.
+ * Genera LCV (Libros Compra/Venta) y F29 desde Odoo accounting.
+ * Fallback a datos locales si Odoo no está disponible.
  * GET /api/v1/reportes/lcv?mes=2&year=2026&libro=ventas
  * GET /api/v1/reportes/f29?mes=2&year=2026
  * GET /api/v1/reportes/stats
  */
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
+import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { dteRepository } from '@/repositories/dte.repository'
-
-const TIPO_LIBRO_MAP: Record<string, number[]> = {
-  ventas: [33, 39, 41, 56, 61],
-  compras: [],  // futuro: documentos recibidos
-}
+import { logger } from '@/core/logger'
 
 export async function reportesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -23,10 +21,39 @@ export async function reportesRoutes(fastify: FastifyInstance) {
     const q = req.query as { mes?: string; year?: string; libro?: string }
     const now  = new Date()
     const year = Number(q.year ?? now.getFullYear())
-    const mes  = Number(q.mes  ?? now.getMonth())
+    const mes  = Number(q.mes  ?? now.getMonth() + 1)
     const libro = q.libro ?? 'ventas'
 
-    const monthStr = String(mes + 1).padStart(2, '0')
+    // Try Odoo first
+    try {
+      const registros = await odooAccountingAdapter.getLCVData(
+        user.company_id,
+        year,
+        mes,
+        libro as 'ventas' | 'compras',
+      )
+
+      if (registros.length > 0) {
+        const totales = registros.reduce((acc, r) => ({
+          neto:  acc.neto  + r.neto,
+          iva:   acc.iva   + r.iva,
+          total: acc.total + r.total,
+        }), { neto: 0, iva: 0, total: 0 })
+
+        return reply.send({
+          periodo: { year, mes },
+          libro,
+          source: 'odoo',
+          registros,
+          totales,
+        })
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Odoo LCV unavailable, falling back to local DB')
+    }
+
+    // Fallback: local DB
+    const monthStr = String(mes).padStart(2, '0')
     const desde = `${year}-${monthStr}-01`
     const hasta = `${year}-${monthStr}-31`
 
@@ -37,10 +64,9 @@ export async function reportesRoutes(fastify: FastifyInstance) {
       limit: 500,
     })
 
-    // Filtrar por tipo de libro
-    const tiposLibro = TIPO_LIBRO_MAP[libro] ?? []
-    const filtered = tiposLibro.length > 0
-      ? data.filter(d => tiposLibro.includes(d.tipo_dte))
+    const VENTAS_TIPOS = [33, 39, 41, 56, 61]
+    const filtered = libro === 'ventas'
+      ? data.filter(d => VENTAS_TIPOS.includes(d.tipo_dte))
       : data
 
     const totales = filtered.reduce((acc, d) => ({
@@ -50,8 +76,9 @@ export async function reportesRoutes(fastify: FastifyInstance) {
     }), { neto: 0, iva: 0, total: 0 })
 
     return reply.send({
-      periodo: { year, mes: mes + 1, desde, hasta },
+      periodo: { year, mes },
       libro,
+      source: 'local',
       registros: filtered,
       totales,
     })
@@ -63,21 +90,36 @@ export async function reportesRoutes(fastify: FastifyInstance) {
     const q = req.query as { mes?: string; year?: string }
     const now  = new Date()
     const year = Number(q.year ?? now.getFullYear())
-    const mes  = Number(q.mes  ?? now.getMonth())
+    const mes  = Number(q.mes  ?? now.getMonth() + 1)
 
-    const monthStr = String(mes + 1).padStart(2, '0')
-    const stats = await dteRepository.getMonthStats(user.company_id, year, mes)
+    // Try Odoo first
+    try {
+      const f29 = await odooAccountingAdapter.getF29Data(user.company_id, year, mes)
 
-    // Calcular F29
+      if (f29.ventas_neto > 0 || f29.credito_fiscal > 0) {
+        return reply.send({
+          periodo: { year, mes },
+          source: 'odoo',
+          f29,
+          nota: 'Valores calculados desde contabilidad Odoo. Verificar antes de presentar al SII.',
+        })
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Odoo F29 unavailable, falling back to local calculation')
+    }
+
+    // Fallback: local calculation
+    const stats = await dteRepository.getMonthStats(user.company_id, year, mes - 1)
     const aceptados = stats.filter(s => s.estado === 'aceptado' || s.estado === 'enviado')
     const ventas_neto  = aceptados.reduce((s, r) => s + Number(r.total), 0)
     const debito_iva   = Math.round(ventas_neto * 0.19)
-    const credito_iva  = 0  // TODO: crédito fiscal de compras
+    const credito_iva  = 0
     const ppm = Math.round(ventas_neto * 0.015)
     const total_pagar  = debito_iva - credito_iva + ppm
 
     return reply.send({
-      periodo: { year, mes: mes + 1 },
+      periodo: { year, mes },
+      source: 'local',
       f29: {
         ventas_neto,
         debito_fiscal: debito_iva,
@@ -85,7 +127,7 @@ export async function reportesRoutes(fastify: FastifyInstance) {
         ppm_1_5pct: ppm,
         total_a_pagar: total_pagar,
       },
-      nota: 'Valores calculados desde DTEs aceptados. Verificar antes de presentar al SII.',
+      nota: 'Valores calculados desde DTEs locales. Conecte Odoo para datos contables precisos.',
     })
   })
 
@@ -93,14 +135,35 @@ export async function reportesRoutes(fastify: FastifyInstance) {
   fastify.get('/stats', async (req, reply) => {
     const user = (req as any).user
     const now  = new Date()
-    const stats = await dteRepository.getMonthStats(user.company_id, now.getFullYear(), now.getMonth())
+    const year = now.getFullYear()
+    const mes  = now.getMonth() + 1
 
-    const byEstado = Object.fromEntries(stats.map(s => [s.estado, { count: Number(s.count), total: Number(s.total) }]))
+    // Try Odoo for monthly stats
+    try {
+      const odooStats = await odooAccountingAdapter.getMonthlyStats(user.company_id, year, mes)
+
+      if (odooStats.total_emitidos > 0) {
+        return reply.send({
+          mes_actual: { year, mes },
+          source: 'odoo',
+          ...odooStats,
+        })
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Odoo stats unavailable, falling back to local')
+    }
+
+    // Fallback: local DB
+    const stats = await dteRepository.getMonthStats(user.company_id, year, mes - 1)
+    const byEstado = Object.fromEntries(
+      stats.map(s => [s.estado, { count: Number(s.count), total: Number(s.total) }])
+    )
 
     return reply.send({
-      mes_actual: { year: now.getFullYear(), mes: now.getMonth() + 1 },
+      mes_actual: { year, mes },
+      source: 'local',
       por_estado: byEstado,
-      total_aceptados: byEstado.aceptado?.total ?? 0,
+      total_aceptados: (byEstado as any).aceptado?.total ?? 0,
       total_emitidos:  Object.values(byEstado).reduce((s, v: any) => s + v.total, 0),
     })
   })

@@ -70,6 +70,58 @@ export function useDTEStatus(trackId: string | null) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Reporting Hooks (Odoo Accounting)
+// ══════════════════════════════════════════════════════════════
+
+/** Libro de Compras/Ventas */
+export function useLCV(mes: number, year: number, libro: 'ventas' | 'compras') {
+  const params = new URLSearchParams({
+    mes: String(mes),
+    year: String(year),
+    libro,
+  })
+  const { data, error, isLoading } = useSWR(`/api/v1/reportes/lcv?${params}`, fetcher, {
+    refreshInterval: 120_000,
+  })
+  return {
+    registros: data?.registros ?? [],
+    totales: data?.totales ?? { neto: 0, iva: 0, total: 0 },
+    source: data?.source ?? 'unknown',
+    isLoading,
+    error,
+  }
+}
+
+/** Formulario 29 — Declaración mensual de IVA */
+export function useF29(mes: number, year: number) {
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/reportes/f29?mes=${mes}&year=${year}`,
+    fetcher,
+    { refreshInterval: 120_000 },
+  )
+  return {
+    f29: data?.f29 ?? null,
+    source: data?.source ?? 'unknown',
+    nota: data?.nota,
+    isLoading,
+    error,
+  }
+}
+
+/** Dashboard stats — monthly overview */
+export function useStats() {
+  const { data, error, isLoading } = useSWR('/api/v1/reportes/stats', fetcher, {
+    refreshInterval: 60_000,
+  })
+  return {
+    stats: data ?? null,
+    source: data?.source ?? 'unknown',
+    isLoading,
+    error,
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // CAF Hooks
 // ══════════════════════════════════════════════════════════════
 

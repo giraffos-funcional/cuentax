@@ -91,6 +91,8 @@ export const dteDocuments = pgTable('dte_documents', {
   // Metadata
   items_json:       jsonb('items_json'),
   observaciones:    text('observaciones'),
+  // Odoo sync
+  odoo_move_id:     integer('odoo_move_id'),
   // Relaciones
   cotizacion_id:    integer('cotizacion_id'),
   created_by:       integer('created_by'),  // user id
