@@ -283,7 +283,7 @@ export default function LibroMayorPage() {
   const [selectedAccount, setSelectedAccount] = useState<{ id: string | number; codigo: string; nombre: string } | null>(null)
 
   const { cuenta, movimientos, saldo_inicial, saldo_final, isLoading, error } = useGeneralLedger(
-    selectedAccount?.id ?? null,
+    selectedAccount?.id ? Number(selectedAccount.id) : null,
     mes,
     year,
   )
