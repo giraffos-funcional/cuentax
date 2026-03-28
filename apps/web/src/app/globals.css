@@ -3,8 +3,6 @@
    Light Theme (Default) — Premium, clean, professional.
    ============================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -27,13 +25,33 @@
     --cx-bg-elevated: #f1f3f9;
 
     /* Borders */
-    --cx-border:       rgba(0, 0, 0, 0.08);
-    --cx-border-hover: rgba(0, 0, 0, 0.14);
+    --cx-border:         rgba(0, 0, 0, 0.08);
+    --cx-border-hover:   rgba(0, 0, 0, 0.14);
+    --cx-border-light:   #e2e8f0; /* slate-200 */
+    --cx-border-lighter: #f1f5f9; /* slate-100 */
 
     /* Text */
     --cx-text-primary:   #1e293b;
     --cx-text-secondary: #64748b;
     --cx-text-muted:     #94a3b8;
+
+    /* Status */
+    --cx-status-ok-text:      #047857; /* emerald-700 */
+    --cx-status-ok-bg:        #ecfdf5; /* emerald-50 */
+    --cx-status-ok-border:    #a7f3d0; /* emerald-200 */
+    --cx-status-warn-text:    #b45309; /* amber-700 */
+    --cx-status-warn-bg:      #fffbeb; /* amber-50 */
+    --cx-status-warn-border:  #fde68a; /* amber-200 */
+    --cx-status-error-text:   #dc2626; /* red-600 */
+    --cx-status-error-bg:     #fef2f2; /* red-50 */
+    --cx-status-error-border: #fecaca; /* red-200 */
+
+    /* Interactive */
+    --cx-hover-bg:       #f8fafc; /* slate-50 */
+    --cx-active-bg:      #f5f3ff; /* violet-50 */
+    --cx-active-text:    #6d28d9; /* violet-700 */
+    --cx-active-border:  #ddd6fe; /* violet-200 */
+    --cx-active-icon:    #7c3aed; /* violet-600 */
   }
 
   * {
