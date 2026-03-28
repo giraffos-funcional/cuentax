@@ -8,9 +8,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useCompany, useUpdateCompany } from '@/hooks/use-remuneraciones'
+import { useAuthStore } from '@/stores/auth.store'
 
 export default function EmpresaPage() {
   const { empresa, isLoading, error, refresh } = useCompany()
+  const companyId = useAuthStore(s => s.user?.company_id)
+
+  // Force re-fetch when page mounts or company changes to avoid stale SWR cache
+  useEffect(() => {
+    const timer = setTimeout(() => refresh(), 500)
+    return () => clearTimeout(timer)
+  }, [companyId, refresh])
   const { update } = useUpdateCompany()
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
