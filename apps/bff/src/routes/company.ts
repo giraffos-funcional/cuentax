@@ -1,10 +1,23 @@
 import type { FastifyInstance } from 'fastify'
 import { sql, eq } from 'drizzle-orm'
+import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { authService } from '@/services/auth.service'
 import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 import { logger } from '@/core/logger'
+
+const createCompanySchema = z.object({
+  rut: z.string().min(9, 'RUT requerido'),
+  razon_social: z.string().min(2, 'Razón social requerida'),
+  giro: z.string().min(2, 'Giro requerido'),
+  actividad_economica: z.number().int().optional().default(620200),
+  direccion: z.string().optional(),
+  comuna: z.string().optional(),
+  ciudad: z.string().optional().default('Santiago'),
+  email: z.string().email().optional().or(z.literal('')),
+  telefono: z.string().optional(),
+})
 
 export async function companyRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -62,5 +75,48 @@ export async function companyRoutes(fastify: FastifyInstance) {
     })
 
     return reply.send(tokens)
+  })
+
+  // POST / — create a new company
+  fastify.post('/', async (req, reply) => {
+    const parse = createCompanySchema.safeParse(req.body)
+    if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
+
+    // Check RUT uniqueness
+    const [existing] = await db.select().from(companies)
+      .where(eq(companies.rut, parse.data.rut)).limit(1)
+    if (existing) {
+      return reply.status(409).send({ error: 'duplicate', message: 'Ya existe una empresa con ese RUT' })
+    }
+
+    const [created] = await db.insert(companies).values({
+      rut: parse.data.rut,
+      razon_social: parse.data.razon_social,
+      giro: parse.data.giro,
+      actividad_economica: parse.data.actividad_economica,
+      direccion: parse.data.direccion,
+      comuna: parse.data.comuna,
+      ciudad: parse.data.ciudad,
+      email: parse.data.email || undefined,
+      telefono: parse.data.telefono,
+    }).returning()
+
+    logger.info({ id: created.id, rut: created.rut }, 'Company created')
+    return reply.status(201).send(created)
+  })
+
+  // PUT /me — update active company
+  fastify.put('/me', async (req, reply) => {
+    const user = (req as any).user
+    const parse = createCompanySchema.partial().safeParse(req.body)
+    if (!parse.success) return reply.status(400).send({ error: 'validation_error' })
+
+    const [updated] = await db.update(companies)
+      .set({ ...parse.data, updated_at: new Date() })
+      .where(eq(companies.id, user.company_id))
+      .returning()
+
+    if (!updated) return reply.status(404).send({ error: 'not_found' })
+    return reply.send(updated)
   })
 }

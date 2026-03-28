@@ -167,15 +167,19 @@ function NavSection({ section, icon: SectionIcon, items, collapsed, pathname, op
   )
 }
 
-// ── Company Switcher ─────────────────────────────────────────
+// ── Company Switcher + Create Modal ──────────────────────────
 function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
   const user = useAuthStore(s => s.user)
   const [open, setOpen] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState({
+    rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '',
+  })
 
   if (collapsed || !user) return null
 
   const companies = user.companies ?? []
-  const hasMultiple = companies.length > 1
 
   const handleSwitch = async (companyId: number) => {
     setOpen(false)
@@ -188,49 +192,124 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     }
   }
 
-  return (
-    <div className="px-3 py-3 border-b border-[var(--cx-border-lighter)] relative">
-      <button
-        onClick={() => hasMultiple && setOpen(!open)}
-        className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] ${hasMultiple ? 'cursor-pointer hover:bg-[var(--cx-bg-elevated)]' : ''} transition-colors text-left`}
-      >
-        <Building2 size={14} className="text-[var(--cx-violet-600)] shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-[var(--cx-text-primary)] truncate">{user.company_name}</p>
-          <p className="text-[10px] text-[var(--cx-text-muted)]">
-            {hasMultiple ? 'Cambiar empresa' : 'Empresa activa'}
-          </p>
-        </div>
-        {hasMultiple && (
-          <ChevronRight size={12} className={`text-[var(--cx-text-muted)] transition-transform ${open ? 'rotate-90' : ''}`} />
-        )}
-      </button>
+  const handleCreate = async () => {
+    if (!form.rut.trim() || !form.razon_social.trim() || !form.giro.trim()) return
+    setCreating(true)
+    try {
+      await apiClient.post('/api/v1/companies', form)
+      setShowCreate(false)
+      setForm({ rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '' })
+      window.location.reload()
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? 'Error creando empresa'
+      alert(msg)
+    } finally {
+      setCreating(false)
+    }
+  }
 
-      {open && hasMultiple && (
-        <div className="absolute left-3 right-3 top-full mt-1 z-30 rounded-xl bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] shadow-lg overflow-hidden">
-          {companies.map((c) => (
+  return (
+    <>
+      <div className="px-3 py-3 border-b border-[var(--cx-border-lighter)] relative">
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] cursor-pointer hover:bg-[var(--cx-bg-elevated)] transition-colors text-left"
+        >
+          <Building2 size={14} className="text-[var(--cx-violet-600)] shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-[var(--cx-text-primary)] truncate">{user.company_name}</p>
+            <p className="text-[10px] text-[var(--cx-text-muted)]">
+              {companies.length > 1 ? 'Cambiar empresa' : 'Empresa activa'}
+            </p>
+          </div>
+          <ChevronRight size={12} className={`text-[var(--cx-text-muted)] transition-transform ${open ? 'rotate-90' : ''}`} />
+        </button>
+
+        {open && (
+          <div className="absolute left-3 right-3 top-full mt-1 z-30 rounded-xl bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] shadow-lg overflow-hidden">
+            {companies.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => { if (c.id !== user.company_id) handleSwitch(c.id) }}
+                className={`flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm transition-colors ${
+                  c.id === user.company_id
+                    ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]'
+                    : 'text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)]'
+                }`}
+              >
+                <Building2 size={12} className="shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium truncate">{c.name}</p>
+                  <p className="text-[10px] text-[var(--cx-text-muted)] font-mono">{c.rut}</p>
+                </div>
+                {c.id === user.company_id && (
+                  <CheckCircle2 size={12} className="text-[var(--cx-active-icon)] shrink-0" />
+                )}
+              </button>
+            ))}
+            {/* Nueva Empresa */}
             <button
-              key={c.id}
-              onClick={() => c.id !== user.company_id && handleSwitch(c.id)}
-              className={`flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm transition-colors ${
-                c.id === user.company_id
-                  ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]'
-                  : 'text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)]'
-              }`}
+              onClick={() => { setOpen(false); setShowCreate(true) }}
+              className="flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm text-[var(--cx-active-icon)] hover:bg-[var(--cx-active-bg)] transition-colors border-t border-[var(--cx-border-light)]"
             >
-              <Building2 size={12} className="shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium truncate">{c.name}</p>
-                <p className="text-[10px] text-[var(--cx-text-muted)] font-mono">{c.rut}</p>
-              </div>
-              {c.id === user.company_id && (
-                <CheckCircle2 size={12} className="text-[var(--cx-active-icon)] shrink-0" />
-              )}
+              <span className="text-base leading-none">+</span>
+              <span className="text-xs font-semibold">Nueva Empresa</span>
             </button>
-          ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create Company Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="card p-6 w-full max-w-lg mx-4 shadow-xl">
+            <h2 className="text-base font-bold text-[var(--cx-text-primary)] mb-4">Nueva Empresa</h2>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT *</label>
+                  <input value={form.rut} onChange={e => setForm(f => ({ ...f, rut: e.target.value }))} placeholder="76.543.210-K" className="input-field text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razón Social *</label>
+                  <input value={form.razon_social} onChange={e => setForm(f => ({ ...f, razon_social: e.target.value }))} placeholder="Mi Empresa SpA" className="input-field text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Giro *</label>
+                <input value={form.giro} onChange={e => setForm(f => ({ ...f, giro: e.target.value }))} placeholder="Desarrollo de Software" className="input-field text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Dirección</label>
+                  <input value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} placeholder="Av. Providencia 123" className="input-field text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Comuna</label>
+                  <input value={form.comuna} onChange={e => setForm(f => ({ ...f, comuna: e.target.value }))} placeholder="Providencia" className="input-field text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Email</label>
+                  <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="contacto@empresa.cl" className="input-field text-sm" type="email" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Teléfono</label>
+                  <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} placeholder="+56 9 1234 5678" className="input-field text-sm" />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button onClick={handleCreate} disabled={creating || !form.rut.trim() || !form.razon_social.trim() || !form.giro.trim()} className="btn-primary flex-1 justify-center">
+                {creating ? 'Creando...' : 'Crear Empresa'}
+              </button>
+              <button onClick={() => setShowCreate(false)} className="btn-secondary">Cancelar</button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
