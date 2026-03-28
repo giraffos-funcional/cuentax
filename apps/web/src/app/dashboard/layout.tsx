@@ -193,17 +193,27 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
 
   const companies = companyList.length > 0 ? companyList : (user.companies ?? [])
 
+  const [switching, setSwitching] = useState(false)
+
   const handleSwitch = async (companyId: number) => {
     setOpen(false)
+    setSwitching(true)
     try {
       const { data } = await apiClient.post('/api/v1/companies/switch', { company_id: companyId })
       if (data.access_token && data.user) {
-        useAuthStore.getState().setAuth(data.user, data.access_token)
-        // Navigate to dashboard root to avoid stale data errors
-        window.location.href = '/dashboard'
+        // Store new auth data in localStorage directly to avoid re-render before navigation
+        localStorage.setItem('cuentax-auth', JSON.stringify({
+          state: { user: data.user, isAuthenticated: true },
+          version: 0,
+        }))
+        // Store token in memory for the new page load
+        useAuthStore.setState({ accessToken: data.access_token, user: data.user, isAuthenticated: true })
+        // Full page reload to clear all SWR cache and component state
+        window.location.replace('/dashboard')
       }
     } catch (err) {
       console.error('Error switching company:', err)
+      setSwitching(false)
       alert('Error al cambiar empresa')
     }
   }
@@ -322,6 +332,18 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
           </div>
         )}
       </div>
+
+      {/* Switching overlay */}
+      {switching && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-white/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center animate-pulse">
+              <span className="text-white font-bold text-sm">CX</span>
+            </div>
+            <p className="text-sm font-medium text-[var(--cx-text-secondary)]">Cambiando empresa...</p>
+          </div>
+        </div>
+      )}
 
       {/* Create Company Modal */}
       {showCreate && (
