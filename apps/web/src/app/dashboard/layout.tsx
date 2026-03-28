@@ -15,7 +15,7 @@ import {
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Building2, Bell, Search, Menu,
-  Tag, Users, FileX, BarChart3, Folders, Send,
+  Tag, Users, FileX, BarChart3, Folders, Send, PieChart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4
 } from 'lucide-react'
@@ -47,6 +47,7 @@ const NAV: NavEntry[] = [
     icon: BarChart3,
     collapsible: true,
     items: [
+      { href: '/dashboard/contabilidad',                    icon: PieChart,       label: 'Panel Contable' },
       { href: '/dashboard/reportes',                        icon: BarChart3,      label: 'Reportes' },
       { href: '/dashboard/contabilidad/plan-cuentas',       icon: ListTree,       label: 'Plan de Cuentas' },
       { href: '/dashboard/contabilidad/libro-diario',       icon: BookText,       label: 'Libro Diario' },
@@ -434,6 +435,7 @@ export default function DashboardLayout({
       '/dashboard/contactos':        'Contactos',
       '/dashboard/productos':        'Productos y Servicios',
       '/dashboard/configuracion':    'Configuración SII',
+      '/dashboard/contabilidad':              'Panel Contable',
       '/dashboard/contabilidad/plan-cuentas': 'Plan de Cuentas',
       '/dashboard/contabilidad/libro-diario': 'Libro Diario',
       '/dashboard/contabilidad/libro-mayor':  'Libro Mayor',
