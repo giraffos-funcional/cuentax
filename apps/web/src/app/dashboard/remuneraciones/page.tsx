@@ -5,9 +5,10 @@
 
 'use client'
 
-import { useState } from 'react'
-import { Users, Building2, DollarSign, Calendar, Clock, Loader2, AlertCircle, LayoutDashboard } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { Users, Building2, DollarSign, Calendar, Clock, Loader2, AlertCircle, LayoutDashboard, RefreshCw } from 'lucide-react'
 import { useHRStats } from '@/hooks/use-remuneraciones'
+import { apiClient } from '@/lib/api-client'
 
 const formatCLP = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
@@ -82,6 +83,22 @@ export default function RemuneracionesDashboardPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
 
   const { stats, isLoading, error } = useHRStats(year, month)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+
+  const syncIndicators = useCallback(async () => {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const { data } = await apiClient.post('/api/v1/indicators/sync')
+      setSyncMsg(data?.success ? 'Indicadores actualizados' : 'Error al sincronizar')
+    } catch {
+      setSyncMsg('Error al conectar con Previred')
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setSyncMsg(null), 4000)
+    }
+  }, [])
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
@@ -113,8 +130,28 @@ export default function RemuneracionesDashboardPage() {
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
+          <button
+            onClick={syncIndicators}
+            disabled={syncing}
+            className="btn-secondary flex items-center gap-2 py-2 px-3 text-sm"
+            title="Actualizar indicadores desde Previred"
+          >
+            <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Sincronizando...' : 'Actualizar Indicadores'}
+          </button>
         </div>
       </div>
+
+      {/* Sync feedback */}
+      {syncMsg && (
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm border ${
+          syncMsg.includes('Error')
+            ? 'bg-[var(--cx-status-error-bg)] text-[var(--cx-status-error-text)] border-[var(--cx-status-error-border)]'
+            : 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border-[var(--cx-status-ok-border)]'
+        }`}>
+          {syncMsg}
+        </div>
+      )}
 
       {/* Content */}
       {isLoading && <LoadingState />}
