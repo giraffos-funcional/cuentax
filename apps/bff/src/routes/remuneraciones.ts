@@ -424,17 +424,22 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     const user = (req as any).user
 
     try {
-      const departamentos = await odooHRAdapter.getDepartments(user.company_id)
+      const [departamentos, total] = await Promise.all([
+        odooHRAdapter.getDepartments(user.company_id),
+        odooAccountingAdapter.searchCount('hr.department', [['company_id', 'in', [user.company_id, false]]]),
+      ])
 
       return reply.send({
         source: 'odoo',
         departamentos,
+        total,
       })
     } catch (err) {
       logger.error({ err }, 'Error fetching departamentos from Odoo')
       return reply.send({
         source: 'error',
         departamentos: [],
+        total: 0,
       })
     }
   })

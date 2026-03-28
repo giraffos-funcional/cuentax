@@ -202,6 +202,128 @@ export function useBankReconciliation(journalId: number | null, mes: number, yea
 }
 
 // ══════════════════════════════════════════════════════════════
+// Contacts CRUD Hooks
+// ══════════════════════════════════════════════════════════════
+
+/** Lista contactos con filtros */
+export function useContacts(filters?: {
+  search?: string
+  tipo?: 'clientes' | 'proveedores'
+  page?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.search) params.set('search', filters.search)
+  if (filters?.tipo) params.set('tipo', filters.tipo)
+  if (filters?.page) params.set('page', String(filters.page))
+
+  const url = `/api/v1/contacts?${params.toString()}`
+  const { data, error, isLoading, mutate } = useSWR(url, fetcher)
+
+  return {
+    contactos: data?.data ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+    refresh: mutate,
+  }
+}
+
+/** Crear contacto */
+export function useCreateContact() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/contacts', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/contacts'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Actualizar contacto */
+export function useUpdateContact() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/contacts/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/contacts'))
+    return result
+  }
+
+  return { update }
+}
+
+/** Eliminar contacto */
+export function useDeleteContact() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/contacts/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/contacts'))
+  }
+
+  return { remove }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Products CRUD Hooks
+// ══════════════════════════════════════════════════════════════
+
+/** Lista productos con filtros */
+export function useProducts(filters?: {
+  search?: string
+  exento?: boolean
+  page?: number
+}) {
+  const params = new URLSearchParams()
+  if (filters?.search) params.set('search', filters.search)
+  if (filters?.exento !== undefined) params.set('exento', String(filters.exento))
+  if (filters?.page) params.set('page', String(filters.page))
+
+  const url = `/api/v1/products?${params.toString()}`
+  const { data, error, isLoading, mutate } = useSWR(url, fetcher)
+
+  return {
+    productos: data?.data ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+    refresh: mutate,
+  }
+}
+
+/** Crear producto */
+export function useCreateProduct() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/products', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/products'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Actualizar producto */
+export function useUpdateProduct() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/products/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/products'))
+    return result
+  }
+
+  return { update }
+}
+
+/** Eliminar producto */
+export function useDeleteProduct() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/products/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/products'))
+  }
+
+  return { remove }
+}
+
+// ══════════════════════════════════════════════════════════════
 // CAF Hooks
 // ══════════════════════════════════════════════════════════════
 

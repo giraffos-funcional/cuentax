@@ -65,7 +65,10 @@ services:
 
   # ── Odoo 18 ───────────────────────────────────────────────
   odoo:
-    image: odoo:18
+    build:
+      context: ./infra/odoo
+      dockerfile: Dockerfile
+    image: cuentax-odoo:18-dev
     container_name: cuentax-odoo
     restart: unless-stopped
     depends_on:

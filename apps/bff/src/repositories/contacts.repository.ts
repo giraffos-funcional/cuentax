@@ -45,6 +45,15 @@ class ContactsRepository {
     return { data, total: countResult.length }
   }
 
+  async findById(id: number, companyId: number): Promise<Contact | null> {
+    const [contact] = await db
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.id, id), eq(contacts.company_id, companyId), eq(contacts.activo, true)))
+      .limit(1)
+    return contact ?? null
+  }
+
   async findByRut(companyId: number, rut: string): Promise<Contact | null> {
     const [c] = await db.select().from(contacts)
       .where(and(eq(contacts.company_id, companyId), eq(contacts.rut, rut)))

@@ -95,6 +95,15 @@ class DTERepository {
     return { data, total: Number(total) }
   }
 
+  async findById(id: number, companyId: number) {
+    const [doc] = await db
+      .select()
+      .from(dteDocuments)
+      .where(and(eq(dteDocuments.id, id), eq(dteDocuments.company_id, companyId)))
+      .limit(1)
+    return doc ?? null
+  }
+
   async findByFolio(companyId: number, folio: number) {
     const [doc] = await db
       .select()

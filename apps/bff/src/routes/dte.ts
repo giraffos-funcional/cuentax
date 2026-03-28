@@ -15,6 +15,8 @@ import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
 import { dteService, emitirDTESchema } from '@/services/dte.service'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
+import { dteRepository } from '@/repositories/dte.repository'
+import { logger } from '@/core/logger'
 import { z } from 'zod'
 
 export async function dteRoutes(fastify: FastifyInstance) {
@@ -83,11 +85,36 @@ export async function dteRoutes(fastify: FastifyInstance) {
 
   // ── GET /:trackId/pdf ──────────────────────────────────────
   fastify.get('/:trackId/pdf', async (request, reply) => {
+    const user = (request as any).user
     const { trackId } = request.params as { trackId: string }
-    // TODO: obtener xml_firmado_b64 de la DB por track_id
-    // const dte = await dteRepository.findByTrackId(...)
-    // const pdfBuffer = await siiBridgeAdapter.generatePDF(dte.xml_firmado_b64, dte.tipo_dte)
-    return reply.status(501).send({ error: 'not_implemented', message: 'PDF disponible próximamente' })
+
+    const dte = await dteRepository.findByTrackId(trackId)
+    if (!dte) return reply.status(404).send({ error: 'not_found', message: 'DTE no encontrado' })
+    if (dte.company_id !== user.company_id) return reply.status(403).send({ error: 'forbidden' })
+
+    if (!dte.xml_firmado_b64) {
+      return reply.status(422).send({ error: 'no_xml', message: 'DTE no tiene XML firmado' })
+    }
+
+    try {
+      const pdfBuffer = await siiBridgeAdapter.generatePDF(dte.xml_firmado_b64, dte.tipo_dte)
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `inline; filename="DTE-${dte.tipo_dte}-${dte.folio}.pdf"`)
+        .send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, trackId }, 'Error generating PDF')
+      return reply.status(500).send({ error: 'pdf_error', message: 'Error generando PDF' })
+    }
+  })
+
+  // ── GET /:id — Obtener DTE por ID de DB ───────────────────
+  fastify.get('/:id', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as { id: string }
+    const dte = await dteRepository.findById(Number(id), user.company_id)
+    if (!dte) return reply.status(404).send({ error: 'not_found' })
+    return reply.send(dte)
   })
 
   // ── POST /anular ───────────────────────────────────────────
@@ -118,7 +145,7 @@ export async function dteRoutes(fastify: FastifyInstance) {
         ...parse.data,
         rut_emisor: user.company_rut,
         razon_social_emisor: user.company_name,
-        giro_emisor: 'Servicios', // TODO: leer de Odoo
+        giro_emisor: (request as any).user.company_giro ?? 'Servicios de Software y Tecnología',
       })
       return reply.send(result)
     } catch {

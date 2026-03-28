@@ -41,6 +41,15 @@ class ProductsRepository {
     return p
   }
 
+  async findById(id: number, companyId: number): Promise<Product | null> {
+    const [product] = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.id, id), eq(products.company_id, companyId), eq(products.activo, true)))
+      .limit(1)
+    return product ?? null
+  }
+
   async update(id: number, companyId: number, data: Partial<InsertProduct>): Promise<Product | null> {
     const [p] = await db.update(products)
       .set(data)

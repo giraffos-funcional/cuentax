@@ -45,8 +45,7 @@ export async function contactsRoutes(fastify: FastifyInstance) {
   fastify.get('/:id', async (req, reply) => {
     const user = (req as any).user
     const { id } = req.params as { id: string }
-    const contacts = await contactsRepository.findMany(user.company_id, {})
-    const contact = contacts.data.find(c => c.id === Number(id))
+    const contact = await contactsRepository.findById(Number(id), user.company_id)
     if (!contact) return reply.status(404).send({ error: 'not_found' })
     return reply.send(contact)
   })

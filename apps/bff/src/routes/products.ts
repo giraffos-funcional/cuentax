@@ -33,6 +33,14 @@ export async function productsRoutes(fastify: FastifyInstance) {
     return reply.send(result)
   })
 
+  fastify.get('/:id', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const product = await productsRepository.findById(Number(id), user.company_id)
+    if (!product) return reply.status(404).send({ error: 'not_found' })
+    return reply.send(product)
+  })
+
   fastify.post('/', async (req, reply) => {
     const user = (req as any).user
     const parse = productSchema.safeParse(req.body)
