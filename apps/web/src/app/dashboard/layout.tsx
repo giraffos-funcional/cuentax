@@ -171,17 +171,19 @@ function NavSection({ section, icon: SectionIcon, items, collapsed, pathname, op
 // ── Company Switcher + Create Modal ──────────────────────────
 function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
   const user = useAuthStore(s => s.user)
+  const accessToken = useAuthStore(s => s.accessToken)
   const [open, setOpen] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  const [lookingUp, setLookingUp] = useState(false)
   const [rutError, setRutError] = useState('')
+  const [companyList, setCompanyList] = useState<Array<{ id: number, name: string, rut: string }>>([])
   const [form, setForm] = useState({
     rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '',
   })
 
-  // Fetch companies from API (includes newly created ones)
-  const [companyList, setCompanyList] = useState<Array<{ id: number, name: string, rut: string }>>([])
-  const accessToken = useAuthStore(s => s.accessToken)
+  // Fetch companies from API
   useEffect(() => {
     if (!user || !accessToken) return
     apiClient.get('/api/v1/companies').then(res => {
@@ -189,11 +191,10 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     }).catch(() => {})
   }, [user?.uid, accessToken, showCreate])
 
+  // All hooks MUST be above this line
   if (collapsed || !user) return null
 
   const companies = companyList.length > 0 ? companyList : (user.companies ?? [])
-
-  const [switching, setSwitching] = useState(false)
 
   const handleSwitch = async (companyId: number) => {
     setOpen(false)
@@ -232,8 +233,6 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     const expected = rem === 11 ? '0' : rem === 10 ? 'K' : String(rem)
     return dv === expected
   }
-
-  const [lookingUp, setLookingUp] = useState(false)
 
   const handleRutChange = (value: string) => {
     setForm(f => ({ ...f, rut: value }))
