@@ -127,7 +127,7 @@ export function LoginForm() {
 
       <p className="text-center text-xs text-slate-400">
         ¿Problemas para acceder?{' '}
-        <a href="#" className="text-violet-600 hover:text-violet-500 transition-colors">
+        <a href="mailto:soporte@cuentax.cl" className="text-violet-600 hover:text-violet-500 transition-colors">
           Contactar soporte
         </a>
       </p>

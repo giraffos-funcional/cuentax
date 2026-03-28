@@ -66,6 +66,23 @@ function SectionHeader({ label, accent }: { label: string; accent: string }) {
   )
 }
 
+// ── CSV export helper ──────────────────────────────────────────
+const exportCSV = (data: any[], filename: string) => {
+  if (!data.length) return
+  const headers = Object.keys(data[0])
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+  ].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function ResultadosPage() {
   const now = new Date()
@@ -102,10 +119,26 @@ export default function ResultadosPage() {
           >
             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={() => window.print()}>
             <Printer size={13} /> Imprimir
           </button>
-          <button className="btn-secondary flex items-center gap-2">
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => {
+              if (!resultados) return
+              exportCSV([
+                { seccion: 'Ingresos', concepto: 'Ventas',                monto: resultados.ingresos.ventas },
+                { seccion: 'Ingresos', concepto: 'Otros ingresos',        monto: resultados.ingresos.otros },
+                { seccion: 'Ingresos', concepto: 'Total Ingresos',        monto: resultados.ingresos.total },
+                { seccion: 'Gastos',   concepto: 'Costo de ventas',       monto: resultados.gastos.costo_ventas },
+                { seccion: 'Gastos',   concepto: 'Gastos administrativos', monto: resultados.gastos.administrativos },
+                { seccion: 'Gastos',   concepto: 'Gastos financieros',    monto: resultados.gastos.financieros },
+                { seccion: 'Gastos',   concepto: 'Total Gastos',          monto: resultados.gastos.total },
+                { seccion: 'Resultado', concepto: 'Utilidad bruta',       monto: resultados.resultado.utilidad_bruta },
+                { seccion: 'Resultado', concepto: 'Utilidad neta',        monto: resultados.resultado.utilidad_neta },
+              ], 'estado-resultados')
+            }}
+          >
             <Download size={13} /> Exportar
           </button>
         </div>

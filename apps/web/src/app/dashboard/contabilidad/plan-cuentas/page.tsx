@@ -74,6 +74,23 @@ function EmptyState({ search, type }: { search: string; type: AccountType }) {
   )
 }
 
+// ── CSV export helper ──────────────────────────────────────────
+const exportCSV = (data: any[], filename: string) => {
+  if (!data.length) return
+  const headers = Object.keys(data[0])
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+  ].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function PlanCuentasPage() {
   const [search, setSearch] = useState('')
@@ -90,7 +107,10 @@ export default function PlanCuentasPage() {
           <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Plan de Cuentas</h1>
           <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Estructura jerárquica del catálogo contable</p>
         </div>
-        <button className="btn-secondary flex items-center gap-2 self-start sm:self-auto">
+        <button
+          className="btn-secondary flex items-center gap-2 self-start sm:self-auto"
+          onClick={() => exportCSV(cuentas, 'plan-cuentas')}
+        >
           <Download size={13} /> Exportar
         </button>
       </div>

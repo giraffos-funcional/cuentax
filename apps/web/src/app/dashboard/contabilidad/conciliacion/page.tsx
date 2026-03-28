@@ -96,6 +96,23 @@ function SinConciliarPanel({ items }: { items: { fecha: string; documento: strin
   )
 }
 
+// ── CSV export helper ──────────────────────────────────────────
+const exportCSV = (data: any[], filename: string) => {
+  if (!data.length) return
+  const headers = Object.keys(data[0])
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+  ].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function ConciliacionPage() {
   const now = new Date()
@@ -147,10 +164,16 @@ export default function ConciliacionPage() {
           >
             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <button className="btn-secondary flex items-center gap-2" disabled={!journalId}>
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => window.print()}
+          >
             <Printer size={13} /> Imprimir
           </button>
-          <button className="btn-secondary flex items-center gap-2" disabled={!journalId}>
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => exportCSV(extracto ?? [], 'conciliacion-extracto')}
+          >
             <Download size={13} /> Exportar
           </button>
         </div>

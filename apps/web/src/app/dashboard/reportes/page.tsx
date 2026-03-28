@@ -97,6 +97,12 @@ function LCVTable({ mes, year }: { mes: number, year: number }) {
           </button>
         ))}
         <div className="flex-1" />
+        <button
+          className="btn-secondary flex items-center gap-2 text-xs py-1.5 px-3"
+          onClick={() => exportCSV(registros, `lcv-${activeBook}`)}
+        >
+          <Download size={12} /> Exportar CSV
+        </button>
         <SourceBadge source={source} />
       </div>
 
@@ -192,7 +198,7 @@ function F29Preview({ mes, year }: { mes: number, year: number }) {
           </div>
         </div>
 
-        <button className="btn-primary w-full justify-center">
+        <button className="btn-primary w-full justify-center" onClick={() => window.print()}>
           <Printer size={14} /> Generar PDF F29
         </button>
       </div>
@@ -258,6 +264,23 @@ function ChartContent({ months }: { months: { mes: string, mesNum: number, yearN
   )
 }
 
+// ── CSV export helper ──────────────────────────────────────────
+const exportCSV = (data: any[], filename: string) => {
+  if (!data.length) return
+  const headers = Object.keys(data[0])
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+  ].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function ReportesPage() {
   const now = new Date()
@@ -279,7 +302,7 @@ export default function ReportesPage() {
           <select value={year} onChange={e => setYear(Number(e.target.value))} className="input-field py-2 text-sm w-auto">
             {[2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={() => window.print()}>
             <Download size={13} /> Exportar
           </button>
         </div>

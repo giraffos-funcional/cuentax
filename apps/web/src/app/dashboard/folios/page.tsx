@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import { Upload, AlertTriangle, CheckCircle2, XCircle,
          RefreshCw, FileText, Info } from 'lucide-react'
+import { apiClient } from '@/lib/api-client'
 
 interface CAFStatus {
   tipo_dte: number
@@ -43,6 +44,21 @@ export default function FoliosPage() {
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
 
+  const handleCAFUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const formData = new FormData()
+    formData.append('file', file)
+    try {
+      await apiClient.post('/api/v1/caf/load', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      window.location.reload()
+    } catch (err) {
+      alert('Error cargando CAF')
+    }
+  }
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
@@ -72,7 +88,10 @@ export default function FoliosPage() {
               <a href="https://misiir.sii.cl" target="_blank" className="underline">portal SII</a> y cárgalo aquí.
             </p>
           </div>
-          <button className="btn-secondary text-xs py-1.5">Cargar CAF</button>
+          <button
+            className="btn-secondary text-xs py-1.5"
+            onClick={() => document.getElementById('caf-upload')?.click()}
+          >Cargar CAF</button>
         </div>
       ))}
 
@@ -94,7 +113,10 @@ export default function FoliosPage() {
                   </div>
                   <p className="text-xs text-[var(--cx-text-secondary)] mt-0.5">{caf.tipo_label}</p>
                 </div>
-                <button className="p-1.5 text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] rounded-lg transition-colors">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="p-1.5 text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] rounded-lg transition-colors"
+                >
                   <RefreshCw size={12} />
                 </button>
               </div>
@@ -142,7 +164,10 @@ export default function FoliosPage() {
                 <p className="text-xs font-medium text-[var(--cx-text-secondary)]">Tipo {t.tipo_dte}</p>
                 <p className="text-[11px] text-[var(--cx-text-muted)]">{t.label}</p>
               </div>
-              <button className="text-[11px] text-[var(--cx-active-icon)] hover:text-[var(--cx-text-primary)]">Cargar</button>
+              <button
+                onClick={() => document.getElementById('caf-upload')?.click()}
+                className="text-[11px] text-[var(--cx-active-icon)] hover:text-[var(--cx-text-primary)]"
+              >Cargar</button>
             </div>
           ))}
         </div>
@@ -174,7 +199,7 @@ export default function FoliosPage() {
                 <p className="text-xs text-[var(--cx-text-muted)] mt-0.5">o haz click para seleccionar · Solo archivos .xml del SII</p>
               </div>
               <label className="btn-secondary cursor-pointer">
-                <input type="file" accept=".xml" className="hidden" onChange={() => {}} />
+                <input id="caf-upload" type="file" accept=".xml" className="hidden" onChange={handleCAFUpload} />
                 Seleccionar CAF
               </label>
             </>

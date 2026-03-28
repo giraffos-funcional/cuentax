@@ -198,7 +198,7 @@ export default function AnulacionesPage() {
             <button className="btn-secondary" onClick={() => { setStep('buscar'); setFoundDTE(null); setSearchFolio('') }}>
               Nueva anulación
             </button>
-            <button className="btn-primary">Ver NC #1044</button>
+            <button className="btn-primary" onClick={() => window.location.href = '/dashboard/documentos'}>Ver NC #1044</button>
           </div>
         </div>
       )}

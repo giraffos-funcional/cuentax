@@ -77,6 +77,23 @@ function SectionCard({
   )
 }
 
+// ── CSV export helper ──────────────────────────────────────────
+const exportCSV = (data: any[], filename: string) => {
+  if (!data.length) return
+  const headers = Object.keys(data[0])
+  const csv = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => JSON.stringify(row[h] ?? '')).join(','))
+  ].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function BalancePage() {
   const now = new Date()
@@ -114,10 +131,26 @@ export default function BalancePage() {
           >
             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={() => window.print()}>
             <Printer size={13} /> Imprimir
           </button>
-          <button className="btn-secondary flex items-center gap-2">
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => {
+              if (!balance) return
+              exportCSV([
+                { seccion: 'Activos', concepto: 'Activos corrientes',       monto: balance.activos.corrientes },
+                { seccion: 'Activos', concepto: 'Activos no corrientes',    monto: balance.activos.no_corrientes },
+                { seccion: 'Activos', concepto: 'Total Activos',            monto: balance.activos.total },
+                { seccion: 'Pasivos', concepto: 'Pasivos corrientes',       monto: balance.pasivos.corrientes },
+                { seccion: 'Pasivos', concepto: 'Pasivos no corrientes',    monto: balance.pasivos.no_corrientes },
+                { seccion: 'Pasivos', concepto: 'Total Pasivos',            monto: balance.pasivos.total },
+                { seccion: 'Patrimonio', concepto: 'Capital',               monto: balance.patrimonio.capital },
+                { seccion: 'Patrimonio', concepto: 'Resultado del ejercicio', monto: balance.patrimonio.resultado },
+                { seccion: 'Patrimonio', concepto: 'Total Patrimonio',      monto: balance.patrimonio.total },
+              ], 'balance-general')
+            }}
+          >
             <Download size={13} /> Exportar
           </button>
         </div>

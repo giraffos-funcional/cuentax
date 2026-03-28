@@ -8,6 +8,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useAuthStore } from '@/stores/auth.store'
+import { apiClient } from '@/lib/api-client'
 import {
   LayoutDashboard, FileText, ArrowUpDown, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
@@ -194,7 +196,15 @@ function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: Side
       {/* Status SII + Logout */}
       <div className="p-3 border-t border-[var(--cx-border-lighter)] space-y-2">
         <SIIIndicator />
-        <button className={`
+        <button
+          onClick={async () => {
+            try {
+              await apiClient.post('/api/v1/auth/logout')
+            } catch {}
+            useAuthStore.getState().clearAuth()
+            window.location.href = '/'
+          }}
+          className={`
           flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm
           text-[var(--cx-text-muted)] hover:text-[var(--cx-status-error-text)] hover:bg-[var(--cx-status-error-bg)]
           transition-all duration-150
@@ -210,6 +220,8 @@ function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: Side
 
 // ── Topbar ────────────────────────────────────────────────────
 function Topbar({ title, collapsed, onMenuToggle }: { title: string, collapsed: boolean, onMenuToggle: () => void }) {
+  const [showNotifications, setShowNotifications] = useState(false)
+
   return (
     <header className="h-14 flex items-center gap-4 px-6 border-b border-[var(--cx-border-light)] bg-[var(--cx-bg-surface)]/80 backdrop-blur-sm">
       <button
@@ -221,16 +233,32 @@ function Topbar({ title, collapsed, onMenuToggle }: { title: string, collapsed: 
       <h1 className="text-sm font-semibold text-[var(--cx-text-primary)]">{title}</h1>
       <div className="flex-1" />
       {/* Search */}
-      <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)] hover:text-[var(--cx-text-secondary)] text-xs transition-colors">
+      <button
+        onClick={() => {
+          const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true })
+          document.dispatchEvent(event)
+        }}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)] hover:text-[var(--cx-text-secondary)] text-xs transition-colors">
         <Search size={13} />
         <span className="hidden sm:block">Buscar...</span>
         <kbd className="hidden sm:block text-[10px] px-1.5 py-0.5 rounded bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)]">⌘K</kbd>
       </button>
       {/* Notificaciones */}
-      <button className="relative w-8 h-8 rounded-lg flex items-center justify-center text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors">
-        <Bell size={15} />
-        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--cx-violet-500)]" />
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setShowNotifications(!showNotifications)}
+          className="relative w-8 h-8 rounded-lg flex items-center justify-center text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors"
+        >
+          <Bell size={15} />
+          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--cx-violet-500)]" />
+        </button>
+        {showNotifications && (
+          <div className="absolute right-0 top-10 w-64 rounded-xl bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] shadow-lg p-4 z-50">
+            <p className="text-xs font-semibold text-[var(--cx-text-primary)] mb-2">Notificaciones</p>
+            <p className="text-xs text-[var(--cx-text-muted)]">Sin notificaciones nuevas</p>
+          </div>
+        )}
+      </div>
     </header>
   )
 }

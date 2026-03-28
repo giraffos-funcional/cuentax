@@ -62,7 +62,7 @@ export default function CotizacionesPage() {
             {filtered.length} cotizaciones · Tasa de cierre: <span className="text-[var(--cx-status-ok-text)] font-semibold">{conversionRate}%</span>
           </p>
         </div>
-        <button className="btn-primary">
+        <button className="btn-primary" onClick={() => alert('Módulo de cotizaciones en desarrollo')}>
           <Plus size={14} /> Nueva Cotización
         </button>
       </div>
@@ -128,15 +128,24 @@ export default function CotizacionesPage() {
                 <p className="text-xs text-[var(--cx-text-muted)]">{c.fecha}</p>
               </div>
               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button className="p-1.5 rounded-lg text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]">
+                <button
+                  onClick={() => alert('Módulo de cotizaciones en desarrollo')}
+                  className="p-1.5 rounded-lg text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]"
+                >
                   <Eye size={13} />
                 </button>
                 {isAceptada && (
-                  <button className="btn-primary py-1.5 px-3 text-xs">
+                  <button
+                    onClick={() => window.location.href = '/dashboard/emitir?tipo=33'}
+                    className="btn-primary py-1.5 px-3 text-xs"
+                  >
                     → Convertir a Factura
                   </button>
                 )}
-                <button className="p-1.5 rounded-lg text-slate-700 hover:text-red-400 hover:bg-red-500/5">
+                <button
+                  onClick={() => alert('Eliminar cotización — en desarrollo')}
+                  className="p-1.5 rounded-lg text-slate-700 hover:text-red-400 hover:bg-red-500/5"
+                >
                   <Trash2 size={13} />
                 </button>
               </div>
