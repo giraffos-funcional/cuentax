@@ -7,7 +7,7 @@
 
 import { useState, useCallback } from 'react'
 import { Users, Building2, DollarSign, Calendar, Clock, Loader2, AlertCircle, LayoutDashboard, RefreshCw } from 'lucide-react'
-import { useHRStats } from '@/hooks/use-remuneraciones'
+import { useHRStats, useIndicators } from '@/hooks/use-remuneraciones'
 import { apiClient } from '@/lib/api-client'
 
 const formatCLP = (n: number) =>
@@ -83,6 +83,7 @@ export default function RemuneracionesDashboardPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
 
   const { stats, isLoading, error } = useHRStats(year, month)
+  const { indicators, refresh: refreshIndicators } = useIndicators(month, year)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
@@ -92,6 +93,7 @@ export default function RemuneracionesDashboardPage() {
     try {
       const { data } = await apiClient.post('/api/v1/indicators/sync')
       setSyncMsg(data?.success ? 'Indicadores actualizados' : 'Error al sincronizar')
+      refreshIndicators()
     } catch {
       setSyncMsg('Error al conectar con Previred')
     } finally {
@@ -186,6 +188,53 @@ export default function RemuneracionesDashboardPage() {
             label="Ausencias Pendientes"
             value={String(stats.pending_leaves ?? 0)}
           />
+        </div>
+      )}
+
+      {/* Indicadores Económicos */}
+      {indicators && (
+        <div className="card border border-[var(--cx-border-light)] rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider mb-4">
+            Indicadores Previsionales — {MONTHS[month - 1]} {year}
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">UF</p>
+              <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
+                ${new Intl.NumberFormat('es-CL').format(indicators.uf ?? 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">UTM</p>
+              <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
+                {formatCLP(indicators.utm ?? 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">Sueldo Minimo</p>
+              <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
+                {formatCLP(indicators.imm ?? 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">Tope AFP</p>
+              <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
+                {indicators.tope_imponible_afp ?? 0} UF
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">Tope Salud</p>
+              <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
+                {indicators.tope_imponible_salud ?? 0} UF
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">Tope Cesantia</p>
+              <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
+                {indicators.tope_seg_cesantia ?? 0} UF
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>

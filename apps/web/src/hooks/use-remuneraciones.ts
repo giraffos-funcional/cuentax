@@ -390,3 +390,25 @@ export function useAttendance(employeeId?: number, mes?: number, year?: number) 
     error,
   }
 }
+
+// ══════════════════════════════════════════════════════════════
+// Indicadores Económicos
+// ══════════════════════════════════════════════════════════════
+
+/** Indicadores del mes actual (UF, UTM, IMM, topes) */
+export function useIndicators(month?: number, year?: number) {
+  const params = new URLSearchParams()
+  if (month) params.set('month', String(month))
+  if (year) params.set('year', String(year))
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/indicators/current?${params}`,
+    fetcher,
+    { refreshInterval: 120_000 },
+  )
+  return {
+    indicators: data?.indicators ?? null,
+    isLoading,
+    error,
+    refresh: mutate,
+  }
+}
