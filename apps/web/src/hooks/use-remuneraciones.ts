@@ -9,6 +9,7 @@
 import useSWR, { mutate as globalMutate } from 'swr'
 import useSWRMutation from 'swr/mutation'
 import { apiClient } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth.store'
 
 // ── Fetcher base ───────────────────────────────────────────────
 const fetcher = (url: string) => apiClient.get(url).then(r => r.data)
@@ -431,13 +432,11 @@ export function useIndicators(month?: number, year?: number) {
 
 /** Datos de la empresa (con logo) - re-fetches when active company changes */
 export function useCompany() {
-  // Include company_id from auth store in SWR key so it re-fetches after company switch
-  const companyId = typeof window !== 'undefined'
-    ? JSON.parse(localStorage.getItem('cuentax-auth') ?? '{}')?.state?.user?.company_id
-    : undefined
+  const companyId = useAuthStore(s => s.user?.company_id)
   const { data, error, isLoading, mutate } = useSWR(
-    `/api/v1/remuneraciones/empresa?_c=${companyId ?? ''}`,
+    companyId ? `/api/v1/remuneraciones/empresa?_c=${companyId}` : null,
     fetcher,
+    { revalidateOnFocus: true, revalidateOnMount: true, dedupingInterval: 0 },
   )
   return {
     empresa: data?.empresa ?? null,
