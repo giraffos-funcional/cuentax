@@ -171,15 +171,20 @@ jobs:
         run: |
           # Coolify expone webhooks por servicio
           # Configurar en Coolify → Application → Deploy Webhook
-          if [ "${{ github.event.inputs.service }}" == "web" ] || [ "${{ github.event.inputs.service }}" == "all" ] || [ -z "${{ github.event.inputs.service }}" ]; then
+          if [ "$SERVICE" == "web" ] || [ "$SERVICE" == "all" ] || [ -z "$SERVICE" ]; then
             curl -s -X GET "${{ secrets.COOLIFY_WEBHOOK_WEB }}" || echo "Web webhook failed"
           fi
-          if [ "${{ github.event.inputs.service }}" == "bff" ] || [ "${{ github.event.inputs.service }}" == "all" ] || [ -z "${{ github.event.inputs.service }}" ]; then
+          if [ "$SERVICE" == "bff" ] || [ "$SERVICE" == "all" ] || [ -z "$SERVICE" ]; then
             curl -s -X GET "${{ secrets.COOLIFY_WEBHOOK_BFF }}" || echo "BFF webhook failed"
           fi
-          if [ "${{ github.event.inputs.service }}" == "sii-bridge" ] || [ "${{ github.event.inputs.service }}" == "all" ] || [ -z "${{ github.event.inputs.service }}" ]; then
+          if [ "$SERVICE" == "sii-bridge" ] || [ "$SERVICE" == "all" ] || [ -z "$SERVICE" ]; then
             curl -s -X GET "${{ secrets.COOLIFY_WEBHOOK_SII_BRIDGE }}" || echo "SII Bridge webhook failed"
           fi
+          if [ "$SERVICE" == "odoo" ] || [ "$SERVICE" == "all" ] || [ -z "$SERVICE" ]; then
+            curl -s -X GET "${{ secrets.COOLIFY_WEBHOOK_ODOO }}" || echo "Odoo webhook failed"
+          fi
+        env:
+          SERVICE: ${{ github.event.inputs.service }}
 
       - name: Notify deploy
         run: |
