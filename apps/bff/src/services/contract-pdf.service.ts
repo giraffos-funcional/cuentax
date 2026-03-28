@@ -97,7 +97,8 @@ function numberToWords(n: number): string {
     const h = Math.floor(n / 100)
     const rest = n % 100
     if (n === 100) return 'cien'
-    return rest === 0 ? hundreds[h] : `${hundreds[h]}to ${numberToWords(rest)}`
+    const prefix = h === 1 ? 'ciento' : hundreds[h]
+    return rest === 0 ? hundreds[h] : `${prefix} ${numberToWords(rest)}`
   }
   if (n < 1000000) {
     const thousands = Math.floor(n / 1000)

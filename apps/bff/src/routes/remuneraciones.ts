@@ -1064,8 +1064,8 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         [
           'name', 'employee_id', 'job_id', 'wage', 'date_start', 'date_end',
           'state', 'struct_id', 'resource_calendar_id',
-          'x_colacion', 'x_movilizacion', 'x_contract_type', 'x_jornada',
-          'x_jurisdiction_commune',
+          'l10n_cl_colacion', 'l10n_cl_movilizacion', 'l10n_cl_contract_type', 'l10n_cl_jornada',
+          'l10n_cl_jurisdiction_commune',
         ],
         { limit: 1 },
       )
@@ -1098,8 +1098,9 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
           'name', 'identification_id', 'marital', 'birthday', 'country_id',
           'work_email', 'work_phone', 'job_title',
           'address_home_id', 'private_street', 'private_city',
-          'x_commune', 'x_nationality', 'x_afp', 'x_health_system',
-          'x_private_address', 'x_private_commune',
+          'l10n_cl_commune', 'l10n_cl_nationality', 'l10n_cl_afp_id', 'l10n_cl_health_plan',
+          'l10n_cl_isapre_id', 'l10n_cl_isapre_cotizacion_uf',
+          'l10n_cl_private_address', 'l10n_cl_private_commune',
         ],
         { limit: 1 },
       )
@@ -1112,7 +1113,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         [['id', '=', user.company_id]],
         [
           'name', 'vat', 'street', 'city', 'email', 'image_1920',
-          'x_commune', 'x_rep_legal_name', 'x_rep_legal_rut',
+          'l10n_cl_commune', 'l10n_cl_rep_legal_name', 'l10n_cl_rep_legal_rut',
         ],
         { limit: 1 },
       )
@@ -1125,7 +1126,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
 
       // Determine contract type
       let contractType: ContractPDFData['contract_type'] = 'indefinido'
-      const rawType = String(contract['x_contract_type'] ?? contract['name'] ?? '')
+      const rawType = String(contract['l10n_cl_contract_type'] ?? contract['name'] ?? '')
       if (rawType.toLowerCase().includes('fijo') || rawType.toLowerCase().includes('plazo')) {
         contractType = 'plazo_fijo'
       } else if (rawType.toLowerCase().includes('obra') || rawType.toLowerCase().includes('faena')) {
@@ -1134,7 +1135,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
 
       // Determine jornada
       const calRef = contract['resource_calendar_id'] as [number, string] | false
-      let jornada = String(contract['x_jornada'] ?? '')
+      let jornada = String(contract['l10n_cl_jornada'] ?? '')
       if (!jornada && calRef) {
         const calName = calRef[1]?.toLowerCase() ?? ''
         if (calName.includes('art') && calName.includes('22')) {
@@ -1159,21 +1160,21 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         company_name: String(company['name'] ?? ''),
         company_rut: String(company['vat'] ?? ''),
         company_address: String(company['street'] ?? ''),
-        company_commune: String(company['x_commune'] ?? company['city'] ?? ''),
+        company_commune: String(company['l10n_cl_commune'] ?? company['city'] ?? ''),
         company_city: String(company['city'] ?? ''),
         company_email: String(company['email'] ?? ''),
         company_logo: company['image_1920'] ? String(company['image_1920']) : undefined,
-        rep_legal_name: String(company['x_rep_legal_name'] ?? ''),
-        rep_legal_rut: String(company['x_rep_legal_rut'] ?? ''),
+        rep_legal_name: String(company['l10n_cl_rep_legal_name'] ?? ''),
+        rep_legal_rut: String(company['l10n_cl_rep_legal_rut'] ?? ''),
 
         // Employee
         employee_name: String(employee['name'] ?? ''),
         employee_rut: String(employee['identification_id'] ?? ''),
-        employee_nationality: countryRef ? countryRef[1] : String(employee['x_nationality'] ?? 'Chilena'),
+        employee_nationality: countryRef ? countryRef[1] : String(employee['l10n_cl_nationality'] ?? 'Chilena'),
         employee_marital: maritalMap[String(employee['marital'] ?? 'single')] ?? 'Soltero/a',
         employee_birthday: String(employee['birthday'] ?? ''),
-        employee_address: String(employee['x_private_address'] ?? employee['private_street'] ?? ''),
-        employee_commune: String(employee['x_private_commune'] ?? employee['private_city'] ?? ''),
+        employee_address: String(employee['l10n_cl_private_address'] ?? employee['private_street'] ?? ''),
+        employee_commune: String(employee['l10n_cl_private_commune'] ?? employee['private_city'] ?? ''),
         employee_email: String(employee['work_email'] ?? ''),
         employee_phone: String(employee['work_phone'] ?? ''),
         employee_afp: String(employee['x_afp'] ?? ''),
