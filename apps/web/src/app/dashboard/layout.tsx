@@ -77,6 +77,7 @@ const NAV: NavEntry[] = [
   // Direct items (bottom)
   { href: '/dashboard/contactos',     icon: Users,    label: 'Contactos' },
   { href: '/dashboard/productos',     icon: Tag,      label: 'Productos' },
+  { href: '/dashboard/empresa',       icon: Building2, label: 'Mi Empresa' },
   { href: '/dashboard/configuracion', icon: Settings, label: 'Config. SII' },
 ]
 
@@ -632,6 +633,7 @@ export default function DashboardLayout({
       '/dashboard/folios':           'Administración de Folios',
       '/dashboard/contactos':        'Contactos',
       '/dashboard/productos':        'Productos y Servicios',
+      '/dashboard/empresa':          'Mi Empresa',
       '/dashboard/configuracion':    'Configuración SII',
       '/dashboard/contabilidad':              'Panel Contable',
       '/dashboard/contabilidad/plan-cuentas': 'Plan de Cuentas',
