@@ -112,16 +112,11 @@ function NavLink({ item, collapsed, pathname, indent = false }: {
 }
 
 // ── Collapsible NavSection ───────────────────────────────────
-function NavSection({ section, icon: SectionIcon, items, collapsed, pathname }: {
+function NavSection({ section, icon: SectionIcon, items, collapsed, pathname, open, onToggle }: {
   section: string; icon: any; items: NavItem[]; collapsed: boolean; pathname: string
+  open: boolean; onToggle: () => void
 }) {
   const isActive = items.some(item => pathname === item.href || pathname.startsWith(`${item.href}/`))
-  const [open, setOpen] = useState(isActive)
-
-  // Auto-open when navigating into this section
-  useEffect(() => {
-    if (isActive) setOpen(true)
-  }, [isActive])
 
   if (collapsed) {
     return (
@@ -139,7 +134,7 @@ function NavSection({ section, icon: SectionIcon, items, collapsed, pathname }: 
   return (
     <div>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
         className={`
           flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm
           transition-all duration-150
@@ -182,6 +177,23 @@ interface SidebarProps {
 
 function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: SidebarProps) {
   const pathname = usePathname()
+
+  // Determine which section should be open based on current path
+  const getActiveSection = (): string | null => {
+    for (const entry of NAV) {
+      if (!isNavItem(entry) && entry.items.some(item => pathname === item.href || pathname.startsWith(`${item.href}/`))) {
+        return entry.section
+      }
+    }
+    return null
+  }
+  const [openSection, setOpenSection] = useState<string | null>(getActiveSection)
+
+  // Auto-open when navigating into a section
+  useEffect(() => {
+    const active = getActiveSection()
+    if (active) setOpenSection(active)
+  }, [pathname])
 
   const SIIIndicator = () => {
     const map = {
@@ -266,6 +278,8 @@ function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: Side
               items={entry.items}
               collapsed={collapsed}
               pathname={pathname}
+              open={openSection === entry.section}
+              onToggle={() => setOpenSection(openSection === entry.section ? null : entry.section)}
             />
           )
         })}
