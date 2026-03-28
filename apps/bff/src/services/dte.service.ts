@@ -132,7 +132,7 @@ export class DTEService {
         monto_total: this._calcTotal(input.items, input.tipo_dte),
         fecha_emision: input.items ? new Date().toISOString().slice(0, 10) : '',
         observaciones: input.observaciones,
-      }, { company_id: odooCompanyId, company_rut: companyContext.company_rut, company_name: companyContext.company_name }).catch(err => {
+      }, { company_id: odooCompanyId, company_rut: companyContext.company_rut }).catch(err => {
         logger.warn({ err, folio: result.folio }, 'Odoo sync failed — DTE was emitted successfully')
       })
     }
