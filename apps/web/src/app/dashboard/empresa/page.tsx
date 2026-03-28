@@ -1,28 +1,45 @@
 /**
  * CUENTAX — Configuracion de Empresa
  * Edit company name, RUT, address, logo, rep legal.
+ * Uses direct apiClient fetch (not SWR) to avoid stale cache after company switch.
  */
 
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
-import { useCompany, useUpdateCompany } from '@/hooks/use-remuneraciones'
+import { useUpdateCompany } from '@/hooks/use-remuneraciones'
 import { useAuthStore } from '@/stores/auth.store'
+import { apiClient } from '@/lib/api-client'
 
 export default function EmpresaPage() {
-  const { empresa, isLoading, error, refresh } = useCompany()
-  const companyId = useAuthStore(s => s.user?.company_id)
-
-  // Force re-fetch when page mounts or company changes to avoid stale SWR cache
-  useEffect(() => {
-    const timer = setTimeout(() => refresh(), 500)
-    return () => clearTimeout(timer)
-  }, [companyId, refresh])
   const { update } = useUpdateCompany()
+  const companyId = useAuthStore(s => s.user?.company_id)
+  const [empresa, setEmpresa] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Direct fetch - bypasses SWR cache entirely
+  const fetchEmpresa = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const { data } = await apiClient.get('/api/v1/remuneraciones/empresa')
+      setEmpresa(data?.empresa ?? null)
+    } catch (err: any) {
+      setError(err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Fetch on mount and when companyId changes
+  useEffect(() => {
+    fetchEmpresa()
+  }, [companyId, fetchEmpresa])
 
   const [form, setForm] = useState({
     name: '',
@@ -36,7 +53,7 @@ export default function EmpresaPage() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
 
-  // Pre-fill form when company data loads - reset when empresa changes (company switch)
+  // Pre-fill form when empresa loads or changes
   const [loadedId, setLoadedId] = useState<number | null>(null)
   useEffect(() => {
     const currentId = empresa?.id ?? null
@@ -52,6 +69,8 @@ export default function EmpresaPage() {
       })
       if (empresa.logo && empresa.logo !== false) {
         setLogoPreview(`data:image/png;base64,${empresa.logo}`)
+      } else {
+        setLogoPreview(null)
       }
       setLoadedId(currentId)
     }
@@ -64,7 +83,6 @@ export default function EmpresaPage() {
     reader.onload = () => {
       const result = reader.result as string
       setLogoPreview(result)
-      // Extract base64 without the data:image/... prefix
       setLogoBase64(result.split(',')[1])
     }
     reader.readAsDataURL(file)
@@ -79,7 +97,7 @@ export default function EmpresaPage() {
         data.logo = logoBase64
       }
       await update(data)
-      refresh()
+      await fetchEmpresa()
       setMsg({ type: 'ok', text: 'Empresa actualizada correctamente' })
       setLogoBase64(null)
     } catch {
