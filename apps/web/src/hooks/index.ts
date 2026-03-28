@@ -173,7 +173,7 @@ export function useBalanceSheet(year: number, month: number) {
     `/api/v1/contabilidad/balance?year=${year}&mes=${month}`, fetcher,
   )
   const isError = error || data?.source === 'error'
-  return { balance: isError ? null : data, isLoading, error: isError ? (error ?? new Error('Odoo error')) : null }
+  return { balance: isError ? null : data, isLoading, error: isError ? (error ?? new Error(data?.message ?? 'Error cargando balance')) : null }
 }
 
 /** Estado de Resultados */
@@ -182,7 +182,7 @@ export function useIncomeStatement(year: number, month: number) {
     `/api/v1/contabilidad/resultados?year=${year}&mes=${month}`, fetcher,
   )
   const isError = error || data?.source === 'error'
-  return { resultados: isError ? null : data, isLoading, error: isError ? (error ?? new Error('Odoo error')) : null }
+  return { resultados: isError ? null : data, isLoading, error: isError ? (error ?? new Error(data?.message ?? 'Error cargando estado de resultados')) : null }
 }
 
 /** Conciliación Bancaria */

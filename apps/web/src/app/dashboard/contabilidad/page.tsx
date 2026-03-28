@@ -295,7 +295,7 @@ export default function ContabilidadDashboardPage() {
                 <div>
                   <StatementRow label="Costo de Ventas" amount={resultados.gastos.costo_ventas} negative />
                   <StatementRow label="Gastos Administrativos" amount={resultados.gastos.administrativos} negative />
-                  <StatementRow label="Gastos Financieros" amount={resultados.gastos.financieros} negative />
+                  <StatementRow label="Depreciación" amount={resultados.gastos.depreciacion} negative />
                   <StatementRow label="Total Gastos" amount={resultados.gastos.total} bold negative />
                 </div>
               </div>

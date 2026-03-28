@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth.store'
 import { apiClient } from '@/lib/api-client'
+import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard, FileText, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
@@ -21,10 +22,10 @@ import {
 } from 'lucide-react'
 
 // ── Navigation structure ─────────────────────────────────────
-type NavItem = { href: string; icon: any; label: string }
+type NavItem = { href: string; icon: LucideIcon; label: string }
 type NavEntry =
   | NavItem
-  | { section: string; icon: any; collapsible: true; items: NavItem[] }
+  | { section: string; icon: LucideIcon; collapsible: true; items: NavItem[] }
 
 const NAV: NavEntry[] = [
   // Direct items
@@ -116,7 +117,7 @@ function NavLink({ item, collapsed, pathname, indent = false }: {
 
 // ── Collapsible NavSection ───────────────────────────────────
 function NavSection({ section, icon: SectionIcon, items, collapsed, pathname, open, onToggle }: {
-  section: string; icon: any; items: NavItem[]; collapsed: boolean; pathname: string
+  section: string; icon: LucideIcon; items: NavItem[]; collapsed: boolean; pathname: string
   open: boolean; onToggle: () => void
 }) {
   const isActive = items.some(item => pathname === item.href || pathname.startsWith(`${item.href}/`))
@@ -158,7 +159,7 @@ function NavSection({ section, icon: SectionIcon, items, collapsed, pathname, op
         />
       </button>
 
-      <div className={`overflow-hidden transition-all duration-200 ${open ? 'max-h-[500px] opacity-100 mt-0.5' : 'max-h-0 opacity-0'}`}>
+      <div className={`overflow-hidden transition-all duration-200 ${open ? 'max-h-[800px] opacity-100 mt-0.5' : 'max-h-0 opacity-0'}`}>
         <div className="space-y-0.5">
           {items.map((item) => (
             <NavLink key={item.href} item={item} collapsed={false} pathname={pathname} indent />
@@ -185,12 +186,17 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
   })
 
   // Fetch companies from API
-  useEffect(() => {
+  const fetchCompanies = () => {
     if (!user || !accessToken) return
     apiClient.get('/api/v1/companies').then(res => {
       setCompanyList(res.data?.companies ?? [])
-    }).catch(() => {})
-  }, [user?.uid, accessToken, showCreate])
+    }).catch(err => {
+      console.warn('Failed to fetch companies:', err)
+    })
+  }
+  useEffect(() => {
+    fetchCompanies()
+  }, [user?.uid, accessToken])
 
   // All hooks MUST be above this line
   if (collapsed || !user) return null
@@ -273,7 +279,7 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
       await apiClient.post('/api/v1/companies', form)
       setShowCreate(false)
       setForm({ rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '' })
-      window.location.reload()
+      fetchCompanies()
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'Error creando empresa'
       alert(msg)

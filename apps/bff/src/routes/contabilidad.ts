@@ -35,7 +35,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       return reply.send({ source: 'odoo', journals: mapped })
     } catch (err) {
       logger.error({ err }, 'Error fetching journals from Odoo')
-      return reply.send({ source: 'error', journals: [] })
+      return reply.send({ source: 'error', journals: [], message: 'Error cargando diarios contables' })
     }
   })
 
@@ -95,6 +95,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         total: 0,
         page,
         limit,
+        message: 'Error cargando plan de cuentas',
       })
     }
   })
@@ -184,6 +185,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         total: 0,
         page,
         limit,
+        message: 'Error cargando libro diario',
       })
     }
   })
@@ -224,6 +226,24 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
     ]
 
     try {
+      // Calculate opening balance from all prior movements
+      const priorDomain: any[] = [
+        ['account_id', '=', accountId],
+        ['date', '<', desde],
+        ['company_id', '=', user.company_id],
+        ['parent_state', '=', 'posted'],
+      ]
+      const priorGroups = await odooAccountingAdapter.readGroup(
+        'account.move.line',
+        priorDomain,
+        ['debit:sum', 'credit:sum'],
+        ['account_id'],
+      )
+      const priorData = (priorGroups as any[])[0]
+      const saldo_inicial = priorData
+        ? (priorData.debit ?? 0) - (priorData.credit ?? 0)
+        : 0
+
       const movimientos = await odooAccountingAdapter.searchRead(
         'account.move.line',
         domain,
@@ -235,15 +255,12 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       const cuentaData = await odooAccountingAdapter.searchRead(
         'account.account',
         [['id', '=', accountId]],
-        ['code', 'name'],
+        ['code', 'name', 'account_type'],
         { limit: 1 },
       )
       const raw = (cuentaData as any[])[0] ?? { code: '', name: '', account_type: '' }
       const cuenta = { codigo: raw.code, nombre: raw.name, tipo: raw.account_type }
-
-      // Calculate running balance
-      let saldo_inicial = 0
-      let running = saldo_inicial
+      let running: number = saldo_inicial
       const movimientosConSaldo = (movimientos as any[]).map((m: any) => {
         const debe = m.debit ?? 0
         const haber = m.credit ?? 0
@@ -281,6 +298,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         saldo_final: 0,
         page,
         limit,
+        message: 'Error cargando libro mayor',
       })
     }
   })
@@ -354,7 +372,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
           } else {
             pasivoCorriente += balance
           }
-        } else if (tipo === 'equity') {
+        } else if (tipo.includes('equity')) {
           patrimonio += balance
         } else if (tipo.includes('income') || tipo.includes('expense')) {
           resultado += balance
@@ -395,6 +413,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         pasivos:   { corrientes: 0, no_corrientes: 0, total: 0 },
         patrimonio: { capital: 0, resultado: 0, total: 0 },
         cuadra: false,
+        message: 'Error cargando balance general',
       })
     }
   })
@@ -450,7 +469,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       let otrosIngresos   = 0
       let costoVentas     = 0
       let administrativos = 0
-      let financieros     = 0
+      let depreciacion    = 0
 
       for (const g of groups as any[]) {
         const aid     = Array.isArray(g.account_id) ? g.account_id[0] : g.account_id
@@ -464,14 +483,14 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         } else if (tipo === 'expense_direct_cost') {
           costoVentas += Math.abs(balance)
         } else if (tipo === 'expense_depreciation') {
-          financieros += Math.abs(balance)
+          depreciacion += Math.abs(balance)
         } else if (tipo === 'expense') {
           administrativos += Math.abs(balance)
         }
       }
 
       const totalIngresos  = ventas + otrosIngresos
-      const totalGastos    = costoVentas + administrativos + financieros
+      const totalGastos    = costoVentas + administrativos + depreciacion
       const utilidadBruta  = ventas - costoVentas
       const utilidadNeta   = totalIngresos - totalGastos
 
@@ -486,7 +505,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         gastos: {
           costo_ventas:   costoVentas,
           administrativos,
-          financieros,
+          depreciacion,
           total:          totalGastos,
         },
         resultado: {
@@ -500,8 +519,9 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         source: 'error',
         periodo: { year, mes },
         ingresos: { ventas: 0, otros: 0, total: 0 },
-        gastos:   { costo_ventas: 0, administrativos: 0, financieros: 0, total: 0 },
+        gastos:   { costo_ventas: 0, administrativos: 0, depreciacion: 0, total: 0 },
         resultado: { utilidad_bruta: 0, utilidad_neta: 0 },
+        message: 'Error cargando estado de resultados',
       })
     }
   })
@@ -591,6 +611,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         total_sin_conciliar: 0,
         page,
         limit,
+        message: 'Error cargando conciliación bancaria',
       })
     }
   })

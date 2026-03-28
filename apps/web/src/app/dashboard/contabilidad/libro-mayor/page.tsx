@@ -319,7 +319,7 @@ export default function LibroMayorPage() {
           {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
         </select>
         <select value={year} onChange={e => setYear(Number(e.target.value))} className="input-field py-2 text-sm w-auto">
-          {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
         </select>
       </div>
 

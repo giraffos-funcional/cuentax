@@ -117,7 +117,7 @@ export default function ResultadosPage() {
             onChange={e => setYear(Number(e.target.value))}
             className="input-field py-2 text-sm w-auto"
           >
-            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="btn-secondary flex items-center gap-2" onClick={() => window.print()}>
             <Printer size={13} /> Imprimir
@@ -132,7 +132,7 @@ export default function ResultadosPage() {
                 { seccion: 'Ingresos', concepto: 'Total Ingresos',        monto: resultados.ingresos.total },
                 { seccion: 'Gastos',   concepto: 'Costo de ventas',       monto: resultados.gastos.costo_ventas },
                 { seccion: 'Gastos',   concepto: 'Gastos administrativos', monto: resultados.gastos.administrativos },
-                { seccion: 'Gastos',   concepto: 'Gastos financieros',    monto: resultados.gastos.financieros },
+                { seccion: 'Gastos',   concepto: 'Depreciación',           monto: resultados.gastos.depreciacion },
                 { seccion: 'Gastos',   concepto: 'Total Gastos',          monto: resultados.gastos.total },
                 { seccion: 'Resultado', concepto: 'Utilidad bruta',       monto: resultados.resultado.utilidad_bruta },
                 { seccion: 'Resultado', concepto: 'Utilidad neta',        monto: resultados.resultado.utilidad_neta },
@@ -146,7 +146,7 @@ export default function ResultadosPage() {
 
       {/* Content */}
       {isLoading && <LoadingState />}
-      {error && <ErrorState message={typeof error === 'string' ? error : undefined} />}
+      {error && <ErrorState message={error?.message} />}
 
       {!isLoading && !error && !resultados && (
         <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
@@ -177,7 +177,7 @@ export default function ResultadosPage() {
             <div className="px-5 py-1">
               <StatementRow label="Costo de ventas" amount={resultados.gastos.costo_ventas} indent />
               <StatementRow label="Gastos administrativos" amount={resultados.gastos.administrativos} indent />
-              <StatementRow label="Gastos financieros" amount={resultados.gastos.financieros} indent />
+              <StatementRow label="Depreciación" amount={resultados.gastos.depreciacion} indent />
             </div>
             <div className="flex justify-between items-center px-5 py-3 bg-[var(--cx-bg-elevated)] border-t border-[var(--cx-border-light)]">
               <span className="text-sm font-bold text-[var(--cx-text-primary)]">Total Gastos</span>

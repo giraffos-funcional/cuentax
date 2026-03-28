@@ -129,7 +129,7 @@ export default function BalancePage() {
             onChange={e => setYear(Number(e.target.value))}
             className="input-field py-2 text-sm w-auto"
           >
-            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+            {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="btn-secondary flex items-center gap-2" onClick={() => window.print()}>
             <Printer size={13} /> Imprimir
@@ -158,7 +158,7 @@ export default function BalancePage() {
 
       {/* Content */}
       {isLoading && <LoadingState />}
-      {error && <ErrorState message={typeof error === 'string' ? error : undefined} />}
+      {error && <ErrorState message={error?.message} />}
 
       {!isLoading && !error && !balance && (
         <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
