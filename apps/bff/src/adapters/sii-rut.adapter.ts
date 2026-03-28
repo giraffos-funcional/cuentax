@@ -5,6 +5,7 @@
  */
 
 import axios from 'axios'
+import { config } from '@/core/config'
 import { logger } from '@/core/logger'
 
 export interface SIIContribuyenteData {
@@ -35,6 +36,23 @@ class SIIRutAdapter {
     const dv = cleaned.slice(-1)
     const formattedRut = `${body}-${dv}`
 
+    // Try SII Bridge first (Python, better session handling)
+    try {
+      const bridgeUrl = config.SII_BRIDGE_URL.replace(/\/api\/v1$/, '')
+      const response = await axios.get(
+        `${bridgeUrl}/api/v1/rut/lookup/${encodeURIComponent(formattedRut)}`,
+        { timeout: 15_000 },
+      )
+      const data = response.data
+      if (data.found) {
+        logger.info({ rut: formattedRut, razon_social: data.razon_social }, 'SII lookup via bridge succeeded')
+        return data as SIIContribuyenteData
+      }
+    } catch (err) {
+      logger.debug({ err }, 'SII Bridge lookup failed, trying direct')
+    }
+
+    // Fallback: direct scrape
     try {
       // Step 1: Get session cookie from SII
       const session = await axios.get('https://www2.sii.cl/stc/noauthz', {
