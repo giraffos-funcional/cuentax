@@ -28,7 +28,8 @@ import { reportesRoutes } from '@/routes/reportes'
 import { dteStatusPoller } from '@/jobs/dte-status-poller'
 
 // DB
-import { pingDB } from '@/db/client'
+import { pingDB, db } from '@/db/client'
+import { sql } from 'drizzle-orm'
 
 // Middleware
 import { authGuard } from '@/middlewares/auth-guard'
@@ -97,6 +98,16 @@ async function bootstrap() {
   // ── Check DB ──────────────────────────────────────────────
   const dbAlive = await pingDB()
   logger.info(dbAlive ? '✅ PostgreSQL conectado' : '⚠️  PostgreSQL no disponible (usando mock DB)')
+
+  // ── Auto-migration: ensure schema is up to date ──────────
+  if (dbAlive) {
+    try {
+      await db.execute(sql`ALTER TABLE "dte_documents" ADD COLUMN IF NOT EXISTS "odoo_move_id" integer`)
+      logger.info('✅ Schema migration check complete')
+    } catch (migErr) {
+      logger.warn({ migErr }, 'Schema migration check failed — non-critical')
+    }
+  }
 
   // ── API Routes ────────────────────────────────────────────
   await fastify.register(authRoutes,     { prefix: '/api/v1/auth' })
