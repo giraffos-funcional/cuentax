@@ -17,7 +17,7 @@ import {
   Building2, Bell, Search, Menu,
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
-  UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4
+  UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity
 } from 'lucide-react'
 
 // ── Navigation structure ─────────────────────────────────────
@@ -70,6 +70,7 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/remuneraciones/ausencias',     icon: CalendarDays,  label: 'Ausencias' },
       { href: '/dashboard/remuneraciones/contratos',     icon: Briefcase,     label: 'Contratos' },
       { href: '/dashboard/remuneraciones/asistencia',    icon: Clock4,        label: 'Asistencia' },
+      { href: '/dashboard/remuneraciones/indicadores',   icon: Activity,      label: 'Indicadores' },
     ],
   },
 
@@ -528,6 +529,7 @@ export default function DashboardLayout({
       '/dashboard/remuneraciones/ausencias':     'Ausencias y Vacaciones',
       '/dashboard/remuneraciones/contratos':     'Contratos',
       '/dashboard/remuneraciones/asistencia':    'Asistencia',
+      '/dashboard/remuneraciones/indicadores':   'Indicadores Previsionales',
     }
     return titles[pathname] ?? 'CUENTAX'
   }
