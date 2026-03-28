@@ -295,6 +295,7 @@ export default function ContactosPage() {
   const { crear, isLoading: isCreating } = useCreateContact()
   const { update } = useUpdateContact()
   const { remove } = useDeleteContact()
+  const [isEditing, setIsEditing] = useState(false)
 
   // Handlers
   const handleCreate = async (data: ContactFormData) => {
@@ -304,8 +305,15 @@ export default function ContactosPage() {
 
   const handleEdit = async (data: ContactFormData) => {
     if (!editingContact) return
-    await update(editingContact.id, data)
-    setEditingContact(null)
+    setIsEditing(true)
+    try {
+      await update(editingContact.id, data)
+      setEditingContact(null)
+    } catch (err) {
+      console.error('Error updating contact:', err)
+    } finally {
+      setIsEditing(false)
+    }
   }
 
   const handleDelete = async () => {
@@ -484,7 +492,7 @@ export default function ContactosPage() {
         <ContactModal
           title="Editar Contacto"
           initial={editInitial}
-          isSaving={false}
+          isSaving={isEditing}
           onSave={handleEdit}
           onClose={() => setEditingContact(null)}
         />

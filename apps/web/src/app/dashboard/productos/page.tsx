@@ -357,20 +357,29 @@ export default function ProductosPage() {
     setForm(EMPTY_FORM)
   }
 
+  const [isEditSaving, setIsEditSaving] = useState(false)
+
   async function handleEdit() {
     if (!editProduct || !form.nombre.trim() || !form.precio) return
-    const precio = Number(form.precio)
-    await update(editProduct.id, {
-      codigo:      form.codigo || undefined,
-      nombre:      form.nombre.trim(),
-      descripcion: form.descripcion || undefined,
-      precio,
-      unidad:      form.unidad,
-      exento:      form.exento,
-      categoria:   form.categoria || undefined,
-    })
-    setEditProduct(null)
-    setForm(EMPTY_FORM)
+    setIsEditSaving(true)
+    try {
+      const precio = Number(form.precio)
+      await update(editProduct.id, {
+        codigo:      form.codigo || undefined,
+        nombre:      form.nombre.trim(),
+        descripcion: form.descripcion || undefined,
+        precio,
+        unidad:      form.unidad,
+        exento:      form.exento,
+        categoria:   form.categoria || undefined,
+      })
+      setEditProduct(null)
+      setForm(EMPTY_FORM)
+    } catch (err) {
+      console.error('Error updating product:', err)
+    } finally {
+      setIsEditSaving(false)
+    }
   }
 
   async function handleDelete() {
@@ -545,7 +554,7 @@ export default function ProductosPage() {
         <ProductModal
           title="Editar Producto"
           form={form}
-          isSaving={false}
+          isSaving={isEditSaving}
           onChange={handleFormChange}
           onSubmit={handleEdit}
           onClose={() => { setEditProduct(null); setForm(EMPTY_FORM) }}
