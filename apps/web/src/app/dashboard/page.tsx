@@ -1,11 +1,20 @@
 /**
  * CUENTAX — Dashboard Principal (Light Theme)
+ * Connected to real data via useStats, useDTEs hooks.
  */
 
 'use client'
 
 import { TrendingUp, TrendingDown, FileText, CheckCircle2,
-         Clock, AlertTriangle, ArrowRight, Zap } from 'lucide-react'
+         Clock, AlertTriangle, ArrowRight, Zap, Loader2 } from 'lucide-react'
+import { useStats, useDTEs, useCAFStatus } from '@/hooks'
+
+const formatCLP = (n: number) =>
+  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+
+const TIPO_LABELS: Record<number, string> = {
+  33: 'Factura', 39: 'Boleta', 41: 'B. No Afecta', 56: 'Nota D.', 61: 'Nota C.', 110: 'Fac. Export',
+}
 
 // ── KPI Card ──────────────────────────────────────────────────
 interface KPICardProps {
@@ -63,6 +72,7 @@ function KPICard({ label, value, subValue, trend, trendValue, accent = 'violet',
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string, cls: string }> = {
     borrador:   { label: 'Borrador',   cls: 'badge-dte-draft' },
+    firmado:    { label: 'Firmado',    cls: 'badge-dte-sent' },
     enviado:    { label: 'Enviado',    cls: 'badge-dte-sent' },
     aceptado:   { label: 'Aceptado',  cls: 'badge-dte-accepted' },
     rechazado:  { label: 'Rechazado', cls: 'badge-dte-rejected' },
@@ -71,15 +81,6 @@ function StatusBadge({ status }: { status: string }) {
   const { label, cls } = map[status] ?? map.borrador
   return <span className={cls}>{label}</span>
 }
-
-// ── Recent Activity ───────────────────────────────────────────
-const MOCK_DOCUMENTS = [
-  { folio: 1042, tipo: 'Factura', receptor: 'Empresa ABC Ltda.', monto: '$1.250.000', status: 'aceptado', fecha: 'Hoy 14:32' },
-  { folio: 1041, tipo: 'Boleta',  receptor: 'Cliente Persona',  monto: '$45.900',    status: 'aceptado', fecha: 'Hoy 11:15' },
-  { folio: 1040, tipo: 'Factura', receptor: 'Tech Solutions SpA', monto: '$890.000', status: 'enviado',  fecha: 'Ayer 18:00' },
-  { folio: 1039, tipo: 'Nota C.', receptor: 'Empresa ABC Ltda.', monto: '$125.000',  status: 'aceptado', fecha: 'Ayer 09:30' },
-  { folio: 1038, tipo: 'Factura', receptor: 'Import & Co.',     monto: '$2.100.000', status: 'rechazado',fecha: '24 Mar' },
-]
 
 // ── Alerta SII ────────────────────────────────────────────────
 function SIIAlert() {
@@ -129,6 +130,26 @@ function QuickActions() {
 
 // ── Page ──────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const { stats, isLoading: statsLoading } = useStats()
+  const { documentos, isLoading: dtesLoading } = useDTEs({ page: 1 })
+  const { cafs } = useCAFStatus()
+
+  // Extract KPI values from real data
+  const totalEmitidos = stats?.total_emitidos ?? stats?.por_estado
+    ? Object.values(stats?.por_estado ?? {}).reduce((s: number, v: any) => s + (v.count ?? 0), 0)
+    : 0
+  const totalAceptados = stats?.total_aceptados ?? stats?.por_estado?.aceptado?.count ?? 0
+  const ingresosMes = stats?.total_aceptados ?? stats?.por_estado?.aceptado?.total ?? 0
+  const tasaExito = totalEmitidos > 0 ? ((totalAceptados / totalEmitidos) * 100).toFixed(1) : '0'
+  const pendientes = totalEmitidos - totalAceptados
+
+  // Folios from CAF
+  const folioFactura = cafs.find((c: any) => c.tipo_dte === 33)
+  const foliosDisp = folioFactura?.folios_disponibles ?? 0
+
+  // Recent documents (last 5)
+  const recentDocs = documentos.slice(0, 5)
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Alert SII */}
@@ -138,37 +159,33 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KPICard
           label="Ingresos del Mes"
-          value="$12.450.000"
+          value={statsLoading ? '...' : formatCLP(ingresosMes)}
           subValue="IVA incluido"
-          trend="up"
-          trendValue="+18% vs mes anterior"
           accent="violet"
           icon={<TrendingUp size={16} />}
         />
         <KPICard
           label="DTEs Emitidos"
-          value="87"
+          value={statsLoading ? '...' : String(totalEmitidos)}
           subValue="Este mes"
-          trend="up"
-          trendValue="+12 vs mes anterior"
           accent="blue"
           icon={<FileText size={16} />}
         />
         <KPICard
           label="Aceptados SII"
-          value="84"
-          subValue="96.5% tasa de éxito"
-          trend="up"
-          trendValue="3 pendientes"
+          value={statsLoading ? '...' : String(totalAceptados)}
+          subValue={`${tasaExito}% tasa de éxito`}
+          trend={pendientes > 0 ? 'neutral' : 'up'}
+          trendValue={pendientes > 0 ? `${pendientes} pendientes` : 'Todo al día'}
           accent="emerald"
           icon={<CheckCircle2 size={16} />}
         />
         <KPICard
           label="Folios Disponibles"
-          value="213"
+          value={String(foliosDisp)}
           subValue="Tipo 33 — Factura"
-          trend="down"
-          trendValue="⚠ Quedan < 300"
+          trend={foliosDisp < 300 ? 'down' : 'neutral'}
+          trendValue={foliosDisp < 300 ? `⚠ Quedan < 300` : 'OK'}
           accent="amber"
           icon={<Clock size={16} />}
         />
@@ -189,32 +206,43 @@ export default function DashboardPage() {
           </a>
         </div>
 
-        <div className="divide-y divide-slate-100">
-          {MOCK_DOCUMENTS.map((doc) => (
-            <div
-              key={doc.folio}
-              className="flex items-center gap-4 px-6 py-3.5 hover:bg-slate-50 transition-colors cursor-pointer group"
-            >
-              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                <FileText size={13} className="text-slate-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-800">
-                    {doc.tipo} #{doc.folio}
-                  </span>
-                  <StatusBadge status={doc.status} />
+        {dtesLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={18} className="animate-spin text-violet-500" />
+            <span className="ml-2 text-sm text-slate-400">Cargando documentos...</span>
+          </div>
+        ) : recentDocs.length === 0 ? (
+          <div className="px-6 py-8 text-center text-sm text-slate-400">
+            No hay documentos emitidos aún
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {recentDocs.map((doc: any) => (
+              <div
+                key={doc.id ?? doc.folio}
+                className="flex items-center gap-4 px-6 py-3.5 hover:bg-slate-50 transition-colors cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                  <FileText size={13} className="text-slate-400" />
                 </div>
-                <p className="text-xs text-slate-400 truncate mt-0.5">{doc.receptor}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-800">
+                      {TIPO_LABELS[doc.tipo_dte] ?? `Tipo ${doc.tipo_dte}`} #{doc.folio ?? '-'}
+                    </span>
+                    <StatusBadge status={doc.estado} />
+                  </div>
+                  <p className="text-xs text-slate-400 truncate mt-0.5">{doc.razon_social_receptor}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-semibold text-slate-800">{formatCLP(doc.monto_total)}</p>
+                  <p className="text-[11px] text-slate-400">{doc.fecha_emision}</p>
+                </div>
+                <ArrowRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-sm font-semibold text-slate-800">{doc.monto}</p>
-                <p className="text-[11px] text-slate-400">{doc.fecha}</p>
-              </div>
-              <ArrowRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
