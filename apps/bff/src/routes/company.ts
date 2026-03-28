@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { authService } from '@/services/auth.service'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
+import { siiRutAdapter } from '@/adapters/sii-rut.adapter'
 import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 import { logger } from '@/core/logger'
@@ -196,6 +197,18 @@ export async function companyRoutes(fastify: FastifyInstance) {
       ...created,
       odoo_company_id: odooCompanyId,
     })
+  })
+
+  // GET /lookup-rut/:rut — lookup RUT in SII
+  fastify.get('/lookup-rut/:rut', async (req, reply) => {
+    const { rut } = req.params as { rut: string }
+
+    if (!validateRut(rut)) {
+      return reply.status(400).send({ error: 'invalid_rut', message: 'RUT inválido' })
+    }
+
+    const data = await siiRutAdapter.lookup(rut)
+    return reply.send(data)
   })
 
   // GET /validate-rut/:rut — validate a RUT

@@ -218,12 +218,35 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     return dv === expected
   }
 
+  const [lookingUp, setLookingUp] = useState(false)
+
   const handleRutChange = (value: string) => {
     setForm(f => ({ ...f, rut: value }))
     if (value.length >= 8) {
       setRutError(validateRut(value) ? '' : 'RUT inválido — dígito verificador incorrecto')
     } else {
       setRutError('')
+    }
+  }
+
+  const handleLookupSII = async () => {
+    if (!form.rut.trim() || !validateRut(form.rut)) return
+    setLookingUp(true)
+    try {
+      const { data } = await apiClient.get(`/api/v1/companies/lookup-rut/${encodeURIComponent(form.rut)}`)
+      if (data.found) {
+        setForm(f => ({
+          ...f,
+          razon_social: data.razon_social || f.razon_social,
+          giro: data.giro || f.giro,
+        }))
+      } else {
+        setRutError('RUT no encontrado en el SII')
+      }
+    } catch {
+      setRutError('Error consultando SII')
+    } finally {
+      setLookingUp(false)
     }
   }
 
@@ -304,7 +327,17 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT *</label>
-                  <input value={form.rut} onChange={e => handleRutChange(e.target.value)} placeholder="76.543.210-K" className={`input-field text-sm ${rutError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : ''}`} />
+                  <div className="flex gap-2">
+                    <input value={form.rut} onChange={e => handleRutChange(e.target.value)} placeholder="76.543.210-K" className={`input-field text-sm flex-1 ${rutError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : ''}`} />
+                    <button
+                      type="button"
+                      onClick={handleLookupSII}
+                      disabled={lookingUp || !form.rut.trim() || !!rutError}
+                      className="btn-secondary text-xs px-3 py-2 whitespace-nowrap shrink-0"
+                    >
+                      {lookingUp ? '...' : 'Buscar SII'}
+                    </button>
+                  </div>
                   {rutError && <p className="text-[11px] text-[var(--cx-status-error-text)] mt-0.5">{rutError}</p>}
                 </div>
                 <div>

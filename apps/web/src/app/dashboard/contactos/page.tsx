@@ -7,6 +7,7 @@
 'use client'
 
 import { useState } from 'react'
+import { apiClient } from '@/lib/api-client'
 import {
   Search, Plus, Building2, ArrowRight,
   Edit, Trash2, Phone, Mail, Loader2, AlertCircle, X,
@@ -87,9 +88,26 @@ function ContactModal({
   onClose: () => void
 }) {
   const [form, setForm] = useState<ContactFormData>(initial)
+  const [lookingUp, setLookingUp] = useState(false)
 
   const set = (field: keyof ContactFormData, value: string | boolean) =>
     setForm(prev => ({ ...prev, [field]: value }))
+
+  const handleLookupSII = async () => {
+    if (!form.rut.trim()) return
+    setLookingUp(true)
+    try {
+      const { data } = await apiClient.get(`/api/v1/companies/lookup-rut/${encodeURIComponent(form.rut)}`)
+      if (data.found) {
+        setForm(f => ({
+          ...f,
+          razon_social: data.razon_social || f.razon_social,
+          giro: data.giro || f.giro,
+        }))
+      }
+    } catch {}
+    finally { setLookingUp(false) }
+  }
 
   const handleSubmit = async () => {
     if (!form.rut.trim() || !form.razon_social.trim()) return
@@ -114,12 +132,22 @@ function ContactModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT *</label>
-              <input
-                value={form.rut}
-                onChange={e => set('rut', e.target.value)}
-                placeholder="12.345.678-9"
-                className="input-field text-sm"
-              />
+              <div className="flex gap-2">
+                <input
+                  value={form.rut}
+                  onChange={e => set('rut', e.target.value)}
+                  placeholder="12.345.678-9"
+                  className="input-field text-sm flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={handleLookupSII}
+                  disabled={lookingUp || !form.rut.trim()}
+                  className="btn-secondary text-xs px-2 py-1.5 whitespace-nowrap shrink-0"
+                >
+                  {lookingUp ? '...' : 'SII'}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razón Social *</label>
