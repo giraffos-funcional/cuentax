@@ -1,17 +1,17 @@
 /**
  * CUENTAX — Dashboard Layout (Light Theme)
- * Clean, professional sidebar with light surfaces.
+ * Sidebar with collapsible accordion sections to reduce visual clutter.
  */
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth.store'
 import { apiClient } from '@/lib/api-client'
 import {
-  LayoutDashboard, FileText, ArrowUpDown, BookOpen,
+  LayoutDashboard, FileText, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Building2, Bell, Search, Menu,
@@ -20,19 +20,32 @@ import {
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4
 } from 'lucide-react'
 
-const NAV_ITEMS = [
+// ── Navigation structure ─────────────────────────────────────
+type NavItem = { href: string; icon: any; label: string }
+type NavEntry =
+  | NavItem
+  | { section: string; icon: any; collapsible: true; items: NavItem[] }
+
+const NAV: NavEntry[] = [
+  // Direct items
+  { href: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/dashboard/emitir', icon: Send,            label: 'Emitir DTE' },
+
+  // Collapsible sections
   {
-    section: 'Principal',
+    section: 'Documentos',
+    icon: BookOpen,
+    collapsible: true,
     items: [
-      { href: '/dashboard',             icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/dashboard/emitir',      icon: Send,            label: 'Emitir DTE' },
-      { href: '/dashboard/documentos',  icon: BookOpen,        label: 'Documentos' },
-      { href: '/dashboard/cotizaciones',icon: FileText,        label: 'Cotizaciones' },
-      { href: '/dashboard/anulaciones', icon: FileX,           label: 'Anulaciones' },
+      { href: '/dashboard/documentos',   icon: FileText, label: 'Emitidos' },
+      { href: '/dashboard/cotizaciones', icon: FileText, label: 'Cotizaciones' },
+      { href: '/dashboard/anulaciones',  icon: FileX,    label: 'Anulaciones' },
     ],
   },
   {
     section: 'Contabilidad',
+    icon: BarChart3,
+    collapsible: true,
     items: [
       { href: '/dashboard/reportes',                        icon: BarChart3,      label: 'Reportes' },
       { href: '/dashboard/contabilidad/plan-cuentas',       icon: ListTree,       label: 'Plan de Cuentas' },
@@ -46,31 +59,119 @@ const NAV_ITEMS = [
   },
   {
     section: 'Remuneraciones',
+    icon: UserCircle,
+    collapsible: true,
     items: [
-      { href: '/dashboard/remuneraciones',              icon: UserCircle,    label: 'Panel RRHH' },
-      { href: '/dashboard/remuneraciones/empleados',    icon: Users,         label: 'Empleados' },
+      { href: '/dashboard/remuneraciones',               icon: UserCircle,    label: 'Panel RRHH' },
+      { href: '/dashboard/remuneraciones/empleados',     icon: Users,         label: 'Empleados' },
       { href: '/dashboard/remuneraciones/liquidaciones', icon: Receipt,       label: 'Liquidaciones' },
-      { href: '/dashboard/remuneraciones/nominas',      icon: ClipboardList, label: 'Nóminas' },
-      { href: '/dashboard/remuneraciones/ausencias',    icon: CalendarDays,  label: 'Ausencias' },
-      { href: '/dashboard/remuneraciones/contratos',    icon: Briefcase,     label: 'Contratos' },
-      { href: '/dashboard/remuneraciones/asistencia',   icon: Clock4,        label: 'Asistencia' },
+      { href: '/dashboard/remuneraciones/nominas',       icon: ClipboardList, label: 'Nóminas' },
+      { href: '/dashboard/remuneraciones/ausencias',     icon: CalendarDays,  label: 'Ausencias' },
+      { href: '/dashboard/remuneraciones/contratos',     icon: Briefcase,     label: 'Contratos' },
+      { href: '/dashboard/remuneraciones/asistencia',    icon: Clock4,        label: 'Asistencia' },
     ],
   },
-  {
-    section: 'Maestros',
-    items: [
-      { href: '/dashboard/contactos', icon: Users, label: 'Contactos' },
-      { href: '/dashboard/productos', icon: Tag,   label: 'Productos' },
-    ],
-  },
-  {
-    section: 'Sistema',
-    items: [
-      { href: '/dashboard/configuracion', icon: Settings, label: 'Config. SII' },
-    ],
-  },
+
+  // Direct items (bottom)
+  { href: '/dashboard/contactos',     icon: Users,    label: 'Contactos' },
+  { href: '/dashboard/productos',     icon: Tag,      label: 'Productos' },
+  { href: '/dashboard/configuracion', icon: Settings, label: 'Config. SII' },
 ]
 
+function isNavItem(entry: NavEntry): entry is NavItem {
+  return 'href' in entry
+}
+
+// ── NavLink ──────────────────────────────────────────────────
+function NavLink({ item, collapsed, pathname, indent = false }: {
+  item: NavItem; collapsed: boolean; pathname: string; indent?: boolean
+}) {
+  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
+  return (
+    <Link
+      href={item.href}
+      title={collapsed ? item.label : undefined}
+      className={`
+        flex items-center gap-3 px-3 py-2 rounded-xl text-sm
+        transition-all duration-150 group
+        ${isActive
+          ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)] border border-[var(--cx-active-border)] font-semibold'
+          : 'text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]'
+        }
+        ${collapsed ? 'justify-center' : ''}
+        ${indent && !collapsed ? 'ml-3 text-[13px]' : ''}
+      `}
+    >
+      <item.icon
+        size={indent ? 14 : 16}
+        className={`shrink-0 ${isActive ? 'text-[var(--cx-active-icon)]' : 'text-[var(--cx-text-muted)] group-hover:text-[var(--cx-text-secondary)]'}`}
+      />
+      {!collapsed && <span className="font-medium">{item.label}</span>}
+    </Link>
+  )
+}
+
+// ── Collapsible NavSection ───────────────────────────────────
+function NavSection({ section, icon: SectionIcon, items, collapsed, pathname }: {
+  section: string; icon: any; items: NavItem[]; collapsed: boolean; pathname: string
+}) {
+  const isActive = items.some(item => pathname === item.href || pathname.startsWith(`${item.href}/`))
+  const [open, setOpen] = useState(isActive)
+
+  // Auto-open when navigating into this section
+  useEffect(() => {
+    if (isActive) setOpen(true)
+  }, [isActive])
+
+  if (collapsed) {
+    return (
+      <div
+        title={section}
+        className={`flex justify-center py-2.5 rounded-xl transition-colors ${
+          isActive ? 'text-[var(--cx-active-icon)]' : 'text-[var(--cx-text-muted)]'
+        }`}
+      >
+        <SectionIcon size={16} />
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`
+          flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm
+          transition-all duration-150
+          ${isActive
+            ? 'text-[var(--cx-active-text)] font-semibold'
+            : 'text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]'
+          }
+        `}
+      >
+        <SectionIcon
+          size={16}
+          className={`shrink-0 ${isActive ? 'text-[var(--cx-active-icon)]' : 'text-[var(--cx-text-muted)]'}`}
+        />
+        <span className="font-medium flex-1 text-left">{section}</span>
+        <ChevronRight
+          size={12}
+          className={`shrink-0 text-[var(--cx-text-muted)] transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+        />
+      </button>
+
+      <div className={`overflow-hidden transition-all duration-200 ${open ? 'max-h-[500px] opacity-100 mt-0.5' : 'max-h-0 opacity-0'}`}>
+        <div className="space-y-0.5">
+          {items.map((item) => (
+            <NavLink key={item.href} item={item} collapsed={false} pathname={pathname} indent />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── SII Indicator ────────────────────────────────────────────
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
@@ -152,45 +253,22 @@ function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: Side
       )}
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-        {NAV_ITEMS.map((group) => (
-          <div key={group.section}>
-            {!collapsed && (
-              <p className="text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest px-2 mb-1.5">
-                {group.section}
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {group.items.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    className={`
-                      flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm
-                      transition-all duration-150 group
-                      ${isActive
-                        ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)] border border-[var(--cx-active-border)] font-semibold'
-                        : 'text-[var(--cx-text-secondary)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)]'
-                      }
-                      ${collapsed ? 'justify-center' : ''}
-                    `}
-                  >
-                    <item.icon
-                      size={16}
-                      className={`shrink-0 ${isActive ? 'text-[var(--cx-active-icon)]' : 'text-[var(--cx-text-muted)] group-hover:text-[var(--cx-text-secondary)]'}`}
-                    />
-                    {!collapsed && (
-                      <span className="font-medium">{item.label}</span>
-                    )}
-                  </Link>
-                )
-              })}
-            </div>
-          </div>
-        ))}
+      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+        {NAV.map((entry, i) => {
+          if (isNavItem(entry)) {
+            return <NavLink key={entry.href} item={entry} collapsed={collapsed} pathname={pathname} />
+          }
+          return (
+            <NavSection
+              key={entry.section}
+              section={entry.section}
+              icon={entry.icon}
+              items={entry.items}
+              collapsed={collapsed}
+              pathname={pathname}
+            />
+          )
+        })}
       </nav>
 
       {/* Status SII + Logout */}
@@ -205,11 +283,12 @@ function Sidebar({ collapsed, onToggle, siiStatus, companyName, ambiente }: Side
             window.location.href = '/'
           }}
           className={`
-          flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm
-          text-[var(--cx-text-muted)] hover:text-[var(--cx-status-error-text)] hover:bg-[var(--cx-status-error-bg)]
-          transition-all duration-150
-          ${collapsed ? 'justify-center' : ''}
-        `}>
+            flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm
+            text-[var(--cx-text-muted)] hover:text-[var(--cx-status-error-text)] hover:bg-[var(--cx-status-error-bg)]
+            transition-all duration-150
+            ${collapsed ? 'justify-center' : ''}
+          `}
+        >
           <LogOut size={15} className="shrink-0" />
           {!collapsed && <span className="font-medium">Cerrar sesión</span>}
         </button>
@@ -238,7 +317,8 @@ function Topbar({ title, collapsed, onMenuToggle }: { title: string, collapsed: 
           const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true })
           document.dispatchEvent(event)
         }}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)] hover:text-[var(--cx-text-secondary)] text-xs transition-colors">
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--cx-hover-bg)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)] hover:text-[var(--cx-text-secondary)] text-xs transition-colors"
+      >
         <Search size={13} />
         <span className="hidden sm:block">Buscar...</span>
         <kbd className="hidden sm:block text-[10px] px-1.5 py-0.5 rounded bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)]">⌘K</kbd>
@@ -303,7 +383,6 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen bg-[var(--cx-bg-base)] overflow-hidden">
-      {/* Sidebar */}
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -311,8 +390,6 @@ export default function DashboardLayout({
         companyName="Mi Empresa SpA"
         ambiente="certificacion"
       />
-
-      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Topbar
           title={getTitle()}
