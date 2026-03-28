@@ -174,13 +174,23 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
   const [open, setOpen] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [rutError, setRutError] = useState('')
   const [form, setForm] = useState({
     rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '',
   })
 
+  // Fetch companies from API (includes newly created ones)
+  const [companyList, setCompanyList] = useState<Array<{ id: number, name: string, rut: string }>>([])
+  useEffect(() => {
+    if (!user) return
+    apiClient.get('/api/v1/companies').then(res => {
+      setCompanyList(res.data?.companies ?? [])
+    }).catch(() => {})
+  }, [user, showCreate]) // re-fetch when modal closes (after create)
+
   if (collapsed || !user) return null
 
-  const companies = user.companies ?? []
+  const companies = companyList.length > 0 ? companyList : (user.companies ?? [])
 
   const handleSwitch = async (companyId: number) => {
     setOpen(false)
@@ -193,8 +203,33 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     }
   }
 
+  const validateRut = (rut: string): boolean => {
+    const cleaned = rut.replace(/\./g, '').replace(/-/g, '').toUpperCase()
+    if (cleaned.length < 8 || cleaned.length > 9) return false
+    const body = cleaned.slice(0, -1)
+    const dv = cleaned.slice(-1)
+    let sum = 0, mul = 2
+    for (let i = body.length - 1; i >= 0; i--) {
+      sum += parseInt(body[i]) * mul
+      mul = mul === 7 ? 2 : mul + 1
+    }
+    const rem = 11 - (sum % 11)
+    const expected = rem === 11 ? '0' : rem === 10 ? 'K' : String(rem)
+    return dv === expected
+  }
+
+  const handleRutChange = (value: string) => {
+    setForm(f => ({ ...f, rut: value }))
+    if (value.length >= 8) {
+      setRutError(validateRut(value) ? '' : 'RUT inválido — dígito verificador incorrecto')
+    } else {
+      setRutError('')
+    }
+  }
+
   const handleCreate = async () => {
     if (!form.rut.trim() || !form.razon_social.trim() || !form.giro.trim()) return
+    if (!validateRut(form.rut)) { setRutError('RUT inválido'); return }
     setCreating(true)
     try {
       await apiClient.post('/api/v1/companies', form)
@@ -269,7 +304,8 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT *</label>
-                  <input value={form.rut} onChange={e => setForm(f => ({ ...f, rut: e.target.value }))} placeholder="76.543.210-K" className="input-field text-sm" />
+                  <input value={form.rut} onChange={e => handleRutChange(e.target.value)} placeholder="76.543.210-K" className={`input-field text-sm ${rutError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : ''}`} />
+                  {rutError && <p className="text-[11px] text-[var(--cx-status-error-text)] mt-0.5">{rutError}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razón Social *</label>
@@ -302,7 +338,7 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
               </div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={handleCreate} disabled={creating || !form.rut.trim() || !form.razon_social.trim() || !form.giro.trim()} className="btn-primary flex-1 justify-center">
+              <button onClick={handleCreate} disabled={creating || !form.rut.trim() || !form.razon_social.trim() || !form.giro.trim() || !!rutError} className="btn-primary flex-1 justify-center">
                 {creating ? 'Creando...' : 'Crear Empresa'}
               </button>
               <button onClick={() => setShowCreate(false)} className="btn-secondary">Cancelar</button>

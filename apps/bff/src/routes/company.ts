@@ -3,12 +3,43 @@ import { sql, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { authService } from '@/services/auth.service'
+import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 import { logger } from '@/core/logger'
 
+// ── RUT Validation ───────────────────────────────────────────
+function validateRut(rut: string): boolean {
+  const cleaned = rut.replace(/\./g, '').replace(/-/g, '').toUpperCase()
+  if (cleaned.length < 8 || cleaned.length > 9) return false
+
+  const body = cleaned.slice(0, -1)
+  const dv = cleaned.slice(-1)
+
+  let sum = 0
+  let multiplier = 2
+  for (let i = body.length - 1; i >= 0; i--) {
+    sum += parseInt(body[i]) * multiplier
+    multiplier = multiplier === 7 ? 2 : multiplier + 1
+  }
+
+  const remainder = 11 - (sum % 11)
+  const expectedDv = remainder === 11 ? '0' : remainder === 10 ? 'K' : String(remainder)
+
+  return dv === expectedDv
+}
+
+function formatRut(rut: string): string {
+  const cleaned = rut.replace(/\./g, '').replace(/-/g, '').toUpperCase()
+  const body = cleaned.slice(0, -1)
+  const dv = cleaned.slice(-1)
+  const formatted = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return `${formatted}-${dv}`
+}
+
+// ── Schema ───────────────────────────────────────────────────
 const createCompanySchema = z.object({
-  rut: z.string().min(9, 'RUT requerido'),
+  rut: z.string().min(8, 'RUT requerido').refine(validateRut, { message: 'RUT inválido — dígito verificador no coincide' }),
   razon_social: z.string().min(2, 'Razón social requerida'),
   giro: z.string().min(2, 'Giro requerido'),
   actividad_economica: z.number().int().optional().default(620200),
@@ -41,18 +72,20 @@ export async function companyRoutes(fastify: FastifyInstance) {
   // GET / — list user's accessible companies
   fastify.get('/', async (req, reply) => {
     const user = (req as any).user
-    const companyIds: number[] = user.company_ids ?? [user.company_id]
 
-    const existing = await db.select().from(companies)
-      .where(sql`${companies.odoo_company_id} = ANY(${companyIds})`)
+    // Get ALL companies from DB (user can access any they created)
+    const allCompanies = await db.select().from(companies)
+      .where(eq(companies.activo, true))
 
-    const result = companyIds.map((id: number) => {
-      const fromDb = existing.find(c => c.odoo_company_id === id)
-      if (fromDb) return { id: fromDb.id, odoo_id: id, name: fromDb.razon_social, rut: fromDb.rut, source: 'db' }
-      return { id: null, odoo_id: id, name: `Empresa ${id}`, rut: '', source: 'pending' }
+    return reply.send({
+      companies: allCompanies.map(c => ({
+        id: c.id,
+        odoo_id: c.odoo_company_id,
+        name: c.razon_social,
+        rut: c.rut,
+      })),
+      active: user.company_id,
     })
-
-    return reply.send({ companies: result, active: user.company_id })
   })
 
   // POST /switch — switch active company
@@ -62,14 +95,37 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
     if (!company_id) return reply.status(400).send({ error: 'company_id required' })
 
+    // Look up the company in local DB
+    const [company] = await db.select().from(companies)
+      .where(eq(companies.id, company_id)).limit(1)
+
+    if (!company) return reply.status(404).send({ error: 'not_found', message: 'Empresa no encontrada' })
+
+    // Generate new tokens with this company
+    const odooCompanyId = company.odoo_company_id ?? company.id
     const tokens = await authService.switchCompany(
       { sub: user.uid, email: user.email, name: user.name, company_ids: user.company_ids ?? [] },
-      company_id,
+      odooCompanyId,
     )
 
-    if (!tokens) return reply.status(403).send({ error: 'forbidden', message: 'No tienes acceso a esta empresa' })
+    if (!tokens) {
+      // If switchCompany fails (company not in Odoo company_ids), generate tokens directly
+      const directTokens = await authService.generateTokensForCompany({
+        uid: user.uid,
+        name: user.name,
+        email: user.email,
+        company_id: company.id,
+        company_name: company.razon_social,
+        company_rut: company.rut,
+      })
 
-    // Set refresh cookie
+      reply.setCookie('cuentax_refresh', directTokens.refresh_token ?? '', {
+        httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
+      })
+
+      return reply.send(directTokens)
+    }
+
     reply.setCookie('cuentax_refresh', tokens.refresh_token ?? '', {
       httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
     })
@@ -77,20 +133,52 @@ export async function companyRoutes(fastify: FastifyInstance) {
     return reply.send(tokens)
   })
 
-  // POST / — create a new company
+  // POST / — create a new company (in Cuentax DB + Odoo)
   fastify.post('/', async (req, reply) => {
+    const user = (req as any).user
     const parse = createCompanySchema.safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
 
-    // Check RUT uniqueness
+    const formattedRut = formatRut(parse.data.rut)
+
+    // Check RUT uniqueness in local DB
     const [existing] = await db.select().from(companies)
-      .where(eq(companies.rut, parse.data.rut)).limit(1)
+      .where(eq(companies.rut, formattedRut)).limit(1)
     if (existing) {
       return reply.status(409).send({ error: 'duplicate', message: 'Ya existe una empresa con ese RUT' })
     }
 
+    // 1. Create in Odoo as res.company
+    let odooCompanyId: number | null = null
+    try {
+      odooCompanyId = await odooAccountingAdapter.create('res.company', {
+        name: parse.data.razon_social,
+        vat: formattedRut,
+        street: parse.data.direccion ?? '',
+        city: parse.data.ciudad ?? 'Santiago',
+        phone: parse.data.telefono ?? '',
+        email: parse.data.email ?? '',
+        country_id: 46, // Chile
+      })
+      logger.info({ odooCompanyId, rut: formattedRut }, 'Company created in Odoo')
+
+      // 2. Assign company to the current user in Odoo
+      if (odooCompanyId) {
+        const currentCompanyIds = user.company_ids ?? [user.company_id]
+        const newCompanyIds = [...new Set([...currentCompanyIds, odooCompanyId])]
+        await odooAccountingAdapter.write('res.users', [Number(user.uid)], {
+          company_ids: [[6, 0, newCompanyIds]],
+        })
+        logger.info({ uid: user.uid, companyIds: newCompanyIds }, 'User company_ids updated in Odoo')
+      }
+    } catch (err) {
+      logger.warn({ err, rut: formattedRut }, 'Failed to create company in Odoo — creating locally only')
+    }
+
+    // 3. Create in local DB
     const [created] = await db.insert(companies).values({
-      rut: parse.data.rut,
+      odoo_company_id: odooCompanyId,
+      rut: formattedRut,
       razon_social: parse.data.razon_social,
       giro: parse.data.giro,
       actividad_economica: parse.data.actividad_economica,
@@ -101,8 +189,21 @@ export async function companyRoutes(fastify: FastifyInstance) {
       telefono: parse.data.telefono,
     }).returning()
 
-    logger.info({ id: created.id, rut: created.rut }, 'Company created')
-    return reply.status(201).send(created)
+    logger.info({ id: created.id, odooCompanyId, rut: created.rut }, 'Company created')
+
+    // 4. Return new tokens so the user can switch to this company immediately
+    return reply.status(201).send({
+      ...created,
+      odoo_company_id: odooCompanyId,
+    })
+  })
+
+  // GET /validate-rut/:rut — validate a RUT
+  fastify.get('/validate-rut/:rut', async (req, reply) => {
+    const { rut } = req.params as { rut: string }
+    const valid = validateRut(rut)
+    const formatted = valid ? formatRut(rut) : null
+    return reply.send({ rut, valid, formatted })
   })
 
   // PUT /me — update active company

@@ -185,6 +185,25 @@ export class AuthService {
     } catch { return null }
   }
 
+  /** Generate tokens for a specific company (used by company switch) */
+  async generateTokensForCompany(user: {
+    uid: number | string
+    name: string
+    email: string
+    company_id: number
+    company_name: string
+    company_rut: string
+  }): Promise<AuthTokens> {
+    return this._generateTokens({
+      uid: typeof user.uid === 'string' ? Number(user.uid) : user.uid,
+      name: user.name,
+      email: user.email,
+      companyId: user.company_id,
+      companyName: user.company_name,
+      companyRut: user.company_rut,
+    })
+  }
+
   // ── Private ────────────────────────────────────────────────
   private async _generateTokens(user: {
     uid: number
