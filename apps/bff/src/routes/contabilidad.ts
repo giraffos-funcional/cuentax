@@ -52,7 +52,8 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
     const limit = Number(q.limit ?? 50)
     const offset = (page - 1) * limit
 
-    const domain: any[] = [['company_id', '=', user.company_id]]
+    // Odoo 18: account.account no longer has company_id (accounts are shared across companies)
+    const domain: any[] = []
     if (q.type) {
       domain.push(['account_type', '=', q.type])
     }
@@ -61,8 +62,8 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // Odoo 18: search_read on account.account with computed fields (current_balance)
-      // throws ValueError. Use search + read instead.
+      // Odoo 18: search_read on account.account fails with ValueError.
+      // Use search + read instead.
       const [ids, total] = await Promise.all([
         odooAccountingAdapter.search('account.account', domain, { order: 'code asc', limit, offset }),
         odooAccountingAdapter.searchCount('account.account', domain),
@@ -71,7 +72,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       const cuentas = await odooAccountingAdapter.read(
         'account.account',
         ids,
-        ['id', 'code', 'name', 'account_type', 'reconcile', 'company_id'],
+        ['id', 'code', 'name', 'account_type', 'reconcile'],
       )
 
       // Map Odoo field names to Spanish for frontend consistency
@@ -255,12 +256,11 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         { order: 'date asc' },
       )
 
-      // Fetch account info
-      const cuentaData = await odooAccountingAdapter.searchRead(
+      // Fetch account info (Odoo 18: use read, not searchRead for account.account)
+      const cuentaData = await odooAccountingAdapter.read(
         'account.account',
-        [['id', '=', accountId]],
+        [accountId],
         ['code', 'name', 'account_type'],
-        { limit: 1 },
       )
       const raw = (cuentaData as any[])[0] ?? { code: '', name: '', account_type: '' }
       const cuenta = { codigo: raw.code, nombre: raw.name, tipo: raw.account_type }
@@ -338,12 +338,12 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         Array.isArray(g.account_id) ? g.account_id[0] : g.account_id,
       )
 
+      // Odoo 18: use read instead of searchRead for account.account
       const accountsData = accountIds.length > 0
-        ? await odooAccountingAdapter.searchRead(
+        ? await odooAccountingAdapter.read(
             'account.account',
-            [['id', 'in', accountIds]],
+            accountIds,
             ['id', 'account_type'],
-            {},
           )
         : []
 
@@ -455,12 +455,12 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         Array.isArray(g.account_id) ? g.account_id[0] : g.account_id,
       )
 
+      // Odoo 18: use read instead of searchRead for account.account
       const accountsData = accountIds.length > 0
-        ? await odooAccountingAdapter.searchRead(
+        ? await odooAccountingAdapter.read(
             'account.account',
-            [['id', 'in', accountIds]],
+            accountIds,
             ['id', 'account_type', 'name'],
-            {},
           )
         : []
 
