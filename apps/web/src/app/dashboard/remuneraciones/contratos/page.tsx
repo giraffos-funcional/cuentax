@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, FileSignature, Loader2, AlertCircle, ChevronLeft, ChevronRight, Plus, Pencil, Lock, X } from 'lucide-react'
+import { FileSignature, Loader2, AlertCircle, ChevronLeft, ChevronRight, Plus, Pencil, Lock, X, Download } from 'lucide-react'
 import {
   useContracts,
   useEmployees,
@@ -328,7 +328,7 @@ function ConfirmDialog({
 
 // -- Page --
 export default function ContratosPage() {
-  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState('')
   const [state, setState] = useState('')
   const [page, setPage] = useState(1)
 
@@ -339,7 +339,7 @@ export default function ContratosPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
 
-  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const employeeId = selectedEmployee ? Number(selectedEmployee) : undefined
   const { contratos, total, isLoading, error } = useContracts(employeeId, state || undefined)
   const { empleados } = useEmployees()
   const { crear, isLoading: isCreating } = useCreateContract()
@@ -348,7 +348,7 @@ export default function ContratosPage() {
 
   const pageSize = 20
   const totalPages = Math.max(1, Math.ceil((total ?? 0) / pageSize))
-  const hasFilter = Boolean(employeeSearch) || Boolean(state)
+  const hasFilter = Boolean(selectedEmployee) || Boolean(state)
 
   const handleCreate = async (data: ContractFormData) => {
     await crear(data)
@@ -413,16 +413,16 @@ export default function ContratosPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
-          <input
-            type="text"
-            placeholder="Buscar por empleado..."
-            value={employeeSearch}
-            onChange={e => { setEmployeeSearch(e.target.value); setPage(1) }}
-            className="input-field pl-9 py-2 text-sm w-full"
-          />
-        </div>
+        <select
+          value={selectedEmployee}
+          onChange={e => { setSelectedEmployee(e.target.value); setPage(1) }}
+          className="input-field py-2 text-sm flex-1"
+        >
+          <option value="">Todos los empleados</option>
+          {(empleados ?? []).map((e: any) => (
+            <option key={e.id} value={e.id}>{e.name}</option>
+          ))}
+        </select>
         <select
           value={state}
           onChange={e => { setState(e.target.value); setPage(1) }}
@@ -480,6 +480,17 @@ export default function ContratosPage() {
                       title="Editar"
                     >
                       <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const bffUrl = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000'
+                        const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') ?? '' : ''
+                        window.open(`${bffUrl}/api/v1/remuneraciones/contratos/${contract.id}/pdf?token=${token}`, '_blank')
+                      }}
+                      className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-active-icon)] hover:bg-[var(--cx-active-bg)] transition-colors"
+                      title="Descargar PDF"
+                    >
+                      <Download size={12} />
                     </button>
                     {(contract.state === 'open' || contract.state === 'draft') && (
                       <button

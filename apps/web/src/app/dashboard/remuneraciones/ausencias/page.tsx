@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, CalendarOff, Loader2, AlertCircle, ChevronLeft, ChevronRight, Plus, Check, X as XIcon, X } from 'lucide-react'
+import { CalendarOff, Loader2, AlertCircle, ChevronLeft, ChevronRight, Plus, Check, X as XIcon, X } from 'lucide-react'
 import {
   useLeaves,
   useLeaveTypes,
@@ -195,7 +195,7 @@ export default function AusenciasPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
-  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState('')
   const [leaveTypeId, setLeaveTypeId] = useState('')
   const [state, setState] = useState('')
   const [page, setPage] = useState(1)
@@ -204,7 +204,7 @@ export default function AusenciasPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
 
-  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const employeeId = selectedEmployee ? Number(selectedEmployee) : undefined
   const { ausencias, total, isLoading, error } = useLeaves({
     employee_id: employeeId,
     state: state || undefined,
@@ -222,7 +222,7 @@ export default function AusenciasPage() {
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
   const totalPages = Math.max(1, Math.ceil((total ?? 0) / pageSize))
-  const hasFilter = Boolean(employeeSearch) || Boolean(leaveTypeId) || Boolean(state)
+  const hasFilter = Boolean(selectedEmployee) || Boolean(leaveTypeId) || Boolean(state)
 
   const handleCreate = async (data: LeaveFormData) => {
     await crear(data)
@@ -254,16 +254,16 @@ export default function AusenciasPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
-          <input
-            type="text"
-            placeholder="Buscar por empleado..."
-            value={employeeSearch}
-            onChange={e => { setEmployeeSearch(e.target.value); setPage(1) }}
-            className="input-field pl-9 py-2 text-sm w-full"
-          />
-        </div>
+        <select
+          value={selectedEmployee}
+          onChange={e => { setSelectedEmployee(e.target.value); setPage(1) }}
+          className="input-field py-2 text-sm flex-1"
+        >
+          <option value="">Todos los empleados</option>
+          {(empleados ?? []).map((e: any) => (
+            <option key={e.id} value={e.id}>{e.name}</option>
+          ))}
+        </select>
         <select value={leaveTypeId} onChange={e => { setLeaveTypeId(e.target.value); setPage(1) }} className="input-field py-2 text-sm w-auto">
           <option value="">Todos los tipos</option>
           {(tipos ?? []).map((lt: any) => (

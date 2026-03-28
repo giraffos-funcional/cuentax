@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from 'lucide-react'
+import { Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X } from 'lucide-react'
 import {
   useAttendance,
   useEmployees,
@@ -196,7 +196,7 @@ export default function AsistenciaPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
-  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState('')
   const [page, setPage] = useState(1)
 
   // Modal state
@@ -206,7 +206,7 @@ export default function AsistenciaPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const employeeId = selectedEmployee ? Number(selectedEmployee) : undefined
   const { registros, total, isLoading, error } = useAttendance(employeeId, month, year)
   const { empleados } = useEmployees()
   const { crear, isLoading: isCreating } = useCreateAttendance()
@@ -216,7 +216,7 @@ export default function AsistenciaPage() {
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
   const totalPages = Math.max(1, Math.ceil((total ?? 0) / pageSize))
-  const hasFilter = Boolean(employeeSearch)
+  const hasFilter = Boolean(selectedEmployee)
 
   const handleCreate = async (data: AttendanceFormData) => {
     await crear(data)
@@ -251,7 +251,7 @@ export default function AsistenciaPage() {
   }
 
   const editInitial: AttendanceFormData = editingRecord ? {
-    employee_id: editingRecord.employee_id ? String(editingRecord.employee_id) : '',
+    employee_id: Array.isArray(editingRecord.employee_id) ? String(editingRecord.employee_id[0]) : String(editingRecord.employee_id ?? ''),
     check_in: toLocalDatetime(editingRecord.check_in),
     check_out: toLocalDatetime(editingRecord.check_out),
   } : EMPTY_FORM
@@ -296,16 +296,16 @@ export default function AsistenciaPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
-          <input
-            type="text"
-            placeholder="Buscar por empleado..."
-            value={employeeSearch}
-            onChange={e => { setEmployeeSearch(e.target.value); setPage(1) }}
-            className="input-field pl-9 py-2 text-sm w-full"
-          />
-        </div>
+        <select
+          value={selectedEmployee}
+          onChange={e => { setSelectedEmployee(e.target.value); setPage(1) }}
+          className="input-field py-2 text-sm flex-1"
+        >
+          <option value="">Todos los empleados</option>
+          {(empleados ?? []).map((e: any) => (
+            <option key={e.id} value={e.id}>{e.name}</option>
+          ))}
+        </select>
         <select value={month} onChange={e => { setMonth(Number(e.target.value)); setPage(1) }} className="input-field py-2 text-sm w-auto">
           {MONTHS.map((m, i) => (
             <option key={i} value={i + 1}>{m}</option>

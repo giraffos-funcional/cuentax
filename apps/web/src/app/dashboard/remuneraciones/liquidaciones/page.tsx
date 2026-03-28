@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Search, FileText, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Calculator, CheckCircle, X } from 'lucide-react'
+import { FileText, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Calculator, CheckCircle, X, Download } from 'lucide-react'
 import {
   usePayslips,
   usePayslipDetail,
@@ -227,7 +227,7 @@ export default function LiquidacionesPage() {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
-  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [selectedEmployee, setSelectedEmployee] = useState('')
   const [page, setPage] = useState(1)
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
@@ -235,7 +235,7 @@ export default function LiquidacionesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
 
-  const employeeId = employeeSearch && /^\d+$/.test(employeeSearch) ? Number(employeeSearch) : undefined
+  const employeeId = selectedEmployee ? Number(selectedEmployee) : undefined
   const { liquidaciones, total, isLoading, error } = usePayslips({ employee_id: employeeId, mes: month, year, page })
   const { empleados } = useEmployees()
   const { crear, isLoading: isCreating } = useCreatePayslip()
@@ -246,7 +246,7 @@ export default function LiquidacionesPage() {
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
   const totalPages = Math.max(1, Math.ceil((total ?? 0) / pageSize))
-  const hasFilter = Boolean(employeeSearch) || month !== (now.getMonth() + 1) || year !== now.getFullYear()
+  const hasFilter = Boolean(selectedEmployee) || month !== (now.getMonth() + 1) || year !== now.getFullYear()
 
   const handleCreate = async (data: PayslipFormData) => {
     await crear(data)
@@ -278,16 +278,16 @@ export default function LiquidacionesPage() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cx-text-muted)]" />
-          <input
-            type="text"
-            placeholder="Buscar por empleado..."
-            value={employeeSearch}
-            onChange={e => { setEmployeeSearch(e.target.value); setPage(1) }}
-            className="input-field pl-9 py-2 text-sm w-full"
-          />
-        </div>
+        <select
+          value={selectedEmployee}
+          onChange={e => { setSelectedEmployee(e.target.value); setPage(1) }}
+          className="input-field py-2 text-sm flex-1"
+        >
+          <option value="">Todos los empleados</option>
+          {(empleados ?? []).map((e: any) => (
+            <option key={e.id} value={e.id}>{e.name}</option>
+          ))}
+        </select>
         <select value={month} onChange={e => { setMonth(Number(e.target.value)); setPage(1) }} className="input-field py-2 text-sm w-auto">
           {MONTHS.map((m, i) => (
             <option key={i} value={i + 1}>{m}</option>
@@ -368,6 +368,19 @@ export default function LiquidacionesPage() {
                           title="Cancelar"
                         >
                           <X size={12} />
+                        </button>
+                      )}
+                      {ps.state === 'done' && (
+                        <button
+                          onClick={() => {
+                            const bffUrl = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000'
+                            const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') ?? '' : ''
+                            window.open(`${bffUrl}/api/v1/remuneraciones/liquidaciones/${ps.id}/pdf?token=${token}`, '_blank')
+                          }}
+                          className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-active-icon)] hover:bg-[var(--cx-active-bg)] transition-colors"
+                          title="Descargar PDF"
+                        >
+                          <Download size={12} />
                         </button>
                       )}
                     </div>

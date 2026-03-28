@@ -103,7 +103,7 @@ export default function RemuneracionesDashboardPage() {
       setSyncing(false)
       setTimeout(() => setSyncMsg(null), 4000)
     }
-  }, [])
+  }, [refreshIndicators])
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 

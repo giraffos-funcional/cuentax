@@ -80,7 +80,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       if (departmentId) domain.push(['department_id', '=', departmentId])
       if (q.search) domain.push('|' as any, ['name', 'ilike', q.search], ['work_email', 'ilike', q.search])
 
-      const [empleados, total] = await Promise.all([
+      const [rawEmpleados, total] = await Promise.all([
         odooHRAdapter.getEmployees(
           user.company_id,
           q.search,
@@ -90,6 +90,14 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         ),
         odooAccountingAdapter.searchCount('hr.employee', domain),
       ])
+
+      // Flatten Many2one fields for frontend consumption
+      const empleados = (rawEmpleados as any[]).map((e: any) => ({
+        ...e,
+        department_name: Array.isArray(e.department_id) ? e.department_id[1] : '',
+        afp_name: Array.isArray(e.l10n_cl_afp_id) ? e.l10n_cl_afp_id[1] : '',
+        isapre_name: Array.isArray(e.l10n_cl_isapre_id) ? e.l10n_cl_isapre_id[1] : '',
+      }))
 
       return reply.send({
         source: 'odoo',
@@ -287,7 +295,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
           'name', 'identification_id', 'job_title', 'department_id',
           'contract_id', 'date_start',
           // Chilean localization fields (l10n_cl_hr)
-          'l10n_cl_rut', 'afp_id', 'isapre_id', 'isapre_plan',
+          'l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_isapre_cotizacion_uf',
         ],
         { limit: 1 },
       )
@@ -392,19 +400,19 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
 
       // Extract employee fields with safe fallbacks
       const employeeName = String(employee?.name ?? 'Sin nombre')
-      const employeeRut = String(employee?.l10n_cl_rut ?? employee?.identification_id ?? 'Sin RUT')
+      const employeeRut = String(employee?.identification_id ?? 'Sin RUT')
       const employeeStartDate = String(employee?.date_start ?? '-')
       const employeeJobTitle = String(employee?.job_title ?? '-')
       const employeeDepartment = Array.isArray(employee?.department_id)
         ? String((employee.department_id as [number, string])[1])
         : String(employee?.department_id ?? '-')
-      const employeeAfp = Array.isArray(employee?.afp_id)
-        ? String((employee.afp_id as [number, string])[1])
-        : String(employee?.afp_id ?? '-')
-      const employeeIsapre = Array.isArray(employee?.isapre_id)
-        ? String((employee.isapre_id as [number, string])[1])
-        : String(employee?.isapre_id ?? 'FONASA')
-      const employeeIsapreUf = employee?.isapre_plan ? Number(employee.isapre_plan) : undefined
+      const employeeAfp = Array.isArray(employee?.l10n_cl_afp_id)
+        ? String((employee.l10n_cl_afp_id as [number, string])[1])
+        : String(employee?.l10n_cl_afp_id ?? '-')
+      const employeeIsapre = Array.isArray(employee?.l10n_cl_isapre_id)
+        ? String((employee.l10n_cl_isapre_id as [number, string])[1])
+        : String(employee?.l10n_cl_isapre_id ?? 'FONASA')
+      const employeeIsapreUf = employee?.l10n_cl_isapre_cotizacion_uf ? Number(employee.l10n_cl_isapre_cotizacion_uf) : undefined
 
       // Build company address
       const companyAddress = [company?.street, company?.city]
@@ -600,10 +608,18 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         countDomain.push(['date_from', '>=', `${year}-01-01`], ['date_to', '<=', `${year}-12-31`])
       }
 
-      const [ausencias, total] = await Promise.all([
+      const [rawAusencias, total] = await Promise.all([
         odooHRAdapter.getLeaves(user.company_id, employeeId, q.state, mes, year, page, limit),
         odooAccountingAdapter.searchCount('hr.leave', countDomain),
       ])
+
+      // Flatten Many2one fields for frontend consumption
+      const ausencias = (rawAusencias as any[]).map((l: any) => ({
+        ...l,
+        employee_name: Array.isArray(l.employee_id) ? l.employee_id[1] : '',
+        employee_id_num: Array.isArray(l.employee_id) ? l.employee_id[0] : l.employee_id,
+        leave_type: Array.isArray(l.holiday_status_id) ? l.holiday_status_id[1] : '',
+      }))
 
       return reply.send({
         source: 'odoo',
@@ -710,10 +726,18 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       if (employeeId) countDomain.push(['employee_id', '=', employeeId])
       if (q.state) countDomain.push(['state', '=', q.state])
 
-      const [contratos, total] = await Promise.all([
+      const [rawContratos, total] = await Promise.all([
         odooHRAdapter.getContracts(user.company_id, employeeId, q.state),
         odooAccountingAdapter.searchCount('hr.contract', countDomain),
       ])
+
+      // Flatten Many2one fields for frontend consumption
+      const contratos = (rawContratos as any[]).map((c: any) => ({
+        ...c,
+        employee_name: Array.isArray(c.employee_id) ? c.employee_id[1] : '',
+        department: Array.isArray(c.department_id) ? c.department_id[1] : '',
+        job_title: c.job_title ?? c.job_id?.[1] ?? '',
+      }))
 
       return reply.send({
         source: 'odoo',
@@ -835,7 +859,29 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await odooHRAdapter.createEmployee(user.company_id, body)
+      // Map frontend field names to Odoo field names
+      const odooData: Record<string, unknown> = {
+        name: body.name ?? body['nombre'],
+        job_title: body.job_title ?? body['cargo'],
+        department_id: body.department_id ? Number(body.department_id) : undefined,
+        work_email: body.work_email ?? body['email'],
+        work_phone: body.work_phone ?? body['telefono'],
+        identification_id: body.identification_id ?? body['rut'],
+        company_id: user.company_id,
+      }
+      // Map Chilean fields
+      if (body.afp_id || body['afp']) odooData.l10n_cl_afp_id = Number(body.afp_id ?? body['afp'])
+      if (body.health_plan || body['plan_salud']) odooData.l10n_cl_health_plan = body.health_plan ?? body['plan_salud']
+      if (body.isapre_id || body['isapre']) odooData.l10n_cl_isapre_id = Number(body.isapre_id ?? body['isapre'])
+      if (body.isapre_cotizacion_uf || body['cotizacion_isapre_uf']) odooData.l10n_cl_isapre_cotizacion_uf = Number(body.isapre_cotizacion_uf ?? body['cotizacion_isapre_uf'])
+      if (body.cargas_familiares !== undefined) odooData.l10n_cl_cargas_familiares = Number(body.cargas_familiares)
+
+      // Remove undefined values
+      for (const key of Object.keys(odooData)) {
+        if (odooData[key] === undefined) delete odooData[key]
+      }
+
+      const result = await odooHRAdapter.createEmployee(user.company_id, odooData)
       if (!result.success) {
         return reply.status(500).send({
           source: 'error',
@@ -870,7 +916,22 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await odooHRAdapter.updateEmployee(user.company_id, employeeId, body)
+      // Map frontend field names to Odoo field names
+      const odooData: Record<string, unknown> = {}
+      if (body.name ?? body['nombre']) odooData.name = body.name ?? body['nombre']
+      if (body.job_title ?? body['cargo']) odooData.job_title = body.job_title ?? body['cargo']
+      if (body.department_id) odooData.department_id = Number(body.department_id)
+      if (body.work_email ?? body['email']) odooData.work_email = body.work_email ?? body['email']
+      if (body.work_phone ?? body['telefono']) odooData.work_phone = body.work_phone ?? body['telefono']
+      if (body.identification_id ?? body['rut']) odooData.identification_id = body.identification_id ?? body['rut']
+      // Map Chilean fields
+      if (body.afp_id || body['afp']) odooData.l10n_cl_afp_id = Number(body.afp_id ?? body['afp'])
+      if (body.health_plan || body['plan_salud']) odooData.l10n_cl_health_plan = body.health_plan ?? body['plan_salud']
+      if (body.isapre_id || body['isapre']) odooData.l10n_cl_isapre_id = Number(body.isapre_id ?? body['isapre'])
+      if (body.isapre_cotizacion_uf || body['cotizacion_isapre_uf']) odooData.l10n_cl_isapre_cotizacion_uf = Number(body.isapre_cotizacion_uf ?? body['cotizacion_isapre_uf'])
+      if (body.cargas_familiares !== undefined) odooData.l10n_cl_cargas_familiares = Number(body.cargas_familiares)
+
+      const result = await odooHRAdapter.updateEmployee(user.company_id, employeeId, odooData)
       if (!result.success) {
         return reply.status(500).send({
           source: 'error',
@@ -1177,8 +1238,15 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         employee_commune: String(employee['l10n_cl_private_commune'] ?? employee['private_city'] ?? ''),
         employee_email: String(employee['work_email'] ?? ''),
         employee_phone: String(employee['work_phone'] ?? ''),
-        employee_afp: String(employee['x_afp'] ?? ''),
-        employee_health: String(employee['x_health_system'] ?? 'Fonasa'),
+        employee_afp: Array.isArray(employee['l10n_cl_afp_id']) ? String((employee['l10n_cl_afp_id'] as [number, string])[1]) : String(employee['l10n_cl_afp_id'] ?? ''),
+        employee_health: (() => {
+          const isapre = employee['l10n_cl_isapre_id']
+          const healthPlan = employee['l10n_cl_health_plan']
+          if (healthPlan === 'fonasa' || (!isapre && !healthPlan)) return 'Fonasa'
+          const isapreName = Array.isArray(isapre) ? String((isapre as [number, string])[1]) : String(isapre ?? '')
+          const uf = employee['l10n_cl_isapre_cotizacion_uf']
+          return uf ? `${isapreName} Plan UF ${uf}` : isapreName || 'Fonasa'
+        })(),
 
         // Contract
         contract_type: contractType,
@@ -1187,10 +1255,10 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         job_title: jobRef ? jobRef[1] : String(employee['job_title'] ?? ''),
         jornada,
         wage: Number(contract['wage'] ?? 0),
-        colacion: Number(contract['x_colacion'] ?? 0),
-        movilizacion: Number(contract['x_movilizacion'] ?? 0),
+        colacion: Number(contract['l10n_cl_colacion'] ?? 0),
+        movilizacion: Number(contract['l10n_cl_movilizacion'] ?? 0),
         jurisdiction_commune: String(
-          contract['x_jurisdiction_commune'] ?? company['x_commune'] ?? company['city'] ?? '',
+          contract['l10n_cl_jurisdiction_commune'] ?? company['l10n_cl_commune'] ?? company['city'] ?? '',
         ),
       }
 

@@ -62,6 +62,9 @@ export const odooHRAdapter = {
           'identification_id', 'company_id', 'resource_calendar_id',
           'parent_id', 'coach_id', 'contract_id', 'image_128',
           'active', 'marital', 'birthday',
+          'l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_health_plan',
+          'l10n_cl_isapre_cotizacion_uf', 'l10n_cl_cargas_familiares',
+          'l10n_cl_apv_regime', 'l10n_cl_apv_amount',
         ],
         { limit, offset, order: 'name asc' },
       )
@@ -86,6 +89,9 @@ export const odooHRAdapter = {
           'identification_id', 'company_id', 'resource_calendar_id',
           'parent_id', 'coach_id', 'contract_id', 'image_128',
           'active', 'marital', 'birthday',
+          'l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_health_plan',
+          'l10n_cl_isapre_cotizacion_uf', 'l10n_cl_cargas_familiares',
+          'l10n_cl_apv_regime', 'l10n_cl_apv_amount',
         ],
         { limit: 1 },
       )

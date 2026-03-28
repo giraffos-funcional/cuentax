@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { ClipboardList, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Play, Lock, X } from 'lucide-react'
 import {
   usePayslipRuns,
+  usePayslipRunDetail,
   useCreatePayslipRun,
   useGeneratePayslips,
   useClosePayslipRun,
@@ -91,6 +92,58 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
       {hasFilter && (
         <p className="text-xs text-[var(--cx-text-muted)]">Prueba con otro mes o año</p>
       )}
+    </div>
+  )
+}
+
+// ── Expanded Nomina Detail ────────────────────────────────────
+function NominaDetailRow({ runId }: { runId: number }) {
+  const { liquidaciones, isLoading, error } = usePayslipRunDetail(runId)
+
+  if (isLoading) {
+    return (
+      <div className="px-8 py-4 bg-[var(--cx-bg-elevated)]">
+        <div className="flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin text-[var(--cx-active-icon)]" />
+          <span className="text-xs text-[var(--cx-text-secondary)]">Cargando liquidaciones...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !liquidaciones?.length) {
+    return (
+      <div className="px-8 py-4 bg-[var(--cx-bg-elevated)]">
+        <span className="text-xs text-[var(--cx-text-muted)]">Sin liquidaciones disponibles</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-8 py-4 bg-[var(--cx-bg-elevated)]">
+      <div className="card border border-[var(--cx-border-lighter)] rounded-xl overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-[var(--cx-border-lighter)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest bg-[var(--cx-bg-surface)]">
+          <div className="col-span-4">Empleado</div>
+          <div className="col-span-3 text-right">Sueldo Bruto</div>
+          <div className="col-span-3 text-right">Sueldo Liquido</div>
+          <div className="col-span-2 text-center">Estado</div>
+        </div>
+        <div className="divide-y divide-[var(--cx-border-lighter)]">
+          {liquidaciones.map((ps: any) => {
+            const empName = Array.isArray(ps.employee_id) ? ps.employee_id[1] : (ps.employee_name ?? '-')
+            return (
+              <div key={ps.id} className="grid grid-cols-12 gap-2 px-4 py-2 text-xs hover:bg-[var(--cx-hover-bg)] transition-colors">
+                <div className="col-span-4 text-[var(--cx-text-primary)] truncate">{empName}</div>
+                <div className="col-span-3 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(ps.gross_wage ?? 0)}</div>
+                <div className="col-span-3 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(ps.net_wage ?? 0)}</div>
+                <div className="col-span-2 flex justify-center">
+                  <StateBadge state={ps.state ?? 'draft'} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
@@ -311,7 +364,7 @@ export default function NominasPage() {
                       <StateBadge state={run.state ?? 'draft'} />
                     </div>
                     <div className="col-span-1 text-right font-mono text-[var(--cx-text-primary)]">
-                      {run.payslip_count ?? 0}
+                      {Array.isArray(run.slip_ids) ? run.slip_ids.length : (run.payslip_count ?? 0)}
                     </div>
                     <div className="col-span-3 flex justify-center gap-1" onClick={e => e.stopPropagation()}>
                       {run.state === 'draft' && (
@@ -335,31 +388,8 @@ export default function NominasPage() {
                     </div>
                   </div>
 
-                  {/* Expanded summary */}
-                  {expandedId === run.id && run.payslips && (
-                    <div className="px-8 py-4 bg-[var(--cx-bg-elevated)]">
-                      <div className="card border border-[var(--cx-border-lighter)] rounded-xl overflow-hidden">
-                        <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-[var(--cx-border-lighter)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest bg-[var(--cx-bg-surface)]">
-                          <div className="col-span-4">Empleado</div>
-                          <div className="col-span-3 text-right">Sueldo Bruto</div>
-                          <div className="col-span-3 text-right">Sueldo Líquido</div>
-                          <div className="col-span-2 text-center">Estado</div>
-                        </div>
-                        <div className="divide-y divide-[var(--cx-border-lighter)]">
-                          {run.payslips.map((ps: any) => (
-                            <div key={ps.id} className="grid grid-cols-12 gap-2 px-4 py-2 text-xs hover:bg-[var(--cx-hover-bg)] transition-colors">
-                              <div className="col-span-4 text-[var(--cx-text-primary)] truncate">{ps.employee_name}</div>
-                              <div className="col-span-3 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(ps.gross_wage ?? 0)}</div>
-                              <div className="col-span-3 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(ps.net_wage ?? 0)}</div>
-                              <div className="col-span-2 flex justify-center">
-                                <StateBadge state={ps.state ?? 'draft'} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  {/* Expanded summary — fetches detail lazily */}
+                  {expandedId === run.id && <NominaDetailRow runId={run.id} />}
                 </div>
               ))}
             </div>
