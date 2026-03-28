@@ -99,9 +99,22 @@ export class SIIBridgeAdapter {
     return data
   }
 
-  /** Estado del certificado cargado */
-  async getCertificateStatus(): Promise<CertStatus> {
-    const { data } = await this.http.get('/certificate/status')
+  /** Estado del certificado cargado (per-company when rut_empresa provided) */
+  async getCertificateStatus(rutEmpresa?: string): Promise<CertStatus> {
+    const params = rutEmpresa ? `?rut_empresa=${rutEmpresa}` : ''
+    const { data } = await this.http.get(`/certificate/status${params}`)
+    return data
+  }
+
+  /** Associate current company with an existing loaded certificate */
+  async associateCertificate(rutEmpresa: string): Promise<{ success: boolean; mensaje: string }> {
+    const { data } = await this.http.post('/certificate/associate', { rut_empresa: rutEmpresa })
+    return data
+  }
+
+  /** List all loaded certificates and their associated companies */
+  async listCertificates(): Promise<CertListResult> {
+    const { data } = await this.http.get('/certificate/list')
     return data
   }
 
@@ -221,6 +234,16 @@ export interface CertStatus {
   rut_empresa?: string
   vence?: string
   dias_para_vencer?: number
+}
+
+export interface CertListResult {
+  certificates: Array<{
+    rut_titular: string
+    nombre_titular: string
+    vence: string
+    dias_para_vencer: number
+    empresas: string[] // list of rut_empresa associated
+  }>
 }
 
 export interface SIIConnectivityResult {

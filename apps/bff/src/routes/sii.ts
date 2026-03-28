@@ -1,7 +1,9 @@
 /**
  * CUENTAX — SII Config Routes (BFF)
- * POST /api/v1/sii/certificate/load → Cargar certificado digital
- * GET  /api/v1/sii/certificate/status
+ * POST /api/v1/sii/certificate/load      → Cargar certificado digital
+ * GET  /api/v1/sii/certificate/status    → Estado del certificado (per-company)
+ * POST /api/v1/sii/certificate/associate → Asociar cert existente a empresa actual
+ * GET  /api/v1/sii/certificate/list      → Listar certificados y empresas asociadas
  * GET  /api/v1/sii/connectivity
  */
 
@@ -48,8 +50,27 @@ export async function siiRoutes(fastify: FastifyInstance) {
 
   // ── GET /certificate/status ────────────────────────────────
   fastify.get('/certificate/status', async (request, reply) => {
-    const status = await siiBridgeAdapter.getCertificateStatus()
+    const user = (request as any).user
+    const status = await siiBridgeAdapter.getCertificateStatus(user.company_rut)
     return reply.send(status)
+  })
+
+  // ── POST /certificate/associate ──────────────────────────────
+  fastify.post('/certificate/associate', async (request, reply) => {
+    const user = (request as any).user
+    try {
+      const result = await siiBridgeAdapter.associateCertificate(user.company_rut)
+      return reply.status(result.success ? 200 : 422).send(result)
+    } catch (err: any) {
+      const msg = err.response?.data?.detail ?? 'Error asociando certificado'
+      return reply.status(422).send({ error: 'associate_error', message: msg })
+    }
+  })
+
+  // ── GET /certificate/list ────────────────────────────────────
+  fastify.get('/certificate/list', async (request, reply) => {
+    const result = await siiBridgeAdapter.listCertificates()
+    return reply.send(result)
   })
 
   // ── GET /connectivity ──────────────────────────────────────

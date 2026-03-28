@@ -12,8 +12,9 @@ import { useState, useRef } from 'react'
 import {
   Shield, Upload, CheckCircle2, AlertTriangle, Wifi,
   WifiOff, RefreshCw, Eye, EyeOff, FileKey2, ChevronRight,
-  Lock, Globe, Zap, Info, Loader2
+  Lock, Globe, Zap, Info, Loader2, Link2
 } from 'lucide-react'
+import { useCertificateList, useSIIStatus } from '@/hooks'
 
 // ── Step Indicator ────────────────────────────────────────────
 function StepIndicator({ step, current }: { step: number, current: number }) {
@@ -253,6 +254,136 @@ function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
   )
 }
 
+// ── Certificate Step (multi-company aware) ───────────────────
+function CertificateStep({ onSuccess }: { onSuccess: () => void }) {
+  const { certificates, isLoading: listLoading, associateCertificate } = useCertificateList()
+  const { cert, mutateCert } = useSIIStatus()
+  const [associating, setAssociating] = useState(false)
+  const [associateError, setAssociateError] = useState<string | null>(null)
+  const [showUploadForm, setShowUploadForm] = useState(false)
+
+  // If cert is already associated with this company, skip to success
+  const certAlreadyAssociated = cert.cargado
+
+  // Find a loaded cert that is NOT yet associated with the current company
+  const availableCert = certificates.length > 0 && !certAlreadyAssociated
+    ? certificates[0]
+    : null
+
+  const handleAssociate = async () => {
+    setAssociating(true)
+    setAssociateError(null)
+    try {
+      await associateCertificate()
+      if (mutateCert) mutateCert()
+      onSuccess()
+    } catch (e: unknown) {
+      setAssociateError(e instanceof Error ? e.message : 'Error asociando certificado')
+    } finally {
+      setAssociating(false)
+    }
+  }
+
+  if (listLoading) {
+    return (
+      <div className="animate-fade-in space-y-4">
+        <h3 className="text-sm font-semibold text-slate-800">Certificado Digital PFX</h3>
+        <div className="flex items-center justify-center py-8 text-slate-400">
+          <Loader2 size={20} className="animate-spin mr-2" />
+          <span className="text-sm">Verificando certificados...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // If cert is already loaded and associated with this company
+  if (certAlreadyAssociated) {
+    return (
+      <div className="animate-fade-in space-y-4">
+        <h3 className="text-sm font-semibold text-slate-800">Certificado Digital PFX</h3>
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 flex items-center gap-3">
+          <CheckCircle2 size={16} />
+          <div>
+            <p className="font-semibold">Certificado cargado</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              Vence: {cert.vence ?? 'N/A'}
+              {cert.diasParaVencer != null && ` (${cert.diasParaVencer} dias restantes)`}
+            </p>
+          </div>
+        </div>
+        <button onClick={onSuccess} className="btn-primary w-full justify-center">
+          Continuar <ChevronRight size={14} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="animate-fade-in space-y-4">
+      <h3 className="text-sm font-semibold text-slate-800">Certificado Digital PFX</h3>
+
+      {/* Existing cert available for association */}
+      {availableCert && !showUploadForm && (
+        <div className="space-y-3">
+          <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
+            <div className="flex items-center gap-2 mb-2">
+              <FileKey2 size={14} className="text-violet-600" />
+              <p className="text-sm font-semibold text-violet-800">Certificado disponible</p>
+            </div>
+            <p className="text-xs text-violet-700">
+              Certificado de <span className="font-bold">{availableCert.nombre_titular}</span> ({availableCert.rut_titular}) ya esta cargado.
+              Puedes usarlo para esta empresa.
+            </p>
+            <p className="text-[10px] text-violet-500 mt-1">
+              Vence: {availableCert.vence} ({availableCert.dias_para_vencer} dias restantes)
+            </p>
+          </div>
+
+          {associateError && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              <AlertTriangle size={13} />
+              {associateError}
+            </div>
+          )}
+
+          <button
+            onClick={handleAssociate}
+            disabled={associating}
+            className="btn-primary w-full justify-center"
+          >
+            {associating ? (
+              <><Loader2 size={14} className="animate-spin" /> Asociando certificado...</>
+            ) : (
+              <><Link2 size={14} /> Usar este certificado</>
+            )}
+          </button>
+
+          <div className="relative flex items-center gap-3 py-1">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span className="text-[10px] text-slate-400 uppercase tracking-wide">O cargar un nuevo certificado</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+
+          <button
+            onClick={() => setShowUploadForm(true)}
+            className="w-full text-xs text-slate-500 hover:text-violet-600 transition-colors py-2 flex items-center justify-center gap-1.5"
+          >
+            <Upload size={12} />
+            Cargar nuevo certificado .pfx
+          </button>
+        </div>
+      )}
+
+      {/* Upload form: shown when no cert available OR user clicked "cargar nuevo" */}
+      {(!availableCert || showUploadForm) && (
+        <CertificateUploader onSuccess={() => {
+          onSuccess()
+        }} />
+      )}
+    </div>
+  )
+}
+
 // ── Page Principal ────────────────────────────────────────────
 export default function ConfiguracionSIIPage() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -356,13 +487,12 @@ export default function ConfiguracionSIIPage() {
           )}
 
           {currentStep === 2 && (
-            <div className="animate-fade-in space-y-4">
-              <h3 className="text-sm font-semibold text-slate-800">Certificado Digital PFX</h3>
-              <CertificateUploader onSuccess={() => {
+            <CertificateStep
+              onSuccess={() => {
                 setSiiStatus(prev => ({ ...prev, cert: 'loaded' }))
                 setCurrentStep(3)
-              }} />
-            </div>
+              }}
+            />
           )}
 
           {currentStep === 3 && (

@@ -397,6 +397,28 @@ export function useSIIStatus() {
       ambiente:     connectivity?.ambiente ?? 'desconocido',
     },
     uploadCertificate,
+    mutateCert,
+  }
+}
+
+/** List all loaded certificates and their associated companies */
+export function useCertificateList() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/sii/certificate/list', fetcher)
+
+  const associateCertificate = async () => {
+    const { data: result } = await apiClient.post('/api/v1/sii/certificate/associate')
+    mutate()
+    // Also invalidate certificate status
+    globalMutate('/api/v1/sii/certificate/status')
+    return result
+  }
+
+  return {
+    certificates: data?.certificates ?? [],
+    isLoading,
+    error,
+    associateCertificate,
+    refresh: mutate,
   }
 }
 

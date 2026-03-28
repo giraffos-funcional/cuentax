@@ -60,12 +60,15 @@ class DTEEmissionService:
         if validation_error:
             return {"success": False, "estado": "error_validacion", "mensaje": validation_error}
 
-        # 2. Verificar certificado
-        if not certificate_service.is_loaded:
+        # 2. Verificar certificado para este emisor
+        if not certificate_service.is_loaded_for(rut_emisor):
             return {
                 "success": False,
                 "estado": "sin_certificado",
-                "mensaje": "No hay certificado digital cargado. Configura el certificado en Configuración → Certificado SII.",
+                "mensaje": (
+                    f"No hay certificado digital asociado a la empresa {rut_emisor}. "
+                    "Carga un certificado o asocia la empresa en Configuración → Certificado SII."
+                ),
             }
 
         # 3. Obtener folio
@@ -86,7 +89,7 @@ class DTEEmissionService:
         # 5. Generar + Firmar XML
         try:
             xml_element = self.generator.generate(doc)
-            signed_xml = certificate_service.sign_xml(xml_element)
+            signed_xml = certificate_service.sign_xml(xml_element, rut_emisor=rut_emisor)
             xml_bytes   = etree.tostring(signed_xml, encoding="UTF-8", xml_declaration=True)
         except Exception as e:
             logger.error(f"Error generando/firmando XML: {e}")
