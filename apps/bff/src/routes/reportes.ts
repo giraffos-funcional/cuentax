@@ -11,6 +11,7 @@ import { authGuard } from '@/middlewares/auth-guard'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { dteRepository } from '@/repositories/dte.repository'
 import { logger } from '@/core/logger'
+import { getLocalCompanyId } from '@/core/company-resolver'
 
 export async function reportesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -52,13 +53,14 @@ export async function reportesRoutes(fastify: FastifyInstance) {
       logger.warn({ err }, 'Odoo LCV unavailable, falling back to local DB')
     }
 
-    // Fallback: local DB
+    // Fallback: local DB — resolve to local company ID
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const monthStr = String(mes).padStart(2, '0')
     const desde = `${year}-${monthStr}-01`
     const hasta = `${year}-${monthStr}-31`
 
     const { data } = await dteRepository.findMany({
-      company_id: user.company_id,
+      company_id: localCompanyId,
       desde,
       hasta,
       limit: 500,
@@ -108,8 +110,9 @@ export async function reportesRoutes(fastify: FastifyInstance) {
       logger.warn({ err }, 'Odoo F29 unavailable, falling back to local calculation')
     }
 
-    // Fallback: local calculation
-    const stats = await dteRepository.getMonthStats(user.company_id, year, mes - 1)
+    // Fallback: local calculation — resolve to local company ID
+    const localCompanyIdF29 = await getLocalCompanyId(user.company_id)
+    const stats = await dteRepository.getMonthStats(localCompanyIdF29, year, mes - 1)
     const aceptados = stats.filter(s => s.estado === 'aceptado' || s.estado === 'enviado')
     const ventas_neto  = aceptados.reduce((s, r) => s + Number(r.total), 0)
     const debito_iva   = Math.round(ventas_neto * 0.19)
@@ -153,8 +156,9 @@ export async function reportesRoutes(fastify: FastifyInstance) {
       logger.warn({ err }, 'Odoo stats unavailable, falling back to local')
     }
 
-    // Fallback: local DB
-    const stats = await dteRepository.getMonthStats(user.company_id, year, mes - 1)
+    // Fallback: local DB — resolve to local company ID
+    const localCompanyIdStats = await getLocalCompanyId(user.company_id)
+    const stats = await dteRepository.getMonthStats(localCompanyIdStats, year, mes - 1)
     const byEstado = Object.fromEntries(
       stats.map(s => [s.estado, { count: Number(s.count), total: Number(s.total) }])
     )

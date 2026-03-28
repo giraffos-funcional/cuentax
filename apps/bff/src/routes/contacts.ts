@@ -12,6 +12,7 @@ import { authGuard } from '@/middlewares/auth-guard'
 import { contactsRepository } from '@/repositories/contacts.repository'
 import { odooSyncService } from '@/services/odoo-sync.service'
 import { logger } from '@/core/logger'
+import { getLocalCompanyId } from '@/core/company-resolver'
 
 const contactSchema = z.object({
   rut: z.string().min(9),
@@ -31,8 +32,9 @@ export async function contactsRoutes(fastify: FastifyInstance) {
 
   fastify.get('/', async (req, reply) => {
     const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const q = req.query as any
-    const result = await contactsRepository.findMany(user.company_id, {
+    const result = await contactsRepository.findMany(localCompanyId, {
       search:      q.search,
       es_cliente:  q.tipo === 'clientes'    ? true : q.tipo === 'proveedores' ? undefined : undefined,
       es_proveedor: q.tipo === 'proveedores' ? true : undefined,
@@ -44,19 +46,21 @@ export async function contactsRoutes(fastify: FastifyInstance) {
 
   fastify.get('/:id', async (req, reply) => {
     const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const { id } = req.params as { id: string }
-    const contact = await contactsRepository.findById(Number(id), user.company_id)
+    const contact = await contactsRepository.findById(Number(id), localCompanyId)
     if (!contact) return reply.status(404).send({ error: 'not_found' })
     return reply.send(contact)
   })
 
   fastify.post('/', async (req, reply) => {
     const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const parse = contactSchema.safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
-    const contact = await contactsRepository.create({ ...parse.data, company_id: user.company_id })
+    const contact = await contactsRepository.create({ ...parse.data, company_id: localCompanyId })
 
-    // Sync to Odoo (non-blocking)
+    // Sync to Odoo (non-blocking) — uses Odoo company ID
     odooSyncService.syncContactToOdoo(parse.data, user.company_id).catch(err => {
       logger.warn({ err, rut: parse.data.rut }, 'Odoo contact sync failed')
     })
@@ -66,18 +70,20 @@ export async function contactsRoutes(fastify: FastifyInstance) {
 
   fastify.put('/:id', async (req, reply) => {
     const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const { id } = req.params as { id: string }
     const parse = contactSchema.partial().safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
-    const contact = await contactsRepository.update(Number(id), user.company_id, parse.data)
+    const contact = await contactsRepository.update(Number(id), localCompanyId, parse.data)
     if (!contact) return reply.status(404).send({ error: 'not_found' })
     return reply.send(contact)
   })
 
   fastify.delete('/:id', async (req, reply) => {
     const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const { id } = req.params as { id: string }
-    await contactsRepository.softDelete(Number(id), user.company_id)
+    await contactsRepository.softDelete(Number(id), localCompanyId)
     return reply.status(204).send()
   })
 }

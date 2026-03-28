@@ -17,6 +17,7 @@ import { dteService, emitirDTESchema } from '@/services/dte.service'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
 import { dteRepository } from '@/repositories/dte.repository'
 import { logger } from '@/core/logger'
+import { getLocalCompanyId } from '@/core/company-resolver'
 import { z } from 'zod'
 
 export async function dteRoutes(fastify: FastifyInstance) {
@@ -34,10 +35,12 @@ export async function dteRoutes(fastify: FastifyInstance) {
     }
 
     const user = (request as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const companyContext = {
-      company_id:   user.company_id,
-      company_rut:  user.company_rut,
-      company_name: user.company_name,
+      company_id:       localCompanyId,        // Local DB FK
+      odoo_company_id:  user.company_id,       // Odoo ID for external calls
+      company_rut:      user.company_rut,
+      company_name:     user.company_name,
     }
 
     const result = await dteService.emitir(parse.data, companyContext)
@@ -49,6 +52,7 @@ export async function dteRoutes(fastify: FastifyInstance) {
   // ── GET / — Listar DTEs ────────────────────────────────────
   fastify.get('/', async (request, reply) => {
     const user = (request as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const query = request.query as {
       status?: string
       tipo_dte?: string
@@ -58,7 +62,7 @@ export async function dteRoutes(fastify: FastifyInstance) {
       limit?: string
     }
 
-    const result = await dteService.listar(user.company_id, {
+    const result = await dteService.listar(localCompanyId, {
       status:  query.status,
       tipo_dte: query.tipo_dte ? Number(query.tipo_dte) : undefined,
       desde:   query.desde,
@@ -86,11 +90,12 @@ export async function dteRoutes(fastify: FastifyInstance) {
   // ── GET /:trackId/pdf ──────────────────────────────────────
   fastify.get('/:trackId/pdf', async (request, reply) => {
     const user = (request as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const { trackId } = request.params as { trackId: string }
 
     const dte = await dteRepository.findByTrackId(trackId)
     if (!dte) return reply.status(404).send({ error: 'not_found', message: 'DTE no encontrado' })
-    if (dte.company_id !== user.company_id) return reply.status(403).send({ error: 'forbidden' })
+    if (dte.company_id !== localCompanyId) return reply.status(403).send({ error: 'forbidden' })
 
     if (!dte.xml_firmado_b64) {
       return reply.status(422).send({ error: 'no_xml', message: 'DTE no tiene XML firmado' })
@@ -111,8 +116,9 @@ export async function dteRoutes(fastify: FastifyInstance) {
   // ── GET /:id — Obtener DTE por ID de DB ───────────────────
   fastify.get('/:id', async (request, reply) => {
     const user = (request as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const { id } = request.params as { id: string }
-    const dte = await dteRepository.findById(Number(id), user.company_id)
+    const dte = await dteRepository.findById(Number(id), localCompanyId)
     if (!dte) return reply.status(404).send({ error: 'not_found' })
     return reply.send(dte)
   })

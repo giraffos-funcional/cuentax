@@ -115,7 +115,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
         uid: user.uid,
         name: user.name,
         email: user.email,
-        company_id: company.id,
+        company_id: odooCompanyId,
         company_name: company.razon_social,
         company_rut: company.rut,
       })

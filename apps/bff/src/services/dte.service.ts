@@ -54,12 +54,13 @@ export class DTEService {
    */
   async emitir(
     input: EmitirDTEInput,
-    companyContext: { company_id: number, company_rut: string, company_name: string },
+    companyContext: { company_id: number, odoo_company_id?: number, company_rut: string, company_name: string },
   ): Promise<DTEResult & { db_id?: string }> {
-    logger.info({ tipo_dte: input.tipo_dte, company_id: companyContext.company_id }, 'Iniciando emisión DTE')
+    const odooCompanyId = companyContext.odoo_company_id ?? companyContext.company_id
+    logger.info({ tipo_dte: input.tipo_dte, company_id: companyContext.company_id, odoo_company_id: odooCompanyId }, 'Iniciando emisión DTE')
 
-    // 1. Obtener datos completos de la empresa emisora desde Odoo
-    const emisorData = await this._getEmisorData(companyContext.company_id)
+    // 1. Obtener datos completos de la empresa emisora desde Odoo (uses Odoo ID)
+    const emisorData = await this._getEmisorData(odooCompanyId)
 
     // 2. Construir payload para el SII Bridge
     const payload: DTEPayload = {
@@ -116,11 +117,11 @@ export class DTEService {
       estado: result.estado,
     }, 'DTE emitido')
 
-    // 5. Sync to Odoo accounting (non-blocking)
+    // 5. Sync to Odoo accounting (non-blocking) — uses Odoo company ID
     if (dbId && result.folio) {
       odooSyncService.syncDTEToOdoo({
         id: dbId,
-        company_id: companyContext.company_id,
+        company_id: odooCompanyId,
         tipo_dte: input.tipo_dte,
         folio: result.folio,
         rut_receptor: input.rut_receptor,
@@ -131,7 +132,7 @@ export class DTEService {
         monto_total: this._calcTotal(input.items, input.tipo_dte),
         fecha_emision: input.items ? new Date().toISOString().slice(0, 10) : '',
         observaciones: input.observaciones,
-      }, companyContext).catch(err => {
+      }, { company_id: odooCompanyId, company_rut: companyContext.company_rut, company_name: companyContext.company_name }).catch(err => {
         logger.warn({ err, folio: result.folio }, 'Odoo sync failed — DTE was emitted successfully')
       })
     }
