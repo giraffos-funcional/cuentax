@@ -256,6 +256,25 @@ export class OdooAccountingAdapter {
     return result === true
   }
 
+  async unlink(model: string, ids: number[]): Promise<boolean> {
+    const result = await this.rpcCall(model, 'unlink', [ids])
+    return result === true
+  }
+
+  /**
+   * Generic method call on a model (e.g. action_approve, compute_sheet).
+   * Calls execute_kw with the given method name on the provided record IDs.
+   */
+  async callMethod(
+    model: string,
+    method: string,
+    ids: number[],
+    args: unknown[] = [],
+    kwargs: Record<string, unknown> = {},
+  ): Promise<unknown> {
+    return this.rpcCall(model, method, [ids, ...args], kwargs)
+  }
+
   async searchCount(model: string, domain: unknown[][]): Promise<number> {
     const result = await this.rpcCall(model, 'search_count', [domain])
     return typeof result === 'number' ? result : 0

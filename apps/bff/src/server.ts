@@ -181,10 +181,10 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now()
       )`)
 
-      // Seed default company if none exists
-      await db.execute(sql`INSERT INTO "companies" ("rut","razon_social","giro")
-        SELECT '00.000.000-0','Empresa Demo','Servicios'
-        WHERE NOT EXISTS (SELECT 1 FROM "companies" LIMIT 1)`)
+      // Clean up: remove orphan companies without odoo_company_id and with placeholder RUTs
+      await db.execute(sql`DELETE FROM "companies" WHERE "odoo_company_id" IS NULL AND "rut" IN ('00.000.000-0')`)
+      // Deactivate companies without odoo link (will be re-created properly)
+      await db.execute(sql`UPDATE "companies" SET "activo" = false WHERE "odoo_company_id" IS NULL AND "activo" = true`)
 
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {

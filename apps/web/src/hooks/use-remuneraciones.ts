@@ -6,11 +6,15 @@
  */
 'use client'
 
-import useSWR from 'swr'
+import useSWR, { mutate as globalMutate } from 'swr'
+import useSWRMutation from 'swr/mutation'
 import { apiClient } from '@/lib/api-client'
 
 // ── Fetcher base ───────────────────────────────────────────────
 const fetcher = (url: string) => apiClient.get(url).then(r => r.data)
+
+const poster = async (url: string, { arg }: { arg: unknown }) =>
+  apiClient.post(url, arg).then(r => r.data)
 
 // ── Types ──────────────────────────────────────────────────────
 
