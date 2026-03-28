@@ -125,6 +125,12 @@ export function useStats() {
 // Accounting Hooks (Odoo Contabilidad)
 // ══════════════════════════════════════════════════════════════
 
+/** Journals (diarios contables — para selects) */
+export function useJournals() {
+  const { data, error, isLoading } = useSWR('/api/v1/contabilidad/journals', fetcher)
+  return { journals: data?.journals ?? [], isLoading, error }
+}
+
 /** Plan de Cuentas */
 export function useChartOfAccounts(search?: string, type?: string) {
   const params = new URLSearchParams()
@@ -165,7 +171,8 @@ export function useBalanceSheet(year: number, month: number) {
   const { data, error, isLoading } = useSWR(
     `/api/v1/contabilidad/balance?year=${year}&mes=${month}`, fetcher,
   )
-  return { balance: data ?? null, isLoading, error }
+  const isError = error || data?.source === 'error'
+  return { balance: isError ? null : data, isLoading, error: isError ? (error ?? new Error('Odoo error')) : null }
 }
 
 /** Estado de Resultados */
@@ -173,7 +180,8 @@ export function useIncomeStatement(year: number, month: number) {
   const { data, error, isLoading } = useSWR(
     `/api/v1/contabilidad/resultados?year=${year}&mes=${month}`, fetcher,
   )
-  return { resultados: data ?? null, isLoading, error }
+  const isError = error || data?.source === 'error'
+  return { resultados: isError ? null : data, isLoading, error: isError ? (error ?? new Error('Odoo error')) : null }
 }
 
 /** Conciliación Bancaria */

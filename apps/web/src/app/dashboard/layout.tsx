@@ -14,7 +14,8 @@ import {
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Building2, Bell, Search, Menu,
   Tag, Users, FileX, BarChart3, Folders, Send,
-  ListTree, BookText, Scale, TrendingUp, ArrowLeftRight
+  ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
+  UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -39,6 +40,18 @@ const NAV_ITEMS = [
       { href: '/dashboard/contabilidad/resultados',         icon: TrendingUp,     label: 'Estado Resultados' },
       { href: '/dashboard/contabilidad/conciliacion',       icon: ArrowLeftRight, label: 'Conciliación' },
       { href: '/dashboard/folios',                          icon: Folders,        label: 'Folios (CAF)' },
+    ],
+  },
+  {
+    section: 'Remuneraciones',
+    items: [
+      { href: '/dashboard/remuneraciones',              icon: UserCircle,    label: 'Panel RRHH' },
+      { href: '/dashboard/remuneraciones/empleados',    icon: Users,         label: 'Empleados' },
+      { href: '/dashboard/remuneraciones/liquidaciones', icon: Receipt,       label: 'Liquidaciones' },
+      { href: '/dashboard/remuneraciones/nominas',      icon: ClipboardList, label: 'Nóminas' },
+      { href: '/dashboard/remuneraciones/ausencias',    icon: CalendarDays,  label: 'Ausencias' },
+      { href: '/dashboard/remuneraciones/contratos',    icon: Briefcase,     label: 'Contratos' },
+      { href: '/dashboard/remuneraciones/asistencia',   icon: Clock4,        label: 'Asistencia' },
     ],
   },
   {
@@ -249,6 +262,13 @@ export default function DashboardLayout({
       '/dashboard/contabilidad/balance':      'Balance General',
       '/dashboard/contabilidad/resultados':   'Estado de Resultados',
       '/dashboard/contabilidad/conciliacion': 'Conciliación Bancaria',
+      '/dashboard/remuneraciones':               'Panel RRHH',
+      '/dashboard/remuneraciones/empleados':     'Empleados',
+      '/dashboard/remuneraciones/liquidaciones': 'Liquidaciones de Sueldo',
+      '/dashboard/remuneraciones/nominas':       'Nóminas Mensuales',
+      '/dashboard/remuneraciones/ausencias':     'Ausencias y Vacaciones',
+      '/dashboard/remuneraciones/contratos':     'Contratos',
+      '/dashboard/remuneraciones/asistencia':    'Asistencia',
     }
     return titles[pathname] ?? 'CUENTAX'
   }

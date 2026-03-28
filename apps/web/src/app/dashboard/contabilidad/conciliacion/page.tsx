@@ -7,7 +7,7 @@
 
 import { useState } from 'react'
 import { Download, Printer, CheckCircle2, Clock, Loader2, AlertCircle, Landmark } from 'lucide-react'
-import { useBankReconciliation } from '@/hooks'
+import { useBankReconciliation, useJournals } from '@/hooks'
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
                'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -15,12 +15,7 @@ const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
 const formatCLP = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
-// Placeholder journal list — in production this would come from a useJournals hook
-const JOURNALS_PLACEHOLDER = [
-  { id: 1, name: 'Banco BCI — CLP' },
-  { id: 2, name: 'Banco Santander — CLP' },
-  { id: 3, name: 'Banco Estado — CLP' },
-]
+// Journals are fetched from Odoo via useJournals hook (see page component)
 
 function LoadingState() {
   return (
@@ -108,6 +103,9 @@ export default function ConciliacionPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [journalId, setJournalId] = useState<number | null>(null)
 
+  const { journals } = useJournals()
+  const bankJournals = journals.filter((j: any) => j.tipo === 'bank')
+
   const { extracto, sin_conciliar, total_extracto, total_sin_conciliar, isLoading, error } =
     useBankReconciliation(journalId, month, year)
 
@@ -131,8 +129,8 @@ export default function ConciliacionPage() {
             className="input-field py-2 text-sm w-auto"
           >
             <option value="">Seleccionar cuenta...</option>
-            {JOURNALS_PLACEHOLDER.map(j => (
-              <option key={j.id} value={j.id}>{j.name}</option>
+            {bankJournals.map((j: any) => (
+              <option key={j.id} value={j.id}>{j.nombre}</option>
             ))}
           </select>
           <select

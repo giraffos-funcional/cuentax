@@ -16,6 +16,29 @@ import { logger } from '@/core/logger'
 export async function contabilidadRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
 
+  // ── GET /journals ────────────────────────────────────────
+  fastify.get('/journals', async (req, reply) => {
+    const user = (req as any).user
+    try {
+      const journals = await odooAccountingAdapter.searchRead(
+        'account.journal',
+        [['company_id', '=', user.company_id]],
+        ['id', 'name', 'type', 'code'],
+        { order: 'name asc' },
+      )
+      const mapped = (journals as any[]).map((j: any) => ({
+        id: j.id,
+        nombre: j.name,
+        tipo: j.type,
+        codigo: j.code,
+      }))
+      return reply.send({ source: 'odoo', journals: mapped })
+    } catch (err) {
+      logger.error({ err }, 'Error fetching journals from Odoo')
+      return reply.send({ source: 'error', journals: [] })
+    }
+  })
+
   // ── GET /plan-cuentas ─────────────────────────────────────
   fastify.get('/plan-cuentas', async (req, reply) => {
     const user = (req as any).user
@@ -47,9 +70,19 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
 
       const total = await odooAccountingAdapter.searchCount('account.account', domain)
 
+      // Map Odoo field names to Spanish for frontend consistency
+      const mapped = (cuentas as any[]).map((c: any) => ({
+        id: c.id,
+        codigo: c.code ?? '',
+        nombre: c.name ?? '',
+        tipo: c.account_type ?? '',
+        saldo: c.current_balance ?? 0,
+        reconciliable: c.reconcile ?? false,
+      }))
+
       return reply.send({
         source: 'odoo',
-        cuentas,
+        cuentas: mapped,
         total,
         page,
         limit,
@@ -205,21 +238,32 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         ['code', 'name'],
         { limit: 1 },
       )
-      const cuenta = cuentaData[0] ?? { code: '', name: '' }
+      const raw = (cuentaData as any[])[0] ?? { code: '', name: '', account_type: '' }
+      const cuenta = { codigo: raw.code, nombre: raw.name, tipo: raw.account_type }
 
       // Calculate running balance
       let saldo_inicial = 0
       let running = saldo_inicial
-      const movimientosConSaldo = movimientos.map((m: any) => {
-        running = running + (m.debit ?? 0) - (m.credit ?? 0)
-        return { ...m, saldo_acumulado: running }
+      const movimientosConSaldo = (movimientos as any[]).map((m: any) => {
+        const debe = m.debit ?? 0
+        const haber = m.credit ?? 0
+        running = running + debe - haber
+        return {
+          fecha: m.date,
+          documento: m.move_id?.[1] ?? m.ref ?? '',
+          descripcion: m.name ?? '',
+          debe,
+          haber,
+          saldo_acumulado: running,
+          partner: m.partner_id?.[1] ?? '',
+        }
       })
       const saldo_final = running
 
       return reply.send({
         source: 'odoo',
         periodo: { year, mes },
-        cuenta: { code: cuenta.code, name: cuenta.name },
+        cuenta,
         movimientos: movimientosConSaldo,
         saldo_inicial,
         saldo_final,
@@ -231,7 +275,7 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
       return reply.send({
         source: 'error',
         periodo: { year, mes },
-        cuenta: { code: '', name: '' },
+        cuenta: { codigo: '', nombre: '', tipo: '' },
         movimientos: [],
         saldo_inicial: 0,
         saldo_final: 0,

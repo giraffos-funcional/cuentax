@@ -24,6 +24,7 @@ import { contactsRoutes } from '@/routes/contacts'
 import { productsRoutes } from '@/routes/products'
 import { reportesRoutes } from '@/routes/reportes'
 import { contabilidadRoutes } from '@/routes/contabilidad'
+import { remuneracionesRoutes } from '@/routes/remuneraciones'
 
 // Jobs
 import { dteStatusPoller } from '@/jobs/dte-status-poller'
@@ -119,6 +120,7 @@ async function bootstrap() {
   await fastify.register(productsRoutes, { prefix: '/api/v1/products' })
   await fastify.register(reportesRoutes,      { prefix: '/api/v1/reportes' })
   await fastify.register(contabilidadRoutes,  { prefix: '/api/v1/contabilidad' })
+  await fastify.register(remuneracionesRoutes, { prefix: '/api/v1/remuneraciones' })
 
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {

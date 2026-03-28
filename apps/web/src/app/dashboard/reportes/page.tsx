@@ -250,6 +250,7 @@ function ChartContent({ months }: { months: { mes: string, mesNum: number, yearN
           formatter={(v: number) => [formatCLP(v)]}
         />
         <Legend wrapperStyle={{ fontSize: 12, color: 'var(--cx-text-muted)' }} />
+        {/* SVG fill doesn't support CSS vars — using brand hex values (cx-violet-600, cx-indigo-500) */}
         <Bar dataKey="ventas" name="Ventas" fill="#7c3aed" radius={[4,4,0,0]} />
         <Bar dataKey="compras" name="Compras" fill="#4f46e5" radius={[4,4,0,0]} />
       </BarChart>

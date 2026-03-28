@@ -177,12 +177,11 @@ function LedgerTable({
   movimientos: any[]
   saldo_inicial: number
 }) {
-  // Compute running balance
-  let running = saldo_inicial
-  const rows = movimientos.map((m: any) => {
-    running += (m.debe ?? m.debit ?? 0) - (m.haber ?? m.credit ?? 0)
-    return { ...m, saldo_corrido: running }
-  })
+  // Use pre-calculated saldo_acumulado from BFF
+  const rows = movimientos.map((m: any) => ({
+    ...m,
+    saldo_corrido: m.saldo_acumulado ?? 0,
+  }))
 
   return (
     <div className="card border border-[var(--cx-border-light)] rounded-2xl overflow-hidden">
@@ -219,16 +218,16 @@ function LedgerTable({
                 {mov.fecha ? String(mov.fecha).slice(5) : '-'}
               </div>
               <div className="col-span-2 font-mono text-xs text-[var(--cx-text-primary)]">
-                {mov.documento ?? mov.ref ?? '-'}
+                {mov.documento ?? '-'}
               </div>
               <div className="col-span-4 text-[var(--cx-text-secondary)] truncate text-xs">
-                {mov.descripcion ?? mov.name ?? '-'}
+                {mov.descripcion ?? '-'}
               </div>
               <div className="col-span-2 text-right font-mono text-sm text-[var(--cx-text-primary)]">
-                {(mov.debe ?? mov.debit ?? 0) > 0 ? formatCLP(mov.debe ?? mov.debit) : '—'}
+                {(mov.debe ?? 0) > 0 ? formatCLP(mov.debe) : '—'}
               </div>
               <div className="col-span-2 text-right font-mono text-sm text-[var(--cx-text-primary)]">
-                {(mov.haber ?? mov.credit ?? 0) > 0 ? formatCLP(mov.haber ?? mov.credit) : '—'}
+                {(mov.haber ?? 0) > 0 ? formatCLP(mov.haber) : '—'}
               </div>
               <div className={`col-span-1 text-right font-mono text-sm font-semibold ${
                 mov.saldo_corrido < 0
