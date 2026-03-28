@@ -15,6 +15,15 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// On app load: recover access token from sessionStorage (saved during company switch)
+if (typeof window !== 'undefined') {
+  const switchToken = sessionStorage.getItem('cuentax_switch_token')
+  if (switchToken) {
+    sessionStorage.removeItem('cuentax_switch_token')
+    useAuthStore.getState().setAccessToken(switchToken)
+  }
+}
+
 // Request interceptor: inyectar access token
 apiClient.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken

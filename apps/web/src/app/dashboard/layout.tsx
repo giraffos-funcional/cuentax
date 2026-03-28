@@ -209,12 +209,15 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     try {
       const { data } = await apiClient.post('/api/v1/companies/switch', { company_id: companyId })
       if (data.access_token && data.user) {
-        // Store new auth data in localStorage directly to avoid re-render before navigation
+        // Store new auth data in localStorage for Zustand rehydration
         localStorage.setItem('cuentax-auth', JSON.stringify({
           state: { user: data.user, isAuthenticated: true },
           version: 0,
         }))
-        // Store token in memory for the new page load
+        // Save access token in sessionStorage so it survives page reload
+        // (Zustand doesn't persist accessToken by design, but we need it after switch)
+        sessionStorage.setItem('cuentax_switch_token', data.access_token)
+        // Store token in memory
         useAuthStore.setState({ accessToken: data.access_token, user: data.user, isAuthenticated: true })
         // Full page reload to clear all SWR cache and component state
         window.location.replace('/dashboard')
