@@ -23,6 +23,7 @@ import { siiRoutes }      from '@/routes/sii'
 import { contactsRoutes } from '@/routes/contacts'
 import { productsRoutes } from '@/routes/products'
 import { reportesRoutes } from '@/routes/reportes'
+import { contabilidadRoutes } from '@/routes/contabilidad'
 
 // Jobs
 import { dteStatusPoller } from '@/jobs/dte-status-poller'
@@ -116,7 +117,8 @@ async function bootstrap() {
   await fastify.register(siiRoutes,      { prefix: '/api/v1/sii' })
   await fastify.register(contactsRoutes, { prefix: '/api/v1/contacts' })
   await fastify.register(productsRoutes, { prefix: '/api/v1/products' })
-  await fastify.register(reportesRoutes, { prefix: '/api/v1/reportes' })
+  await fastify.register(reportesRoutes,      { prefix: '/api/v1/reportes' })
+  await fastify.register(contabilidadRoutes,  { prefix: '/api/v1/contabilidad' })
 
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {

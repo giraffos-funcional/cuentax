@@ -122,6 +122,78 @@ export function useStats() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Accounting Hooks (Odoo Contabilidad)
+// ══════════════════════════════════════════════════════════════
+
+/** Plan de Cuentas */
+export function useChartOfAccounts(search?: string, type?: string) {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  if (type) params.set('type', type)
+  const { data, error, isLoading } = useSWR(`/api/v1/contabilidad/plan-cuentas?${params}`, fetcher)
+  return { cuentas: data?.cuentas ?? [], total: data?.total ?? 0, isLoading, error }
+}
+
+/** Libro Diario — asientos contables */
+export function useJournalEntries(mes: number, year: number, journal?: string, state?: string) {
+  const params = new URLSearchParams({ mes: String(mes), year: String(year) })
+  if (journal) params.set('journal', journal)
+  if (state) params.set('state', state)
+  const { data, error, isLoading } = useSWR(`/api/v1/contabilidad/libro-diario?${params}`, fetcher)
+  return { asientos: data?.asientos ?? [], total: data?.total ?? 0, isLoading, error }
+}
+
+/** Libro Mayor — movimientos de una cuenta */
+export function useGeneralLedger(accountId: number | null, mes: number, year: number) {
+  const params = accountId ? new URLSearchParams({
+    account_id: String(accountId), mes: String(mes), year: String(year),
+  }) : null
+  const { data, error, isLoading } = useSWR(
+    params ? `/api/v1/contabilidad/libro-mayor?${params}` : null, fetcher,
+  )
+  return {
+    cuenta: data?.cuenta ?? null,
+    movimientos: data?.movimientos ?? [],
+    saldo_inicial: data?.saldo_inicial ?? 0,
+    saldo_final: data?.saldo_final ?? 0,
+    isLoading, error,
+  }
+}
+
+/** Balance General */
+export function useBalanceSheet(year: number, month: number) {
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/contabilidad/balance?year=${year}&mes=${month}`, fetcher,
+  )
+  return { balance: data ?? null, isLoading, error }
+}
+
+/** Estado de Resultados */
+export function useIncomeStatement(year: number, month: number) {
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/contabilidad/resultados?year=${year}&mes=${month}`, fetcher,
+  )
+  return { resultados: data ?? null, isLoading, error }
+}
+
+/** Conciliación Bancaria */
+export function useBankReconciliation(journalId: number | null, mes: number, year: number) {
+  const params = journalId ? new URLSearchParams({
+    journal_id: String(journalId), mes: String(mes), year: String(year),
+  }) : null
+  const { data, error, isLoading } = useSWR(
+    params ? `/api/v1/contabilidad/conciliacion?${params}` : null, fetcher,
+  )
+  return {
+    extracto: data?.extracto ?? [],
+    sin_conciliar: data?.sin_conciliar ?? [],
+    total_extracto: data?.total_extracto ?? 0,
+    total_sin_conciliar: data?.total_sin_conciliar ?? 0,
+    isLoading, error,
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // CAF Hooks
 // ══════════════════════════════════════════════════════════════
 

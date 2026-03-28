@@ -13,7 +13,8 @@ import {
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Building2, Bell, Search, Menu,
-  Tag, Users, FileX, BarChart3, Folders, Send
+  Tag, Users, FileX, BarChart3, Folders, Send,
+  ListTree, BookText, Scale, TrendingUp, ArrowLeftRight
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -30,8 +31,14 @@ const NAV_ITEMS = [
   {
     section: 'Contabilidad',
     items: [
-      { href: '/dashboard/reportes', icon: BarChart3,    label: 'Reportes' },
-      { href: '/dashboard/folios',   icon: Folders,      label: 'Folios (CAF)' },
+      { href: '/dashboard/reportes',                        icon: BarChart3,      label: 'Reportes' },
+      { href: '/dashboard/contabilidad/plan-cuentas',       icon: ListTree,       label: 'Plan de Cuentas' },
+      { href: '/dashboard/contabilidad/libro-diario',       icon: BookText,       label: 'Libro Diario' },
+      { href: '/dashboard/contabilidad/libro-mayor',        icon: BookOpen,       label: 'Libro Mayor' },
+      { href: '/dashboard/contabilidad/balance',            icon: Scale,          label: 'Balance General' },
+      { href: '/dashboard/contabilidad/resultados',         icon: TrendingUp,     label: 'Estado Resultados' },
+      { href: '/dashboard/contabilidad/conciliacion',       icon: ArrowLeftRight, label: 'Conciliación' },
+      { href: '/dashboard/folios',                          icon: Folders,        label: 'Folios (CAF)' },
     ],
   },
   {
@@ -236,6 +243,12 @@ export default function DashboardLayout({
       '/dashboard/contactos':        'Contactos',
       '/dashboard/productos':        'Productos y Servicios',
       '/dashboard/configuracion':    'Configuración SII',
+      '/dashboard/contabilidad/plan-cuentas': 'Plan de Cuentas',
+      '/dashboard/contabilidad/libro-diario': 'Libro Diario',
+      '/dashboard/contabilidad/libro-mayor':  'Libro Mayor',
+      '/dashboard/contabilidad/balance':      'Balance General',
+      '/dashboard/contabilidad/resultados':   'Estado de Resultados',
+      '/dashboard/contabilidad/conciliacion': 'Conciliación Bancaria',
     }
     return titles[pathname] ?? 'CUENTAX'
   }
