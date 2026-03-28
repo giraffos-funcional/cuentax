@@ -49,62 +49,62 @@ function SIIStatusPanel({ status, onCheckConnection }: {
       label: 'Certificado Digital',
       value: status.cert === 'loaded' ? 'Cargado ✓' : status.cert === 'error' ? 'Error al cargar' : 'No configurado',
       icon: FileKey2,
-      color: status.cert === 'loaded' ? 'text-emerald-700' : status.cert === 'error' ? 'text-red-600' : 'text-slate-500',
-      bg: status.cert === 'loaded' ? 'bg-emerald-50' : status.cert === 'error' ? 'bg-red-50' : 'bg-slate-100',
+      color: status.cert === 'loaded' ? 'text-emerald-700' : status.cert === 'error' ? 'text-red-600' : 'text-slate-600',
+      bg: status.cert === 'loaded' ? 'bg-emerald-100' : status.cert === 'error' ? 'bg-red-100' : 'bg-slate-200',
     },
     {
       label: 'Conexión SII',
       value: status.connection === 'ok' ? 'Conectado' : status.connection === 'error' ? 'Sin conexión' : status.connection === 'checking' ? 'Verificando...' : 'No verificado',
       icon: status.connection === 'ok' ? Wifi : WifiOff,
-      color: status.connection === 'ok' ? 'text-emerald-700' : status.connection === 'error' ? 'text-red-600' : 'text-slate-500',
-      bg: status.connection === 'ok' ? 'bg-emerald-50' : status.connection === 'error' ? 'bg-red-50' : 'bg-slate-100',
+      color: status.connection === 'ok' ? 'text-emerald-700' : status.connection === 'error' ? 'text-red-600' : 'text-slate-600',
+      bg: status.connection === 'ok' ? 'bg-emerald-100' : status.connection === 'error' ? 'bg-red-100' : 'bg-slate-200',
     },
     {
       label: 'Ambiente',
       value: status.ambiente === 'produccion' ? '🔴 Producción' : '🟡 Certificación',
       icon: Globe,
-      color: status.ambiente === 'produccion' ? 'text-red-600' : 'text-amber-700',
-      bg: status.ambiente === 'produccion' ? 'bg-red-50' : 'bg-amber-50',
+      color: status.ambiente === 'produccion' ? 'text-red-700' : 'text-amber-700',
+      bg: status.ambiente === 'produccion' ? 'bg-red-100' : 'bg-amber-100',
     },
     {
       label: 'Token SII',
       value: status.tokenActive ? 'Activo (2h)' : 'No generado',
       icon: Zap,
-      color: status.tokenActive ? 'text-emerald-700' : 'text-slate-500',
-      bg: status.tokenActive ? 'bg-emerald-50' : 'bg-slate-100',
+      color: status.tokenActive ? 'text-emerald-700' : 'text-slate-600',
+      bg: status.tokenActive ? 'bg-emerald-100' : 'bg-slate-200',
     },
   ]
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="p-2 bg-violet-50 rounded-xl shrink-0">
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 bg-violet-100 rounded-xl">
             <Shield size={16} className="text-violet-600" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-800 truncate">Estado del Sistema SII</h3>
+          <h3 className="text-sm font-semibold text-slate-800">Estado del Sistema SII</h3>
         </div>
         <button
           onClick={onCheckConnection}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-violet-600 transition-colors shrink-0"
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-violet-600 transition-colors"
         >
           <RefreshCw size={12} className={status.connection === 'checking' ? 'animate-spin' : ''} />
           Verificar
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="space-y-2.5">
         {statusItems.map((item) => (
           <div
             key={item.label}
-            className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 min-w-0 overflow-hidden"
+            className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-100"
           >
             <div className={`p-1.5 rounded-lg shrink-0 ${item.bg}`}>
-              <item.icon size={13} className={item.color} />
+              <item.icon size={14} className={item.color} />
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] text-slate-400 uppercase tracking-wide truncate">{item.label}</p>
-              <p className={`text-xs font-semibold truncate ${item.color}`}>{item.value}</p>
+            <div className="flex-1">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wide">{item.label}</p>
+              <p className={`text-xs font-semibold ${item.color}`}>{item.value}</p>
             </div>
           </div>
         ))}
