@@ -185,6 +185,7 @@ export function useEmployees(search?: string, departmentId?: number, page?: numb
   if (search)       params.set('search', search)
   if (departmentId) params.set('department_id', String(departmentId))
   if (page)         params.set('page', String(page))
+  params.set('limit', '20')
 
   const { data, error, isLoading } = useSWR(
     `/api/v1/remuneraciones/empleados?${params}`,
@@ -224,6 +225,7 @@ export function usePayslips(filters?: {
   if (filters?.mes)         params.set('mes', String(filters.mes))
   if (filters?.year)        params.set('year', String(filters.year))
   if (filters?.page)        params.set('page', String(filters.page))
+  params.set('limit', '20')
 
   const { data, error, isLoading } = useSWR(
     `/api/v1/remuneraciones/liquidaciones?${params}`,
@@ -258,6 +260,7 @@ export function usePayslipRuns(mes?: number, year?: number, page?: number) {
   if (mes)  params.set('mes', String(mes))
   if (year) params.set('year', String(year))
   if (page) params.set('page', String(page))
+  params.set('limit', '20')
 
   const { data, error, isLoading } = useSWR(
     `/api/v1/remuneraciones/nominas?${params}`,
@@ -289,17 +292,20 @@ export function usePayslipRunDetail(id: number | null) {
 /** Ausencias (licencias) con filtros opcionales */
 export function useLeaves(filters?: {
   employee_id?: number
+  holiday_status_id?: number
   state?: string
   mes?: number
   year?: number
   page?: number
 }) {
   const params = new URLSearchParams()
-  if (filters?.employee_id) params.set('employee_id', String(filters.employee_id))
-  if (filters?.state)       params.set('state', filters.state)
-  if (filters?.mes)         params.set('mes', String(filters.mes))
-  if (filters?.year)        params.set('year', String(filters.year))
-  if (filters?.page)        params.set('page', String(filters.page))
+  if (filters?.employee_id)      params.set('employee_id', String(filters.employee_id))
+  if (filters?.holiday_status_id) params.set('holiday_status_id', String(filters.holiday_status_id))
+  if (filters?.state)            params.set('state', filters.state)
+  if (filters?.mes)              params.set('mes', String(filters.mes))
+  if (filters?.year)             params.set('year', String(filters.year))
+  if (filters?.page)             params.set('page', String(filters.page))
+  params.set('limit', '20')
 
   const { data, error, isLoading } = useSWR(
     `/api/v1/remuneraciones/ausencias?${params}`,
@@ -361,6 +367,7 @@ export function useContracts(employeeId?: number, state?: string) {
   const params = new URLSearchParams()
   if (employeeId) params.set('employee_id', String(employeeId))
   if (state)      params.set('state', state)
+  params.set('limit', '20')
 
   const { data, error, isLoading } = useSWR(
     `/api/v1/remuneraciones/contratos?${params}`,
@@ -381,6 +388,7 @@ export function useAttendance(employeeId?: number, mes?: number, year?: number) 
   if (employeeId) params.set('employee_id', String(employeeId))
   if (mes)        params.set('mes', String(mes))
   if (year)       params.set('year', String(year))
+  params.set('limit', '20')
 
   const { data, error, isLoading } = useSWR(
     `/api/v1/remuneraciones/asistencia?${params}`,

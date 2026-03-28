@@ -477,9 +477,9 @@ async function syncToOdoo(
       utm: indicators.utm,
       uta: indicators.uta,
       imm: indicators.imm,
-      tope_imponible_afp: indicators.tope_imponible_afp,
-      tope_imponible_salud: indicators.tope_imponible_ips,
-      tope_seg_cesantia: indicators.tope_seg_cesantia,
+      tope_imponible_afp: indicators.tope_imponible_afp_uf,
+      tope_imponible_salud: indicators.tope_imponible_afp_uf, // Same as AFP cap (90 UF), NOT IPS (60 UF)
+      tope_seg_cesantia: indicators.tope_seg_cesantia_uf,
       company_id: companyId,
     }
 
@@ -540,6 +540,17 @@ export async function scrapePreviredIndicators(
         indicators: null,
         odooSynced: false,
         error: 'Failed to fetch or parse Previred indicators page',
+      }
+    }
+
+    // Validate scraped data is not all zeros (page might be broken or empty)
+    if (indicators.uf === 0 && indicators.utm === 0 && indicators.imm === 0) {
+      logger.warn('Previred scrape returned all zeros - skipping sync')
+      return {
+        success: false,
+        indicators,
+        odooSynced: false,
+        error: 'all_zeros',
       }
     }
 

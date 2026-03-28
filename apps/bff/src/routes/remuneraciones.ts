@@ -305,7 +305,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       const companyResults = await odooAccountingAdapter.searchRead(
         'res.company',
         [['id', '=', user.company_id]],
-        ['name', 'vat', 'street', 'city', 'state_id', 'country_id', 'image_1920'],
+        ['name', 'vat', 'street', 'city', 'state_id', 'country_id', 'logo'],
         { limit: 1 },
       )
       const company = companyResults[0] as Record<string, unknown> | undefined
@@ -427,7 +427,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         company_name: String(company?.name ?? 'Sin empresa'),
         company_rut: String(company?.vat ?? '-'),
         company_address: companyAddress,
-        company_logo: company?.image_1920 ? String(company.image_1920) : undefined,
+        company_logo: company?.logo ? String(company.logo) : undefined,
 
         employee_name: employeeName,
         employee_rut: employeeRut,
@@ -1173,7 +1173,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         'res.company',
         [['id', '=', user.company_id]],
         [
-          'name', 'vat', 'street', 'city', 'email', 'image_1920',
+          'name', 'vat', 'street', 'city', 'email', 'logo',
           'l10n_cl_commune', 'l10n_cl_rep_legal_name', 'l10n_cl_rep_legal_rut',
         ],
         { limit: 1 },
@@ -1224,7 +1224,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         company_commune: String(company['l10n_cl_commune'] ?? company['city'] ?? ''),
         company_city: String(company['city'] ?? ''),
         company_email: String(company['email'] ?? ''),
-        company_logo: company['image_1920'] ? String(company['image_1920']) : undefined,
+        company_logo: company['logo'] ? String(company['logo']) : undefined,
         rep_legal_name: String(company['l10n_cl_rep_legal_name'] ?? ''),
         rep_legal_rut: String(company['l10n_cl_rep_legal_rut'] ?? ''),
 
@@ -1757,14 +1757,14 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
   })
 
   // ── GET /empresa ────────────────────────────────────────────
-  // Company info with logo (image_1920 base64 from res.company)
+  // Company info with logo (logo base64 from res.company)
   fastify.get('/empresa', async (req, reply) => {
     const user = (req as any).user
     try {
       const companies = await odooAccountingAdapter.searchRead(
         'res.company',
         [['id', '=', user.company_id]],
-        ['name', 'vat', 'street', 'city', 'state_id', 'country_id', 'phone', 'email', 'website', 'image_1920'],
+        ['name', 'vat', 'street', 'city', 'state_id', 'country_id', 'phone', 'email', 'website', 'logo'],
         { limit: 1 },
       )
       const company = companies[0] ?? null
@@ -1776,7 +1776,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
   })
 
   // ── PUT /empresa ────────────────────────────────────────────
-  // Update company data (including logo via image_1920 base64)
+  // Update company data (including logo base64)
   fastify.put('/empresa', async (req, reply) => {
     const user = (req as any).user
     const body = req.body as Record<string, unknown>

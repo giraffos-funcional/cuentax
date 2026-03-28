@@ -41,8 +41,8 @@ export default function EmpresaPage() {
         email: empresa.email === false ? '' : (empresa.email || ''),
         website: empresa.website === false ? '' : (empresa.website || ''),
       })
-      if (empresa.image_1920 && empresa.image_1920 !== false) {
-        setLogoPreview(`data:image/png;base64,${empresa.image_1920}`)
+      if (empresa.logo && empresa.logo !== false) {
+        setLogoPreview(`data:image/png;base64,${empresa.logo}`)
       }
       setLoaded(true)
     }
@@ -67,7 +67,7 @@ export default function EmpresaPage() {
     try {
       const data: Record<string, unknown> = { ...form }
       if (logoBase64) {
-        data.image_1920 = logoBase64
+        data.logo = logoBase64
       }
       await update(data)
       refresh()

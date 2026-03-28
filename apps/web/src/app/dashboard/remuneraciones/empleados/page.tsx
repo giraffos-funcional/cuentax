@@ -44,8 +44,25 @@ const EMPTY_FORM: EmployeeFormData = {
   cargas_familiares: '0',
 }
 
-const AFP_OPTIONS = ['Capital', 'Cuprum', 'Habitat', 'Modelo', 'PlanVital', 'ProVida', 'Uno']
-const ISAPRE_OPTIONS = ['Banmédica', 'Colmena', 'Cruz Blanca', 'Vida Tres', 'Nueva Masvida', 'Esencial']
+// AFP IDs from Odoo l10n_cl.afp model (standard Chilean data)
+const AFP_OPTIONS = [
+  { id: 1, name: 'Capital' },
+  { id: 2, name: 'Cuprum' },
+  { id: 3, name: 'Habitat' },
+  { id: 4, name: 'Modelo' },
+  { id: 5, name: 'PlanVital' },
+  { id: 6, name: 'ProVida' },
+  { id: 7, name: 'Uno' },
+]
+// Isapre IDs from Odoo l10n_cl.isapre model (standard Chilean data)
+const ISAPRE_OPTIONS = [
+  { id: 1, name: 'Banmedica' },
+  { id: 2, name: 'Colmena' },
+  { id: 3, name: 'Cruz Blanca' },
+  { id: 4, name: 'Vida Tres' },
+  { id: 5, name: 'Nueva Masvida' },
+  { id: 6, name: 'Esencial' },
+]
 
 // ── Sub-components ────────────────────────────────────────────
 function LoadingState() {
@@ -176,7 +193,7 @@ function EmployeeModal({
               <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">AFP</label>
               <select value={form.afp} onChange={e => set('afp', e.target.value)} className="input-field text-sm w-full">
                 <option value="">Seleccionar...</option>
-                {AFP_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+                {AFP_OPTIONS.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
               </select>
             </div>
             <div>
@@ -194,7 +211,7 @@ function EmployeeModal({
                 <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Isapre</label>
                 <select value={form.isapre} onChange={e => set('isapre', e.target.value)} className="input-field text-sm w-full">
                   <option value="">Seleccionar...</option>
-                  {ISAPRE_OPTIONS.map(i => <option key={i} value={i}>{i}</option>)}
+                  {ISAPRE_OPTIONS.map(i => <option key={i.id} value={String(i.id)}>{i.name}</option>)}
                 </select>
               </div>
               <div>
@@ -313,14 +330,14 @@ export default function EmpleadosPage() {
     name: editingEmployee.name ?? '',
     job_title: editingEmployee.job_title ?? '',
     department_id: editingEmployee.department_id ? String(editingEmployee.department_id) : '',
-    work_email: editingEmployee.email ?? editingEmployee.work_email ?? '',
-    work_phone: editingEmployee.phone ?? editingEmployee.work_phone ?? '',
+    work_email: editingEmployee.work_email ?? '',
+    work_phone: editingEmployee.work_phone ?? '',
     identification_id: editingEmployee.identification_id ?? '',
-    afp: editingEmployee.afp ?? '',
-    plan_salud: editingEmployee.plan_salud ?? 'fonasa',
-    isapre: editingEmployee.isapre ?? '',
-    cotizacion_isapre_uf: editingEmployee.cotizacion_isapre_uf ? String(editingEmployee.cotizacion_isapre_uf) : '',
-    cargas_familiares: editingEmployee.cargas_familiares ? String(editingEmployee.cargas_familiares) : '0',
+    afp: editingEmployee.l10n_cl_afp_id ? String(Array.isArray(editingEmployee.l10n_cl_afp_id) ? editingEmployee.l10n_cl_afp_id[0] : editingEmployee.l10n_cl_afp_id) : '',
+    plan_salud: editingEmployee.l10n_cl_health_plan ?? editingEmployee.plan_salud ?? 'fonasa',
+    isapre: editingEmployee.l10n_cl_isapre_id ? String(Array.isArray(editingEmployee.l10n_cl_isapre_id) ? editingEmployee.l10n_cl_isapre_id[0] : editingEmployee.l10n_cl_isapre_id) : '',
+    cotizacion_isapre_uf: editingEmployee.l10n_cl_isapre_cotizacion_uf ? String(editingEmployee.l10n_cl_isapre_cotizacion_uf) : (editingEmployee.cotizacion_isapre_uf ? String(editingEmployee.cotizacion_isapre_uf) : ''),
+    cargas_familiares: editingEmployee.l10n_cl_cargas_familiares ? String(editingEmployee.l10n_cl_cargas_familiares) : (editingEmployee.cargas_familiares ? String(editingEmployee.cargas_familiares) : '0'),
   } : EMPTY_FORM
 
   return (
@@ -389,9 +406,9 @@ export default function EmpleadosPage() {
                 >
                   <div className="col-span-3 font-medium text-[var(--cx-text-primary)] truncate">{emp.name}</div>
                   <div className="col-span-2 text-[var(--cx-text-secondary)] truncate">{emp.job_title ?? '-'}</div>
-                  <div className="col-span-2 text-[var(--cx-text-secondary)] truncate">{emp.department ?? '-'}</div>
-                  <div className="col-span-2 text-[var(--cx-text-secondary)] truncate">{emp.email ?? '-'}</div>
-                  <div className="col-span-1 text-[var(--cx-text-secondary)] truncate">{emp.phone ?? '-'}</div>
+                  <div className="col-span-2 text-[var(--cx-text-secondary)] truncate">{emp.department_name ?? '-'}</div>
+                  <div className="col-span-2 text-[var(--cx-text-secondary)] truncate">{emp.work_email ?? '-'}</div>
+                  <div className="col-span-1 text-[var(--cx-text-secondary)] truncate">{emp.work_phone ?? '-'}</div>
                   <div className="col-span-1 flex justify-center">
                     <StatusBadge active={emp.active !== false} />
                   </div>

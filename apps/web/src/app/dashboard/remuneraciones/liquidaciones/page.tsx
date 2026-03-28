@@ -137,7 +137,7 @@ function PayslipDetailRow({ payslipId }: { payslipId: number }) {
               <div className="col-span-2 text-[var(--cx-text-secondary)]">{line.category ?? '-'}</div>
               <div className="col-span-1 text-right text-[var(--cx-text-secondary)]">{line.quantity ?? '-'}</div>
               <div className="col-span-1 text-right text-[var(--cx-text-secondary)]">{line.rate != null ? `${line.rate}%` : '-'}</div>
-              <div className="col-span-2 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(line.total ?? 0)}</div>
+              <div className="col-span-2 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(line.amount ?? 0)}</div>
             </div>
           ))}
         </div>
@@ -308,13 +308,11 @@ export default function LiquidacionesPage() {
         <div className="card border border-[var(--cx-border-light)] rounded-2xl overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-[var(--cx-border-light)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest bg-[var(--cx-bg-elevated)]">
             <div className="col-span-1">N°</div>
-            <div className="col-span-2">Empleado</div>
+            <div className="col-span-3">Empleado</div>
             <div className="col-span-2">Período</div>
-            <div className="col-span-1 text-right">Base</div>
-            <div className="col-span-1 text-right">Bruto</div>
-            <div className="col-span-2 text-right">Líquido</div>
+            <div className="col-span-2">Nombre</div>
             <div className="col-span-1 text-center">Estado</div>
-            <div className="col-span-2 text-center">Acciones</div>
+            <div className="col-span-3 text-center">Acciones</div>
           </div>
 
           {(liquidaciones ?? []).length === 0 ? (
@@ -331,15 +329,13 @@ export default function LiquidacionesPage() {
                       {expandedId === ps.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                       <span className="font-mono text-xs">{ps.number ?? ps.id}</span>
                     </div>
-                    <div className="col-span-2 font-medium text-[var(--cx-text-primary)] truncate">{ps.employee_name}</div>
+                    <div className="col-span-3 font-medium text-[var(--cx-text-primary)] truncate">{ps.employee_name}</div>
                     <div className="col-span-2 text-[var(--cx-text-secondary)]">{ps.date_from} - {ps.date_to}</div>
-                    <div className="col-span-1 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(ps.basic_wage ?? 0)}</div>
-                    <div className="col-span-1 text-right font-mono text-[var(--cx-text-primary)]">{formatCLP(ps.gross_wage ?? 0)}</div>
-                    <div className="col-span-2 text-right font-mono font-semibold text-[var(--cx-text-primary)]">{formatCLP(ps.net_wage ?? 0)}</div>
+                    <div className="col-span-2 text-[var(--cx-text-secondary)] truncate">{ps.name ?? '-'}</div>
                     <div className="col-span-1 flex justify-center">
                       <StateBadge state={ps.state ?? 'draft'} />
                     </div>
-                    <div className="col-span-2 flex justify-center gap-1" onClick={e => e.stopPropagation()}>
+                    <div className="col-span-3 flex justify-center gap-1" onClick={e => e.stopPropagation()}>
                       {ps.state === 'draft' && (
                         <button
                           onClick={() => handleAction(ps.id, 'compute')}

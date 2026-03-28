@@ -207,6 +207,7 @@ export default function AusenciasPage() {
   const employeeId = selectedEmployee ? Number(selectedEmployee) : undefined
   const { ausencias, total, isLoading, error } = useLeaves({
     employee_id: employeeId,
+    holiday_status_id: leaveTypeId ? Number(leaveTypeId) : undefined,
     state: state || undefined,
     mes: month,
     year,
