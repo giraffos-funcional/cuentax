@@ -373,16 +373,23 @@ export default function ContratosPage() {
     } finally { setIsClosing(false) }
   }
 
+  // Extract ID from Odoo Many2one fields (can be [id, name] or just id)
+  const m2oId = (val: unknown) => {
+    if (Array.isArray(val)) return String(val[0])
+    if (typeof val === 'number') return String(val)
+    return ''
+  }
+
   const editInitial: ContractFormData = editingContract ? {
-    employee_id: editingContract.employee_id ? String(editingContract.employee_id) : '',
+    employee_id: m2oId(editingContract.employee_id),
     wage: editingContract.wage ? String(editingContract.wage) : '',
-    type: editingContract.type ?? 'indefinido',
-    gratification_type: editingContract.gratification_type ?? 'art47',
-    colacion: editingContract.colacion ? String(editingContract.colacion) : '',
-    movilizacion: editingContract.movilizacion ? String(editingContract.movilizacion) : '',
+    type: editingContract.l10n_cl_contract_type ?? editingContract.type ?? 'indefinido',
+    gratification_type: editingContract.l10n_cl_gratificacion_type ?? editingContract.gratification_type ?? 'art47',
+    colacion: editingContract.l10n_cl_colacion ? String(editingContract.l10n_cl_colacion) : (editingContract.colacion ? String(editingContract.colacion) : '0'),
+    movilizacion: editingContract.l10n_cl_movilizacion ? String(editingContract.l10n_cl_movilizacion) : (editingContract.movilizacion ? String(editingContract.movilizacion) : '0'),
     date_start: editingContract.date_start ?? '',
     date_end: editingContract.date_end ?? '',
-    structure_type_id: editingContract.structure_type_id ? String(editingContract.structure_type_id) : '',
+    structure_type_id: m2oId(editingContract.struct_id) || m2oId(editingContract.structure_type_id),
     job_title: editingContract.job_title ?? '',
     jornada: editingContract.jornada ?? 'completa',
     rep_legal_nombre: editingContract.rep_legal_nombre ?? '',
