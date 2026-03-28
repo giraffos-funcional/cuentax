@@ -13,6 +13,9 @@ import { apiClient } from '@/lib/api-client'
 const formatCLP = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
+const formatUF = (n: number) =>
+  `$${new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
@@ -201,7 +204,7 @@ export default function RemuneracionesDashboardPage() {
             <div>
               <p className="text-[10px] text-[var(--cx-text-muted)] uppercase tracking-widest font-semibold">UF</p>
               <p className="text-lg font-bold text-[var(--cx-text-primary)] mt-1">
-                ${new Intl.NumberFormat('es-CL').format(indicators.uf ?? 0)}
+                {formatUF(indicators.uf ?? 0)}
               </p>
             </div>
             <div>
