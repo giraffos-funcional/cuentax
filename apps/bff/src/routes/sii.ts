@@ -14,19 +14,36 @@ import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
 export async function siiRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
 
+  /** Extract company RUT as string, or null if not configured */
+  const getRut = (request: any): string | null => {
+    const rut = request.user?.company_rut
+    if (!rut || rut === false || rut === 'false' || rut === 'False') return null
+    return String(rut)
+  }
+
+  /** Safely extract error message from bridge responses (handles Pydantic arrays) */
+  const extractError = (err: any, fallback: string): string => {
+    const detail = err.response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) return detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ')
+    return fallback
+  }
+
   // ── POST /certificate/load ─────────────────────────────────
   fastify.post('/certificate/load', async (request, reply) => {
-    const user = (request as any).user
+    const rut = getRut(request)
+    if (!rut) {
+      return reply.status(400).send({ error: 'no_rut', message: 'Empresa sin RUT configurado. Configúralo en Mi Empresa.' })
+    }
+
     const parts = (request as any).parts()
 
     let fileBuffer: Buffer | null = null
     let password = ''
-    let filename = 'cert.pfx'
 
     for await (const part of parts) {
       if (part.type === 'file') {
         fileBuffer = await part.toBuffer()
-        filename = part.filename
       } else if (part.fieldname === 'password') {
         password = part.value
       }
@@ -40,38 +57,36 @@ export async function siiRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const result = await siiBridgeAdapter.loadCertificate(fileBuffer, password, user.company_rut)
+      const result = await siiBridgeAdapter.loadCertificate(fileBuffer, password, rut)
       return reply.status(result.success ? 200 : 422).send(result)
     } catch (err: any) {
-      const msg = err.response?.data?.detail ?? 'Error cargando certificado'
-      return reply.status(422).send({ error: 'cert_error', message: msg })
+      return reply.status(422).send({ error: 'cert_error', message: extractError(err, 'Error cargando certificado') })
     }
   })
 
   // ── GET /certificate/status ────────────────────────────────
   fastify.get('/certificate/status', async (request, reply) => {
-    const user = (request as any).user
-    const rut = user.company_rut
+    const rut = getRut(request)
+    if (!rut) return reply.send({ cargado: false })
 
-    // Odoo returns false (bool or string) for empty fields.
-    // If the company has no RUT, there's no way to have an associated cert.
-    if (!rut || rut === false || rut === 'false' || rut === 'False') {
+    try {
+      const status = await siiBridgeAdapter.getCertificateStatus(rut)
+      return reply.send(status)
+    } catch {
       return reply.send({ cargado: false })
     }
-
-    const status = await siiBridgeAdapter.getCertificateStatus(rut)
-    return reply.send(status)
   })
 
   // ── POST /certificate/associate ──────────────────────────────
   fastify.post('/certificate/associate', async (request, reply) => {
-    const user = (request as any).user
+    const rut = getRut(request)
+    if (!rut) return reply.status(400).send({ error: 'no_rut', message: 'Empresa sin RUT configurado' })
+
     try {
-      const result = await siiBridgeAdapter.associateCertificate(user.company_rut)
+      const result = await siiBridgeAdapter.associateCertificate(rut)
       return reply.status(result.success ? 200 : 422).send(result)
     } catch (err: any) {
-      const msg = err.response?.data?.detail ?? 'Error asociando certificado'
-      return reply.status(422).send({ error: 'associate_error', message: msg })
+      return reply.status(422).send({ error: 'associate_error', message: extractError(err, 'Error asociando certificado') })
     }
   })
 
