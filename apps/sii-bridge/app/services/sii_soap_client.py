@@ -172,6 +172,7 @@ class SIISoapClient:
             # Derive SOAP endpoint from WSDL URL
             endpoint = self._wsdls["auth"].replace("?WSDL", "")
             proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
+            logger.info(f"_get_seed: endpoint={endpoint}, proxy={self._proxy_url}")
 
             resp = requests.post(
                 endpoint,
@@ -317,6 +318,8 @@ class SIISoapClient:
                 result["conectado"] = True
                 result["semilla_ok"] = True
                 return result
+            else:
+                result["seed_error"] = "seed returned None (no exception)"
         except Exception as e:
             logger.debug(f"Seed test failed: {e}")
             result["seed_error"] = str(e)
