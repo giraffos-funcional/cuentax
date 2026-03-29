@@ -267,19 +267,11 @@ class CertificateService:
         # SHA1 digest
         digest = base64.b64encode(hashlib.sha1(c14n_bytes).digest()).decode()
 
-        # SignedInfo
-        signed_info_xml = f"""<SignedInfo xmlns="{XMLDSIG_NS}">
-            <CanonicalizationMethod Algorithm="{C14N_METHOD}"/>
-            <SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>
-            <Reference URI="{reference_uri}">
-                <DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
-                <DigestValue>{digest}</DigestValue>
-            </Reference>
-        </SignedInfo>"""
+        # SignedInfo — build, then canonicalize
+        signed_info_el = etree.fromstring(f"""<SignedInfo xmlns="{XMLDSIG_NS}"><CanonicalizationMethod Algorithm="{C14N_METHOD}"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/><Reference URI="{reference_uri}"><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>{digest}</DigestValue></Reference></SignedInfo>""".encode())
 
-        signed_info_c14n = etree.tostring(
-            etree.fromstring(signed_info_xml.encode()), method="c14n"
-        )
+        # Canonical form for signing
+        signed_info_c14n = etree.tostring(signed_info_el, method="c14n")
 
         # RSA-SHA1 signature
         sig_bytes = private_key.sign(signed_info_c14n, padding.PKCS1v15(), hashes.SHA1())
@@ -288,14 +280,19 @@ class CertificateService:
         # Public cert in base64
         cert_b64 = base64.b64encode(certificate.public_bytes(serialization.Encoding.DER)).decode()
 
-        # Signature node
-        signature_xml = f"""<Signature xmlns="{XMLDSIG_NS}">
-            {signed_info_xml}
-            <SignatureValue>{sig_b64}</SignatureValue>
-            <KeyInfo><X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data></KeyInfo>
-        </Signature>"""
+        # Use the canonical SignedInfo string (same bytes that were signed)
+        signed_info_str = signed_info_c14n.decode()
 
-        element.append(etree.fromstring(signature_xml.encode()))
+        # Build Signature as complete string to avoid lxml namespace mangling
+        signature_str = (
+            f'<Signature xmlns="{XMLDSIG_NS}">'
+            f'{signed_info_str}'
+            f'<SignatureValue>{sig_b64}</SignatureValue>'
+            f'<KeyInfo><X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data></KeyInfo>'
+            f'</Signature>'
+        )
+
+        element.append(etree.fromstring(signature_str.encode()))
 
         rut_label = rut_emisor or "default"
         logger.debug(f"XML signed. Ref: {reference_uri}, Emisor: {rut_label}")
