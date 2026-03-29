@@ -78,12 +78,35 @@ async def debug_token():
             result["sign_traceback"] = traceback.format_exc()[-500:]
             return result
 
-        # Step 3: Exchange for token
+        # Step 3: Exchange for token — inline to capture raw response
         try:
-            token = sii_soap_client._exchange_seed_for_token(signed)
-            result["token"] = token
-            if not token:
-                result["error"] = "exchange returned None"
+            import requests as req2
+            import re
+            soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <getToken>
+      <pszXml><![CDATA[{signed}]]></pszXml>
+    </getToken>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+            endpoint = sii_soap_client._wsdls["token"].replace("?WSDL", "")
+            proxy_url = sii_soap_client._proxy_url
+            proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+            resp = req2.post(endpoint, data=soap_body.encode("utf-8"),
+                           headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+                           proxies=proxies, timeout=30)
+            result["exchange_http_status"] = resp.status_code
+            result["exchange_raw"] = resp.text[:500]
+            inner = sii_soap_client._extract_soap_return(resp.content, "getTokenReturn")
+            result["exchange_inner_xml"] = inner[:300] if inner else None
+            if inner:
+                estado_m = re.search(r'<ESTADO>(\d+)</ESTADO>', inner)
+                token_m = re.search(r'<TOKEN>([^<]+)</TOKEN>', inner)
+                glosa_m = re.search(r'<GLOSA>(.*?)</GLOSA>', inner)
+                result["estado"] = estado_m.group(1) if estado_m else None
+                result["token"] = token_m.group(1).strip() if token_m else None
+                result["glosa"] = glosa_m.group(1) if glosa_m else None
         except Exception as e:
             result["exchange_error"] = f"{type(e).__name__}: {e}"
             result["exchange_traceback"] = traceback.format_exc()[-500:]
