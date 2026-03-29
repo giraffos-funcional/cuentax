@@ -80,7 +80,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       companies: allCompanies.map(c => ({
-        id: c.odoo_company_id ?? c.id,
+        id: c.odoo_company_id || c.id,
         local_id: c.id,
         odoo_id: c.odoo_company_id,
         name: c.razon_social,
@@ -124,7 +124,7 @@ export async function companyRoutes(fastify: FastifyInstance) {
     logger.info({ companyId, companyName: company.razon_social, odooId: company.odoo_company_id }, 'Switch: company found')
 
     // Generate new tokens with this company
-    const odooCompanyId = company.odoo_company_id ?? company.id
+    const odooCompanyId = company.odoo_company_id || company.id
 
     // Fetch all companies so the new token includes the full list for subsequent switches
     const allCompanies = await db.select().from(companies).where(eq(companies.activo, true))
