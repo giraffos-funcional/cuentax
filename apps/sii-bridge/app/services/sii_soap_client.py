@@ -96,13 +96,30 @@ class SIISoapClient:
           <getSeedReturn xsi:type="xsd:string">&lt;?xml ...&gt;...&lt;/SII:RESPUESTA&gt;</getSeedReturn>
         We need the unescaped text content of that element.
         """
+        import re
         try:
             root = etree.fromstring(soap_content)
             # Find the return element by local name
             for el in root.iter():
                 local = etree.QName(el.tag).localname if isinstance(el.tag, str) else ''
                 if local == return_tag and el.text:
+                    logger.info(f"Found {return_tag} via etree, text length: {len(el.text)}")
                     return el.text.strip()
+            
+            # Fallback: use regex to find the content between tags
+            content_str = soap_content.decode('utf-8', errors='replace')
+            pattern = rf'<{return_tag}[^>]*>(.*?)</{return_tag}>'
+            match = re.search(pattern, content_str, re.DOTALL)
+            if match:
+                import html
+                raw = match.group(1)
+                unescaped = html.unescape(raw)
+                logger.info(f"Found {return_tag} via regex fallback, length: {len(unescaped)}")
+                return unescaped.strip()
+            
+            # Log all tags for debugging
+            tags = [etree.QName(el.tag).localname if isinstance(el.tag, str) else str(el.tag) for el in root.iter()]
+            logger.error(f"'{return_tag}' not found. Available tags: {tags[:20]}")
             return None
         except Exception as e:
             logger.error(f"Error parsing SOAP return '{return_tag}': {e}")
