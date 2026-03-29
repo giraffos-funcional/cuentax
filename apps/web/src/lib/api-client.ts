@@ -12,7 +12,8 @@ const BFF_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000'
 export const apiClient = axios.create({
   baseURL: BFF_URL,
   withCredentials: true, // Enviar cookies HttpOnly (refresh token)
-  headers: { 'Content-Type': 'application/json' },
+  // Don't set Content-Type here — axios auto-detects FormData (multipart)
+  // and JSON. Setting it globally breaks file uploads.
 })
 
 // On app load: recover access token from sessionStorage (saved during company switch)
