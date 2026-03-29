@@ -54,8 +54,9 @@ export default function FoliosPage() {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       window.location.reload()
-    } catch (err) {
-      alert('Error cargando CAF')
+    } catch (err: any) {
+      const msg = err.response?.data?.message ?? err.response?.data?.detail ?? 'Error cargando CAF'
+      alert(typeof msg === 'string' ? msg : JSON.stringify(msg))
     }
   }
 
