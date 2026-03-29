@@ -409,23 +409,25 @@ async def process_test_set(req: ProcessRequest):
 
     # Find the session — use provided rut_emisor, or search for any session with payloads
     rut_emisor = req.rut_emisor
-    if not rut_emisor or rut_emisor == "auto":
-        # Find any session that has the requested payloads loaded
+    payloads_key = f"payloads_{set_type}"
+
+    # Strategy 1: Try the provided rut_emisor directly
+    session = None
+    if rut_emisor and rut_emisor != "auto":
+        candidate = _sessions.get(rut_emisor)
+        if candidate and candidate.get(payloads_key):
+            session = candidate
+
+    # Strategy 2: If no session found (or no payloads), search all sessions
+    if not session:
         for session_rut, sess in _sessions.items():
-            if sess.get(f"payloads_{set_type}"):
+            if sess.get(payloads_key):
                 rut_emisor = session_rut
+                session = sess
+                logger.info(f"Found {set_type} payloads in session for {session_rut} (requested: {req.rut_emisor})")
                 break
 
-    if not rut_emisor:
-        raise HTTPException(
-            status_code=400,
-            detail="No se pudo determinar el RUT emisor. Sube un set de pruebas primero.",
-        )
-
-    session = _get_session(rut_emisor)
-
-    payloads_key = f"payloads_{set_type}"
-    if not session.get(payloads_key):
+    if not session or not session.get(payloads_key):
         raise HTTPException(
             status_code=400,
             detail=f"No {set_type} test set loaded. Upload first via /wizard/set-prueba/upload?set_type={set_type}",
