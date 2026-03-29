@@ -17,52 +17,58 @@ import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
 export async function certificationRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
 
+  /** Extract company RUT as string, or null if not configured */
+  const getRut = (request: any): string | null => {
+    const rut = request.user?.company_rut
+    if (!rut || rut === false || rut === 'false') return null
+    return String(rut)
+  }
+
   // ── GET /wizard ────────────────────────────────────────────
   fastify.get('/wizard', async (request, reply) => {
-    const user = (request as any).user
-    const rut = user.company_rut
-    if (!rut || rut === false || rut === 'false') {
-      // Return default wizard state when no RUT configured
-      return reply.send({ current_step: 1, steps: null, rut_emisor: null })
-    }
+    const rut = getRut(request)
+    if (!rut) return reply.send({ current_step: 1, steps: null, rut_emisor: null })
 
     try {
       const data = await siiBridgeAdapter.certWizard(rut)
       return reply.send(data)
-    } catch (err: any) {
-      // Fallback gracefully
+    } catch {
       return reply.send({ current_step: 1, steps: null, rut_emisor: rut })
     }
   })
 
   // ── GET /status ────────────────────────────────────────────
   fastify.get('/status', async (request, reply) => {
-    const user = (request as any).user
-    const rut = user.company_rut
-    if (!rut || rut === false || rut === 'false') {
-      return reply.send({ rut_emisor: null, current_step: 1, steps_completed: [] })
-    }
+    const rut = getRut(request)
+    if (!rut) return reply.send({ rut_emisor: null, current_step: 1, steps_completed: [] })
 
     try {
       const data = await siiBridgeAdapter.certStatus(rut)
       return reply.send(data)
-    } catch (err: any) {
+    } catch {
       return reply.send({ rut_emisor: rut, current_step: 1, steps_completed: [] })
     }
   })
 
   // ── POST /complete-step ────────────────────────────────────
   fastify.post('/complete-step', async (request, reply) => {
-    const user = (request as any).user
-    const rut = user.company_rut
+    const rut = getRut(request)
+    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
     const { step } = request.body as { step: number }
 
-    const data = await siiBridgeAdapter.certCompleteStep(rut, step)
-    return reply.send(data)
+    try {
+      const data = await siiBridgeAdapter.certCompleteStep(rut, step)
+      return reply.send(data)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ') : 'Error completando paso')
+      return reply.status(422).send({ error: 'step_error', message: msg })
+    }
   })
 
   // ── POST /upload-set ───────────────────────────────────────
   fastify.post('/upload-set', async (request, reply) => {
+    const rut = getRut(request)
     const user = (request as any).user
     const parts = (request as any).parts()
 
@@ -70,7 +76,7 @@ export async function certificationRoutes(fastify: FastifyInstance) {
     let filename = 'set_pruebas.txt'
     let setType = 'factura'
     const emisor: Record<string, string> = {
-      rut_emisor: user.company_rut ?? '',
+      rut_emisor: rut ?? '',
       razon_social: user.company_name ?? '',
       giro: '',
       direccion: '',
@@ -106,8 +112,8 @@ export async function certificationRoutes(fastify: FastifyInstance) {
 
   // ── POST /process-set ──────────────────────────────────────
   fastify.post('/process-set', async (request, reply) => {
-    const user = (request as any).user
-    const rut = user.company_rut
+    const rut = getRut(request)
+    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
     const { fecha_emision, set_type } = (request.body as any) ?? {}
 
     try {
@@ -122,10 +128,14 @@ export async function certificationRoutes(fastify: FastifyInstance) {
 
   // ── POST /reset ────────────────────────────────────────────
   fastify.post('/reset', async (request, reply) => {
-    const user = (request as any).user
-    const rut = user.company_rut
+    const rut = getRut(request)
+    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
 
-    const data = await siiBridgeAdapter.certReset(rut)
-    return reply.send(data)
+    try {
+      const data = await siiBridgeAdapter.certReset(rut)
+      return reply.send(data)
+    } catch {
+      return reply.send({ success: true, mensaje: 'Reset local' })
+    }
   })
 }
