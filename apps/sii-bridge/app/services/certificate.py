@@ -249,6 +249,7 @@ class CertificateService:
     ) -> etree._Element:
         """
         Sign XML with RSA-SHA1 per SII Chile standard.
+        Uses signxml library for proper C14N and namespace handling.
 
         Args:
             element: XML element to sign
@@ -256,47 +257,35 @@ class CertificateService:
                 which titular certificate to use. If not provided,
                 falls back to the first (or only) loaded cert.
         """
+        from signxml import XMLSigner
+
         private_key, certificate = self._resolve_cert(rut_emisor)
 
-        element_id = element.get("ID") or element.get("id") or ""
-        reference_uri = f"#{element_id}" if element_id else ""
+        # Get PEM-encoded key and certificate for signxml
+        key_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
 
-        # C14N of the element
-        c14n_bytes = etree.tostring(element, method="c14n", exclusive=False, with_comments=False)
-
-        # SHA1 digest
-        digest = base64.b64encode(hashlib.sha1(c14n_bytes).digest()).decode()
-
-        # SignedInfo — build, then canonicalize
-        signed_info_el = etree.fromstring(f"""<SignedInfo xmlns="{XMLDSIG_NS}"><CanonicalizationMethod Algorithm="{C14N_METHOD}"/><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/><Reference URI="{reference_uri}"><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>{digest}</DigestValue></Reference></SignedInfo>""".encode())
-
-        # Canonical form for signing
-        signed_info_c14n = etree.tostring(signed_info_el, method="c14n")
-
-        # RSA-SHA1 signature
-        sig_bytes = private_key.sign(signed_info_c14n, padding.PKCS1v15(), hashes.SHA1())
-        sig_b64 = base64.b64encode(sig_bytes).decode()
-
-        # Public cert in base64
-        cert_b64 = base64.b64encode(certificate.public_bytes(serialization.Encoding.DER)).decode()
-
-        # Use the canonical SignedInfo string (same bytes that were signed)
-        signed_info_str = signed_info_c14n.decode()
-
-        # Build Signature as complete string to avoid lxml namespace mangling
-        signature_str = (
-            f'<Signature xmlns="{XMLDSIG_NS}">'
-            f'{signed_info_str}'
-            f'<SignatureValue>{sig_b64}</SignatureValue>'
-            f'<KeyInfo><X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data></KeyInfo>'
-            f'</Signature>'
+        # Sign using enveloped method (Signature goes inside the root element)
+        signer = XMLSigner(
+            method=XMLSigner.Method.enveloped,
+            signature_algorithm="rsa-sha1",
+            digest_algorithm="sha1",
+            c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
         )
 
-        element.append(etree.fromstring(signature_str.encode()))
+        signed_root = signer.sign(
+            element,
+            key=key_pem,
+            cert=cert_pem,
+        )
 
         rut_label = rut_emisor or "default"
-        logger.debug(f"XML signed. Ref: {reference_uri}, Emisor: {rut_label}")
-        return element
+        logger.debug(f"XML signed with signxml. Emisor: {rut_label}")
+        return signed_root
 
     def get_status(self, rut_empresa: Optional[str] = None) -> dict:
         """
