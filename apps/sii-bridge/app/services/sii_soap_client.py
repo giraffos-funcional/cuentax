@@ -177,27 +177,16 @@ class SIISoapClient:
         Paso 1: Llama a CrSeed del SII para obtener una semilla temporal.
         Uses raw SOAP over HTTP (works reliably through proxy).
         """
+        import re
         try:
-            # Raw SOAP envelope for getSeed
-            soap_body = """<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
-  <soapenv:Body>
-    <getSeed/>
-  </soapenv:Body>
-</soapenv:Envelope>"""
-
-            # Derive SOAP endpoint from WSDL URL
+            soap_body = '<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><getSeed/></soapenv:Body></soapenv:Envelope>'
             endpoint = self._wsdls["auth"].replace("?WSDL", "")
             proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
-            logger.info(f"_get_seed: endpoint={endpoint}, proxy={self._proxy_url}")
 
             resp = requests.post(
                 endpoint,
                 data=soap_body,
-                headers={
-                    "Content-Type": "text/xml; charset=utf-8",
-                    "SOAPAction": '""',
-                },
+                headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
                 proxies=proxies,
                 timeout=30,
             )
@@ -206,23 +195,19 @@ class SIISoapClient:
                 logger.error(f"SII getSeed HTTP {resp.status_code}: {resp.text[:200]}")
                 return None
 
-            # SII returns the seed as escaped XML inside a string element.
-            # e.g. <getSeedReturn>&lt;?xml ...&gt;&lt;SEMILLA&gt;123&lt;/SEMILLA&gt;...</getSeedReturn>
+            # Extract inner XML from SOAP response
             inner_xml = self._extract_soap_return(resp.content, "getSeedReturn")
             if not inner_xml:
                 logger.error(f"No getSeedReturn in SII response: {resp.text[:300]}")
                 return None
 
-            root = etree.fromstring(inner_xml.encode())
-            seed_element = root.find(".//{http://DefaultNamespace}SEMILLA") or \
-                           root.find(".//SEMILLA") or \
-                           root.find(".//semilla")
-
-            if seed_element is None or not seed_element.text:
-                logger.error(f"No se encontró semilla en XML interno: {inner_xml[:200]}")
+            # Extract SEMILLA value with regex (avoids SII namespace issues)
+            match = re.search(r'<SEMILLA>(\d+)</SEMILLA>', inner_xml)
+            if not match:
+                logger.error(f"No SEMILLA in inner XML: {inner_xml[:200]}")
                 return None
 
-            seed = seed_element.text.strip()
+            seed = match.group(1)
             logger.info(f"✅ Semilla SII obtenida: {seed[:10]}...")
             return seed
 
@@ -255,6 +240,7 @@ class SIISoapClient:
         Paso 3: Envía la semilla firmada al SII y recibe el token de sesión.
         Uses raw SOAP over HTTP (works reliably through proxy).
         """
+        import re
         try:
             # Wrap signed seed XML in SOAP envelope
             soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -290,24 +276,20 @@ class SIISoapClient:
                 logger.error(f"No getTokenReturn in SII response: {resp.text[:300]}")
                 return None
 
-            root = etree.fromstring(inner_xml.encode())
-
-            token_element = root.find(".//{http://DefaultNamespace}TOKEN") or \
-                            root.find(".//TOKEN") or \
-                            root.find(".//token")
-
-            estado_element = root.find(".//ESTADO") or root.find(".//estado")
-
-            if estado_element is not None and estado_element.text.strip() != "00":
-                glosa = root.find(".//GLOSA") or root.find(".//glosa")
-                logger.error(f"SII rechazó semilla. Estado: {estado_element.text}, Glosa: {glosa.text if glosa is not None else 'N/A'}")
+            # Check ESTADO first
+            estado_match = re.search(r'<ESTADO>(\d+)</ESTADO>', inner_xml)
+            if estado_match and estado_match.group(1) != "00":
+                glosa_match = re.search(r'<GLOSA>(.*?)</GLOSA>', inner_xml)
+                logger.error(f"SII rechazó semilla. Estado: {estado_match.group(1)}, Glosa: {glosa_match.group(1) if glosa_match else 'N/A'}")
                 return None
 
-            if token_element is None or not token_element.text:
-                logger.error(f"No se encontró TOKEN en XML interno: {inner_xml[:200]}")
+            # Extract TOKEN
+            token_match = re.search(r'<TOKEN>([^<]+)</TOKEN>', inner_xml)
+            if not token_match:
+                logger.error(f"No TOKEN in inner XML: {inner_xml[:200]}")
                 return None
 
-            return token_element.text.strip()
+            return token_match.group(1).strip()
 
         except Exception as e:
             logger.error(f"Error intercambiando semilla por token SII: {e}")
