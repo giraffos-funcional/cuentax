@@ -219,21 +219,35 @@ class SIISoapClient:
         """
         Paso 2: Construye y firma el XML de la semilla.
         El SII requiere un XML específico con la semilla y firma digital.
+        El elemento a firmar DEBE tener un atributo ID (requerido por SII).
         """
         # Construir XML de semilla según formato SII
-        seed_xml = etree.fromstring(f"""
-        <getToken>
-            <item>
-                <Semilla>{seed}</Semilla>
-            </item>
-        </getToken>
-        """.strip())
+        seed_xml = etree.fromstring(f"""<getToken>
+<item>
+<Semilla>{seed}</Semilla>
+</item>
+</getToken>""")
 
         # Firmar con certificado de la empresa
         signed_xml = certificate_service.sign_xml(seed_xml)
 
-        # Serializar a string
-        return etree.tostring(signed_xml, encoding="unicode", xml_declaration=False)
+        # Serializar — lxml puede mover xmlns al root y crear prefijos ns0:
+        # que el parser Java del SII no entiende.
+        # Forzamos serialización raw para preservar namespace inline.
+        import re as _re
+        result = etree.tostring(signed_xml, encoding="unicode", xml_declaration=False)
+        
+        # lxml puede convertir <Signature xmlns="..."> a <ns0:Signature> etc.
+        # El SII requiere los nombres sin prefijo. Removemos prefijos de namespace.
+        result = _re.sub(r'<ns\d+:', '<', result)
+        result = _re.sub(r'</ns\d+:', '</', result)
+        result = _re.sub(r' xmlns:ns\d+="[^"]*"', '', result)
+        
+        # Re-agregar el namespace de Signature si se perdió
+        if 'xmlns="http://www.w3.org/2000/09/xmldsig#"' not in result:
+            result = result.replace('<Signature>', '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">')
+        
+        return result
 
     def _exchange_seed_for_token(self, signed_seed_xml: str) -> Optional[str]:
         """
