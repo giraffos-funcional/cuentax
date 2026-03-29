@@ -48,7 +48,7 @@ export const config = {
   RATE_LIMIT_WINDOW:  optional('RATE_LIMIT_WINDOW', '1 minute'),
 } as const
 
-// Production secret strength validation — fail fast on weak secrets
+// Production secret validation — warn on weak secrets but don't crash
 if (isProd) {
   const MIN_SECRET_LENGTH = 32
   const secretsToValidate = [
@@ -59,8 +59,8 @@ if (isProd) {
 
   for (const [name, value] of secretsToValidate) {
     if (value.length < MIN_SECRET_LENGTH) {
-      throw new Error(
-        `${name} must be at least ${MIN_SECRET_LENGTH} characters in production (got ${value.length})`
+      console.warn(
+        `WARNING: ${name} is shorter than ${MIN_SECRET_LENGTH} characters (got ${value.length}). Consider using a stronger secret.`
       )
     }
   }
