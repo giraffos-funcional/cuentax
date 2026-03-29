@@ -417,39 +417,64 @@ class DTEEmissionService:
         )
 
     def _send_to_sii(self, xml_bytes: bytes, rut_emisor: str, token: str) -> dict:
-        """Envía el DTE al SII via SOAP."""
-        import zeep
-        from zeep.transports import Transport
+        """Envía el DTE al SII via SOAP raw HTTP (con proxy)."""
+        import re
+        import base64
+        import requests as req
 
         rut_parts = rut_emisor.replace(".", "").split("-")
         rut_num = rut_parts[0]
+        dv = rut_parts[1] if len(rut_parts) > 1 else "0"
 
-        wsdl_url = sii_soap_client._wsdls["upload"]
-        Transport_ = Transport(timeout=30)
-        client = zeep.Client(wsdl_url, transport=Transport_)
-
-        # El SII espera el archivo adjunto como base64
-        import base64
         xml_b64 = base64.b64encode(xml_bytes).decode()
 
-        response = client.service.uploadDTE(
-            rutSender=rut_num,
-            dvSender=rut_parts[1] if len(rut_parts) > 1 else "0",
-            rutCompany=rut_num,
-            dvCompany=rut_parts[1] if len(rut_parts) > 1 else "0",
-            archivo=xml_b64,
-            token=token,
+        # Build raw SOAP envelope for uploadDTE
+        soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:upl="http://DefaultNamespace">
+  <soapenv:Body>
+    <upl:uploadDTE>
+      <rutSender>{rut_num}</rutSender>
+      <dvSender>{dv}</dvSender>
+      <rutCompany>{rut_num}</rutCompany>
+      <dvCompany>{dv}</dvCompany>
+      <archivo>{xml_b64}</archivo>
+      <token>{token}</token>
+    </upl:uploadDTE>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+        endpoint = sii_soap_client._wsdls["upload"].replace("?WSDL", "")
+        proxy_url = sii_soap_client._proxy_url
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+
+        logger.info(f"Enviando DTE al SII: endpoint={endpoint}, proxy={proxy_url}")
+
+        resp = req.post(
+            endpoint,
+            data=soap_body.encode("utf-8"),
+            headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+            proxies=proxies,
+            timeout=60,
         )
 
-        # Parsear respuesta SII
-        root = safe_fromstring(response.encode() if isinstance(response, str) else response)
-        track_id_el = root.find(".//TRACKID") or root.find(".//trackid")
-        track_id = track_id_el.text.strip() if track_id_el is not None else None
+        if resp.status_code != 200:
+            raise Exception(f"SII uploadDTE HTTP {resp.status_code}: {resp.text[:300]}")
+
+        # Extract inner XML from SOAP response
+        inner_xml = sii_soap_client._extract_soap_return(resp.content, "uploadDTEReturn")
+        response_text = inner_xml or resp.text
+
+        # Parse track ID
+        track_id = None
+        track_match = re.search(r'<TRACKID>(\d+)</TRACKID>', response_text, re.IGNORECASE)
+        if track_match:
+            track_id = track_match.group(1)
 
         return {
             "track_id": track_id,
             "mensaje": f"Track ID: {track_id}" if track_id else "Sin Track ID en respuesta",
-            "response_raw": response[:500] if isinstance(response, str) else str(response)[:500],
+            "response_raw": response_text[:500],
         }
 
 
