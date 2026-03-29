@@ -404,7 +404,8 @@ function SetUploadCard({
       const result = await process(undefined, setType)
       // Always show the result so errores are visible
       setProcessResult(result)
-      if (result.success) refresh()
+      // Advance wizard when DTEs were signed (even if not sent to SII)
+      if (result.success || (result.emitidos && result.emitidos > 0)) refresh()
     } catch (e: any) {
       const msg = e.response?.data?.message ?? e.message ?? 'Error al procesar'
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
@@ -532,26 +533,24 @@ function SetUploadCard({
               </div>
             </div>
 
-          ) : processResult.success && processResult.estado === 'firmado' ? (
-            /* Case 2: Signed but NOT sent (no SII token) */
-            <div className="p-4 rounded-xl border-2 border-amber-300 bg-amber-50 space-y-3">
+          ) : processResult.emitidos > 0 && !processResult.track_id ? (
+            /* Case 2: Signed but NOT sent (no SII token) — still advances wizard */
+            <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50 space-y-3">
               <div className="flex items-center gap-2">
-                <AlertTriangle size={16} className="text-amber-600" />
-                <p className="text-sm font-bold text-amber-700">
-                  DTEs firmados pero NO enviados al SII
+                <CheckCircle2 size={16} className="text-emerald-600" />
+                <p className="text-sm font-bold text-emerald-700">
+                  {processResult.emitidos}/{processResult.total} DTEs generados y firmados ✓
                 </p>
               </div>
-              <p className="text-xs text-amber-600">
-                {processResult.emitidos ?? 0}/{processResult.total} DTEs fueron generados y firmados correctamente,
-                pero <strong>no se pudieron enviar al SII</strong> porque no hay token de sesión activo.
+              <p className="text-xs text-emerald-600">
+                Todos los DTEs fueron generados y firmados correctamente. Los XMLs están guardados.
               </p>
-              <div className="p-2.5 bg-white rounded-lg border border-amber-200 text-[11px] text-amber-700 space-y-1">
-                <p className="font-semibold">Para resolver esto:</p>
-                <ol className="list-decimal list-inside space-y-0.5">
-                  <li>Verifica que el certificado digital esté cargado</li>
-                  <li>Verifica que la conexión SII diga "Conectado" en el panel inferior</li>
-                  <li>Vuelve a subir el archivo del set y procésalo de nuevo</li>
-                </ol>
+              <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-700 flex items-start gap-2">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Nota: No se enviaron al SII automáticamente</p>
+                  <p className="mt-0.5">El servidor no pudo obtener un token de sesión SII (posible problema de conectividad con maullin.sii.cl). Puedes reenviar manualmente desde el paso de Intercambio.</p>
+                </div>
               </div>
             </div>
 
