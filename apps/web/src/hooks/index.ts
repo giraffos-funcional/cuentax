@@ -207,16 +207,14 @@ export function useBankReconciliation(journalId: number | null, mes: number, yea
 // ══════════════════════════════════════════════════════════════
 
 /** Lista contactos con filtros */
-export function useContacts(filters?: {
-  search?: string
-  tipo?: 'clientes' | 'proveedores'
-  page?: number
-}) {
+export function useContacts(filters?: { search?: string; tipo?: 'clientes' | 'proveedores'; page?: number }) {
+  const companyId = useAuthStore(s => s.user?.company_id);
   const params = new URLSearchParams()
   if (filters?.search) params.set('search', filters.search)
   if (filters?.tipo) params.set('tipo', filters.tipo)
   if (filters?.page) params.set('page', String(filters.page))
 
+  if (companyId) params.set('_c', String(companyId));
   const url = `/api/v1/contacts?${params.toString()}`
   const { data, error, isLoading, mutate } = useSWR(url, fetcher)
 
@@ -268,16 +266,14 @@ export function useDeleteContact() {
 // ══════════════════════════════════════════════════════════════
 
 /** Lista productos con filtros */
-export function useProducts(filters?: {
-  search?: string
-  exento?: boolean
-  page?: number
-}) {
+export function useProducts(filters?: { search?: string; exento?: boolean; page?: number }) {
+  const companyId = useAuthStore(s => s.user?.company_id);
   const params = new URLSearchParams()
   if (filters?.search) params.set('search', filters.search)
   if (filters?.exento !== undefined) params.set('exento', String(filters.exento))
   if (filters?.page) params.set('page', String(filters.page))
 
+  if (companyId) params.set('_c', String(companyId));
   const url = `/api/v1/products?${params.toString()}`
   const { data, error, isLoading, mutate } = useSWR(url, fetcher)
 

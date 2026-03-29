@@ -164,6 +164,7 @@ interface AttendanceRecord {
 
 /** Estadísticas del dashboard de RRHH para un mes/año dado */
 export function useHRStats(year: number, month: number) {
+  const companyId = useAuthStore(s => s.user?.company_id)
   const params = new URLSearchParams({
     year: String(year),
     mes: String(month),
