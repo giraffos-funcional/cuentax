@@ -7,7 +7,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 import logging
 
 from app.api.v1.endpoints import (
-    health, certificate, dte, caf, webhooks, public_api
+    health, certificate, dte, caf, webhooks, public_api, certification
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -37,6 +37,7 @@ app.include_router(certificate.router, prefix=f"{PREFIX}/certificate",  tags=["C
 app.include_router(dte.router,         prefix=f"{PREFIX}/dte",          tags=["DTE"])
 app.include_router(caf.router,         prefix=f"{PREFIX}/caf",          tags=["CAF"])
 app.include_router(webhooks.router,    prefix=f"{PREFIX}/webhooks",     tags=["Webhooks"])
+app.include_router(certification.router, prefix=f"{PREFIX}/certification", tags=["Certificación SII"])
 app.include_router(public_api.router,  prefix=f"{PREFIX}/v1",           tags=["API Pública"])
 
 @app.on_event("startup")
