@@ -663,17 +663,32 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         ),
       ])
 
-      const total_extracto       = extracto.reduce((s: number, l: any) => s + (l.amount ?? 0), 0)
-      const total_sin_conciliar  = sinConciliar.reduce(
-        (s: number, l: any) => s + (l.debit ?? 0) - (l.credit ?? 0),
-        0,
-      )
+      const mappedExtracto = extracto.map((l: any) => ({
+        id: l.id,
+        fecha: l.date ?? '',
+        referencia: l.payment_ref ?? '',
+        monto: l.amount ?? 0,
+        conciliado: l.is_reconciled ?? false,
+        partner: l.partner_id ? (Array.isArray(l.partner_id) ? l.partner_id[1] : l.partner_id) : null,
+      }))
+
+      const mappedSinConciliar = sinConciliar.map((l: any) => ({
+        id: l.id,
+        fecha: l.date ?? '',
+        documento: l.move_id ? (Array.isArray(l.move_id) ? l.move_id[1] : l.move_id) : '',
+        descripcion: l.name ?? '',
+        monto: (l.debit ?? 0) - (l.credit ?? 0),
+        partner: l.partner_id ? (Array.isArray(l.partner_id) ? l.partner_id[1] : l.partner_id) : null,
+      }))
+
+      const total_extracto       = mappedExtracto.reduce((s: number, l: any) => s + l.monto, 0)
+      const total_sin_conciliar  = mappedSinConciliar.reduce((s: number, l: any) => s + l.monto, 0)
 
       return reply.send({
         source: 'odoo',
         periodo: { year, mes },
-        extracto,
-        sin_conciliar:       sinConciliar,
+        extracto: mappedExtracto,
+        sin_conciliar: mappedSinConciliar,
         total_extracto,
         total_sin_conciliar,
         page,
