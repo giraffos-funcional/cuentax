@@ -93,29 +93,55 @@ export async function companyRoutes(fastify: FastifyInstance) {
   // POST /switch — switch active company
   fastify.post('/switch', async (req, reply) => {
     const user = (req as any).user
-    const { company_id } = req.body as { company_id: number }
+    const body = req.body as Record<string, unknown> | undefined
 
-    if (!company_id) return reply.status(400).send({ error: 'company_id required' })
+    logger.info({ body, userId: user?.uid }, 'Switch company request received')
+
+    // Robust extraction: body could be undefined if content-type isn't parsed
+    const rawCompanyId = body?.company_id
+    const companyId = typeof rawCompanyId === 'number' ? rawCompanyId
+      : typeof rawCompanyId === 'string' ? parseInt(rawCompanyId, 10)
+      : NaN
+
+    if (!companyId || isNaN(companyId)) {
+      logger.warn({ body, rawCompanyId }, 'Switch: company_id missing or invalid')
+      return reply.status(400).send({ error: 'company_id required', received: rawCompanyId })
+    }
 
     // Look up the company in local DB — try by odoo_company_id first (frontend sends Odoo ID), then by local id
     let [company] = await db.select().from(companies)
-      .where(eq(companies.odoo_company_id, company_id)).limit(1)
+      .where(eq(companies.odoo_company_id, companyId)).limit(1)
     if (!company) {
       [company] = await db.select().from(companies)
-        .where(eq(companies.id, company_id)).limit(1)
+        .where(eq(companies.id, companyId)).limit(1)
     }
 
-    if (!company) return reply.status(404).send({ error: 'not_found', message: 'Empresa no encontrada' })
+    if (!company) {
+      logger.warn({ companyId }, 'Switch: company not found in DB')
+      return reply.status(404).send({ error: 'not_found', message: 'Empresa no encontrada' })
+    }
+
+    logger.info({ companyId, companyName: company.razon_social, odooId: company.odoo_company_id }, 'Switch: company found')
 
     // Generate new tokens with this company
     const odooCompanyId = company.odoo_company_id ?? company.id
+
+    // Fetch all companies so the new token includes the full list for subsequent switches
+    const allCompanies = await db.select().from(companies).where(eq(companies.activo, true))
+    const companyIds = allCompanies.map(c => c.odoo_company_id ?? c.id)
+    const companiesList = allCompanies.map(c => ({
+      id: c.odoo_company_id ?? c.id,
+      name: c.razon_social,
+      rut: c.rut,
+    }))
+
     const tokens = await authService.switchCompany(
-      { sub: user.uid, email: user.email, name: user.name, company_ids: user.company_ids ?? [] },
+      { sub: user.uid, email: user.email, name: user.name, company_ids: companyIds },
       odooCompanyId,
     )
 
     if (!tokens) {
-      // If switchCompany fails (company not in Odoo company_ids), generate tokens directly
+      // If switchCompany fails (company not in _getCompanyData), generate tokens directly
       const directTokens = await authService.generateTokensForCompany({
         uid: user.uid,
         name: user.name,
@@ -125,17 +151,31 @@ export async function companyRoutes(fastify: FastifyInstance) {
         company_rut: company.rut,
       })
 
+      // Patch the user response to include all companies
+      if (directTokens.user) {
+        directTokens.user.company_ids = companyIds
+        directTokens.user.companies = companiesList
+      }
+
       reply.setCookie('cuentax_refresh', directTokens.refresh_token ?? '', {
         httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
       })
 
+      logger.info({ companyId: odooCompanyId, userId: user.uid }, 'Switch: tokens generated (direct path)')
       return reply.send(directTokens)
+    }
+
+    // Patch the user response to include all companies
+    if (tokens.user) {
+      tokens.user.company_ids = companyIds
+      tokens.user.companies = companiesList
     }
 
     reply.setCookie('cuentax_refresh', tokens.refresh_token ?? '', {
       httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
     })
 
+    logger.info({ companyId: odooCompanyId, userId: user.uid }, 'Switch: tokens generated (standard path)')
     return reply.send(tokens)
   })
 
