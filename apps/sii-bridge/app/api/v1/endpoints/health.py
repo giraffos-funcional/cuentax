@@ -53,3 +53,41 @@ async def debug_seed():
     except Exception as e:
         result["error"] = str(e)
     return result
+
+@router.get("/sii/debug-token")
+async def debug_token():
+    """Debug endpoint — test full token acquisition step by step."""
+    from app.services.certificate import certificate_service
+    import traceback
+    result = {"cert_loaded": certificate_service.is_loaded}
+    try:
+        # Step 1: Get seed
+        seed = sii_soap_client._get_seed()
+        result["seed"] = seed
+        if not seed:
+            result["error"] = "Failed to get seed"
+            return result
+
+        # Step 2: Sign seed
+        try:
+            signed = sii_soap_client._sign_seed(seed)
+            result["signed_length"] = len(signed) if signed else 0
+            result["signed_preview"] = signed[:200] if signed else None
+        except Exception as e:
+            result["sign_error"] = f"{type(e).__name__}: {e}"
+            result["sign_traceback"] = traceback.format_exc()[-500:]
+            return result
+
+        # Step 3: Exchange for token
+        try:
+            token = sii_soap_client._exchange_seed_for_token(signed)
+            result["token"] = token
+            if not token:
+                result["error"] = "exchange returned None"
+        except Exception as e:
+            result["exchange_error"] = f"{type(e).__name__}: {e}"
+            result["exchange_traceback"] = traceback.format_exc()[-500:]
+
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+    return result
