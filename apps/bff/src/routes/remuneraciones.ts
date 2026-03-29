@@ -1774,11 +1774,27 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
 
   // ── PUT /empresa ────────────────────────────────────────────
   // Update company data (including logo base64)
+  // If vat (RUT) changes, regenerate tokens so the JWT reflects the new RUT immediately
   fastify.put('/empresa', async (req, reply) => {
     const user = (req as any).user
     const body = req.body as Record<string, unknown>
     try {
       const success = await odooAccountingAdapter.write('res.company', [user.company_id], body)
+
+      // If RUT was updated, regenerate tokens with the new value
+      if (success && body.vat && typeof body.vat === 'string' && body.vat !== user.company_rut) {
+        const { authService } = await import('@/services/auth.service')
+        const newTokens = await authService.generateTokensForCompany({
+          uid: user.uid,
+          name: user.name,
+          email: user.email,
+          company_id: user.company_id,
+          company_name: body.name ? String(body.name) : user.company_name,
+          company_rut: String(body.vat),
+        })
+        return reply.send({ source: 'odoo', success, tokens: newTokens })
+      }
+
       return reply.send({ source: 'odoo', success })
     } catch (err) {
       logger.error({ err }, 'Error updating company')

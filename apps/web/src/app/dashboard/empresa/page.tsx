@@ -102,6 +102,8 @@ export default function EmpresaPage() {
     reader.readAsDataURL(file)
   }
 
+  const { setAuth, setAccessToken } = useAuthStore()
+
   const handleSave = async () => {
     setSaving(true)
     setMsg(null)
@@ -110,7 +112,14 @@ export default function EmpresaPage() {
       if (logoBase64) {
         data.logo = logoBase64
       }
-      await update(data)
+      const result = await update(data)
+
+      // If RUT changed, backend returns new tokens — update auth state
+      if (result?.tokens) {
+        setAuth(result.tokens.user, result.tokens.access_token)
+        setAccessToken(result.tokens.access_token)
+      }
+
       await fetchEmpresa()
       setMsg({ type: 'ok', text: 'Empresa actualizada correctamente' })
       setLogoBase64(null)
