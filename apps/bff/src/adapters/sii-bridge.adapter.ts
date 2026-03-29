@@ -67,10 +67,11 @@ export class SIIBridgeAdapter {
   // ── CAF ────────────────────────────────────────────────────
 
   /** Carga un CAF (archivo XML) al SII Bridge */
-  async loadCAF(cafXmlBuffer: Buffer, filename: string, rutEmpresa: string): Promise<CAFLoadResult> {
+  async loadCAF(cafXmlBuffer: Buffer, filename: string, rutEmpresa: string, ambiente: string = ''): Promise<CAFLoadResult> {
     const form = new FormData()
     form.append('file', cafXmlBuffer, { filename, contentType: 'application/xml' })
     form.append('rut_empresa', rutEmpresa)
+    if (ambiente) form.append('ambiente', ambiente)
 
     const { data } = await this.http.post('/caf/load', form, {
       headers: { ...form.getHeaders() },
@@ -78,9 +79,11 @@ export class SIIBridgeAdapter {
     return data
   }
 
-  /** Estado de todos los CAFs de una empresa */
-  async getCAFStatus(rutEmpresa: string): Promise<CAFStatus[]> {
-    const { data } = await this.http.get(`/caf/status/${rutEmpresa}`)
+  /** Estado de los CAFs de una empresa, filtrado por ambiente */
+  async getCAFStatus(rutEmpresa: string, ambiente: string = ''): Promise<CAFStatus[]> {
+    const { data } = await this.http.get(`/caf/status/${rutEmpresa}`, {
+      params: ambiente ? { ambiente } : {},
+    })
     return data.cafs ?? []
   }
 

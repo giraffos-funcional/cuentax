@@ -167,7 +167,7 @@ async def check_prerequisites(rut_emisor: str = Query("")):
         loaded_ruts = list(certificate_service._empresa_to_titular.keys())
         cert_info = {"loaded_for": loaded_ruts}
 
-    # 2. CAF check — check for each required DTE type
+    # 2. CAF check — check for each required DTE type (certification ambiente only)
     caf_factura_types = [33, 56, 61]  # Factura, ND, NC
     caf_boleta_types = [39]  # Boleta
     all_caf_types = caf_factura_types + caf_boleta_types
@@ -176,11 +176,11 @@ async def check_prerequisites(rut_emisor: str = Query("")):
     for tipo in all_caf_types:
         caf = None
         if rut_emisor:
-            caf = caf_manager.get_caf(rut_emisor, tipo)
-        # If not found by rut_emisor, search all loaded CAFs for this type
+            caf = caf_manager.get_caf(rut_emisor, tipo, ambiente="certificacion")
+        # If not found by rut_emisor, search all loaded CAFs for this type in certification
         if not caf:
-            for (rut, t), c in caf_manager._cafs.items():
-                if t == tipo:
+            for (rut, t, amb), c in caf_manager._cafs.items():
+                if t == tipo and amb == "certificacion":
                     caf = c
                     break
         cafs_loaded[tipo] = {

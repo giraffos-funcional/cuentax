@@ -342,22 +342,24 @@ export function useSwitchCompany() {
 // CAF Hooks
 // ══════════════════════════════════════════════════════════════
 
-/** Estado de los CAFs (folios) de la empresa */
-export function useCAFStatus() {
-  const { data, error, isLoading, mutate } = useSWR('/api/v1/caf/status', fetcher, {
+/** Estado de los CAFs (folios) de la empresa, filtrado por ambiente */
+export function useCAFStatus(ambiente: string = 'produccion') {
+  const url = ambiente ? `/api/v1/caf/status?ambiente=${ambiente}` : '/api/v1/caf/status'
+  const { data, error, isLoading, mutate } = useSWR(url, fetcher, {
     refreshInterval: 60_000,
   })
 
-  const uploadCAF = async (file: File) => {
+  const uploadCAF = async (file: File, uploadAmbiente?: string) => {
+    const amb = uploadAmbiente ?? ambiente
     const formData = new FormData()
     formData.append('file', file)
-    await apiClient.post('/api/v1/caf/load', formData, {
+    await apiClient.post(`/api/v1/caf/load?ambiente=${amb}`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     mutate()
   }
 
-  return { cafs: data?.cafs ?? [], isLoading, error, uploadCAF }
+  return { cafs: data?.cafs ?? [], isLoading, error, uploadCAF, mutate }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -512,4 +514,171 @@ export function useResetCertification() {
 export function useMe() {
   const { data, error, isLoading } = useSWR('/api/v1/auth/me', fetcher)
   return { user: data?.user, isLoading, error }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Accounting Mutation Hooks (Transactional)
+// ══════════════════════════════════════════════════════════════
+
+/** Create single account */
+export function useCreateAccount() {
+  const crear = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/contabilidad/plan-cuentas', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/plan-cuentas'))
+    return result
+  }
+  return { crear }
+}
+
+/** Import accounts batch */
+export function useImportAccounts() {
+  const importar = async (accounts: unknown[]) => {
+    const result = await apiClient.post('/api/v1/contabilidad/plan-cuentas/import', { accounts }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/plan-cuentas'))
+    return result
+  }
+  return { importar }
+}
+
+/** Update account */
+export function useUpdateAccount() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/contabilidad/plan-cuentas/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/plan-cuentas'))
+    return result
+  }
+  return { update }
+}
+
+/** Delete account */
+export function useDeleteAccount() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/contabilidad/plan-cuentas/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/plan-cuentas'))
+  }
+  return { remove }
+}
+
+/** Create journal entry */
+export function useCreateJournalEntry() {
+  const crear = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/contabilidad/asientos', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/libro-diario'))
+    return result
+  }
+  return { crear }
+}
+
+/** Update journal entry */
+export function useUpdateJournalEntry() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/contabilidad/asientos/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/libro-diario'))
+    return result
+  }
+  return { update }
+}
+
+/** Post journal entry (draft -> posted) */
+export function usePostJournalEntry() {
+  const post = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/contabilidad/asientos/${id}/post`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/libro-diario'))
+    return result
+  }
+  return { post }
+}
+
+/** Reset journal entry to draft */
+export function useDraftJournalEntry() {
+  const draft = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/contabilidad/asientos/${id}/draft`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/libro-diario'))
+    return result
+  }
+  return { draft }
+}
+
+/** Delete journal entry */
+export function useDeleteJournalEntry() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/contabilidad/asientos/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/libro-diario'))
+  }
+  return { remove }
+}
+
+/** Import bank statement */
+export function useImportStatement() {
+  const importar = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/contabilidad/cartola/import', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+    return result
+  }
+  return { importar }
+}
+
+/** List bank statements */
+export function useBankStatements(journalId?: number) {
+  const params = journalId ? `?journal_id=${journalId}` : ''
+  const { data, error, isLoading } = useSWR(`/api/v1/contabilidad/cartola/statements${params}`, fetcher)
+  return { statements: data?.statements ?? [], isLoading, error }
+}
+
+/** Reconcile statement lines */
+export function useReconcile() {
+  const reconcile = async (statementLineIds: number[]) => {
+    const result = await apiClient.post('/api/v1/contabilidad/conciliacion/reconcile', { statement_line_ids: statementLineIds }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+    return result
+  }
+  return { reconcile }
+}
+
+/** Auto-reconcile all unmatched lines */
+export function useAutoReconcile() {
+  const autoReconcile = async (journalId: number) => {
+    const result = await apiClient.post('/api/v1/contabilidad/conciliacion/auto', { journal_id: journalId }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+    return result
+  }
+  return { autoReconcile }
+}
+
+/** Auxiliar partners (sub-ledger) */
+export function useAuxiliarPartners(type: string, mes?: number, year?: number) {
+  const params = new URLSearchParams({ type })
+  if (mes) params.set('mes', String(mes))
+  if (year) params.set('year', String(year))
+  const { data, error, isLoading } = useSWR(`/api/v1/contabilidad/auxiliar?${params}`, fetcher)
+  return { partners: data?.partners ?? [], isLoading, error }
+}
+
+/** Auxiliar detail for a specific partner */
+export function useAuxiliarDetail(partnerId: number | null, type: string, mes?: number, year?: number) {
+  const params = partnerId ? new URLSearchParams({ type, ...(mes ? { mes: String(mes) } : {}), ...(year ? { year: String(year) } : {}) }) : null
+  const { data, error, isLoading } = useSWR(
+    params ? `/api/v1/contabilidad/auxiliar/${partnerId}?${params}` : null, fetcher,
+  )
+  return { movimientos: data?.movimientos ?? [], saldo_final: data?.saldo_final ?? 0, isLoading, error }
+}
+
+/** Create journal */
+export function useCreateJournal() {
+  const crear = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/contabilidad/journals', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/journals'))
+    return result
+  }
+  return { crear }
+}
+
+/** Company accounting setup */
+export function useAccountingSetup() {
+  const setup = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/contabilidad/setup', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+    return result
+  }
+  return { setup }
 }

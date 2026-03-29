@@ -1,5 +1,5 @@
 """CAF Endpoints — Sprint 2"""
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 from app.services.caf_manager import caf_manager
 
 router = APIRouter()
@@ -8,6 +8,7 @@ router = APIRouter()
 async def load_caf(
     file: UploadFile = File(..., description="Archivo XML del CAF descargado del SII"),
     rut_empresa: str = Form("auto"),
+    ambiente: str = Form(""),
 ):
     """Carga un CAF (Código de Autorización de Folios) desde su XML oficial del SII."""
     if not file.filename.lower().endswith(".xml"):
@@ -25,7 +26,7 @@ async def load_caf(
             raise HTTPException(400, detail="No se pudo extraer RUT del CAF XML")
         actual_rut = re_node.text.strip()
 
-    caf_data = caf_manager.load_caf_from_xml(xml_str, actual_rut)
+    caf_data = caf_manager.load_caf_from_xml(xml_str, actual_rut, ambiente=ambiente)
     return {
         "success": True,
         "tipo_dte": caf_data.tipo_dte,
@@ -33,13 +34,17 @@ async def load_caf(
         "folio_desde": caf_data.folio_desde,
         "folio_hasta": caf_data.folio_hasta,
         "folios_disponibles": caf_data.folios_disponibles,
-        "mensaje": f"CAF cargado: {caf_data.total_folios} folios tipo {caf_data.tipo_dte} para {actual_rut}",
+        "ambiente": caf_data.ambiente,
+        "mensaje": f"CAF cargado: {caf_data.total_folios} folios tipo {caf_data.tipo_dte} para {actual_rut} [{caf_data.ambiente}]",
     }
 
 @router.get("/status/{rut_empresa}")
-async def get_caf_status(rut_empresa: str):
-    """Retorna el estado de todos los CAFs de una empresa."""
+async def get_caf_status(
+    rut_empresa: str,
+    ambiente: str = Query("", description="Filter by ambiente: certificacion, produccion, or empty for all"),
+):
+    """Retorna el estado de los CAFs de una empresa, filtrado por ambiente."""
     return {
         "rut_empresa": rut_empresa,
-        "cafs": caf_manager.get_status(rut_empresa),
+        "cafs": caf_manager.get_status(rut_empresa, ambiente=ambiente),
     }

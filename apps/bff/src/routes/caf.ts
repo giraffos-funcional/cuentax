@@ -1,7 +1,7 @@
 /**
  * CUENTAX — CAF Routes (BFF)
  * POST /api/v1/caf/load      → Cargar CAF XML
- * GET  /api/v1/caf/status    → Estado folios empresa
+ * GET  /api/v1/caf/status    → Estado folios empresa (filtrado por ambiente)
  */
 
 import type { FastifyInstance } from 'fastify'
@@ -22,6 +22,7 @@ export async function cafRoutes(fastify: FastifyInstance) {
   fastify.post('/load', async (request, reply) => {
     // RUT is optional — the bridge extracts it from the CAF XML itself
     const rut = getRut(request) ?? 'auto'
+    const ambiente = (request.query as any)?.ambiente ?? ''
 
     // Multipart file
     const data = await (request as any).file()
@@ -36,7 +37,7 @@ export async function cafRoutes(fastify: FastifyInstance) {
 
     try {
       const buffer = await data.toBuffer()
-      const result = await siiBridgeAdapter.loadCAF(buffer, filename, rut)
+      const result = await siiBridgeAdapter.loadCAF(buffer, filename, rut, ambiente)
       return reply.status(result.success ? 201 : 422).send(result)
     } catch (err: any) {
       const detail = err.response?.data?.detail
@@ -50,8 +51,10 @@ export async function cafRoutes(fastify: FastifyInstance) {
     const rut = getRut(request)
     if (!rut) return reply.send({ rut_empresa: null, cafs: [] })
 
+    const ambiente = (request.query as any)?.ambiente ?? ''
+
     try {
-      const cafs = await siiBridgeAdapter.getCAFStatus(rut)
+      const cafs = await siiBridgeAdapter.getCAFStatus(rut, ambiente)
       return reply.send({ rut_empresa: rut, cafs })
     } catch {
       return reply.send({ rut_empresa: rut, cafs: [] })

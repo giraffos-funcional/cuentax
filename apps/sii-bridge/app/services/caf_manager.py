@@ -37,6 +37,7 @@ class CAFData:
         timestamp_autorizacion: str,
         private_key_pem: str,
         caf_xml_raw: str,
+        ambiente: str = "certificacion",
     ):
         self.tipo_dte = tipo_dte
         self.rut_empresa = rut_empresa
@@ -45,6 +46,7 @@ class CAFData:
         self.timestamp_autorizacion = timestamp_autorizacion
         self.private_key_pem = private_key_pem
         self.caf_xml_raw = caf_xml_raw
+        self.ambiente = ambiente
         self._next_folio = folio_desde
 
     @property
@@ -95,20 +97,21 @@ class CAFData:
             "folios_disponibles": self.folios_disponibles,
             "porcentaje_usado": round(self.porcentaje_usado, 1),
             "necesita_renovacion": self.necesita_renovacion,
+            "ambiente": self.ambiente,
         }
 
 
 class CAFManager:
     """
-    Gestiona múltiples CAFs por tipo de DTE y empresa.
-    Key: (rut_empresa, tipo_dte) → CAFData
+    Gestiona múltiples CAFs por tipo de DTE, empresa y ambiente.
+    Key: (rut_empresa, tipo_dte, ambiente) → CAFData
     """
 
     def __init__(self):
-        # {(rut_empresa, tipo_dte): CAFData}
-        self._cafs: dict[tuple[str, int], CAFData] = {}
+        # {(rut_empresa, tipo_dte, ambiente): CAFData}
+        self._cafs: dict[tuple[str, int, str], CAFData] = {}
 
-    def load_caf_from_xml(self, caf_xml: str, rut_empresa: str) -> CAFData:
+    def load_caf_from_xml(self, caf_xml: str, rut_empresa: str, ambiente: str = "") -> CAFData:
         """
         Carga un CAF desde su XML oficial del SII.
         Valida la autenticidad del archivo.
@@ -146,6 +149,11 @@ class CAFManager:
             privk = root.find(".//RSASK") or root.find(".//ECCSK")
             private_key_pem = privk.text.strip() if privk is not None else ""
 
+            # Resolve ambiente: param > settings default
+            if not ambiente:
+                from app.core.config import settings
+                ambiente = settings.SII_AMBIENTE
+
             caf_data = CAFData(
                 tipo_dte=tipo_dte,
                 rut_empresa=rut_caf,
@@ -154,14 +162,16 @@ class CAFManager:
                 timestamp_autorizacion=fecha_autorizacion,
                 private_key_pem=private_key_pem,
                 caf_xml_raw=caf_xml if isinstance(caf_xml, str) else caf_xml.decode(),
+                ambiente=ambiente,
             )
 
-            key = (rut_empresa, tipo_dte)
+            key = (rut_empresa, tipo_dte, ambiente)
             self._cafs[key] = caf_data
 
             logger.info(
                 f"✅ CAF cargado. Tipo {tipo_dte}, RUT {rut_caf}, "
-                f"Folios {folio_desde}-{folio_hasta} ({folio_hasta - folio_desde + 1} folios)"
+                f"Folios {folio_desde}-{folio_hasta} ({folio_hasta - folio_desde + 1} folios) "
+                f"[{ambiente}]"
             )
 
             # Persist to Odoo
@@ -173,14 +183,17 @@ class CAFManager:
             logger.error(f"Error cargando CAF: {e}")
             raise
 
-    def get_next_folio(self, rut_empresa: str, tipo_dte: int) -> Optional[int]:
+    def get_next_folio(self, rut_empresa: str, tipo_dte: int, ambiente: str = "") -> Optional[int]:
         """
         Obtiene y reserva el próximo folio para emitir un DTE.
-        
+
         Returns:
             Número de folio o None si no hay CAF disponible
         """
-        key = (rut_empresa, tipo_dte)
+        if not ambiente:
+            from app.core.config import settings
+            ambiente = settings.SII_AMBIENTE
+        key = (rut_empresa, tipo_dte, ambiente)
         caf = self._cafs.get(key)
 
         if not caf:
@@ -193,7 +206,7 @@ class CAFManager:
             return None
 
         # Sync folio position to Odoo
-        self.sync_folio_to_odoo(rut_empresa, tipo_dte)
+        self.sync_folio_to_odoo(rut_empresa, tipo_dte, ambiente)
 
         if caf.necesita_renovacion:
             logger.warning(
@@ -203,22 +216,27 @@ class CAFManager:
 
         return folio
 
-    def get_status(self, rut_empresa: str) -> list[dict]:
-        """Retorna el estado de todos los CAFs de una empresa."""
+    def get_status(self, rut_empresa: str, ambiente: str = "") -> list[dict]:
+        """Retorna el estado de los CAFs de una empresa, filtrado por ambiente."""
         return [
             caf.status
-            for (rut, _), caf in self._cafs.items()
-            if rut == rut_empresa
+            for (rut, _, amb), caf in self._cafs.items()
+            if rut == rut_empresa and (not ambiente or amb == ambiente)
         ]
 
-    def get_caf(self, rut_empresa: str, tipo_dte: int) -> Optional[CAFData]:
-        return self._cafs.get((rut_empresa, tipo_dte))
+    def get_caf(self, rut_empresa: str, tipo_dte: int, ambiente: str = "") -> Optional[CAFData]:
+        if not ambiente:
+            from app.core.config import settings
+            ambiente = settings.SII_AMBIENTE
+        return self._cafs.get((rut_empresa, tipo_dte, ambiente))
 
     # ── Odoo Persistence (ir.config_parameter) ─────────────────
     # Uses Odoo's built-in key-value store so no custom modules needed.
     # Key format: cuentax.caf.{rut}.{tipo} → JSON blob
 
-    def _caf_param_key(self, rut: str, tipo: int) -> str:
+    def _caf_param_key(self, rut: str, tipo: int, ambiente: str = "") -> str:
+        if ambiente:
+            return f"cuentax.caf.{rut}.{tipo}.{ambiente}"
         return f"cuentax.caf.{rut}.{tipo}"
 
     def _caf_to_dict(self, caf: CAFData) -> dict:
@@ -231,13 +249,14 @@ class CAFManager:
             "timestamp_autorizacion": caf.timestamp_autorizacion,
             "private_key_pem": caf.private_key_pem,
             "caf_xml_raw": caf.caf_xml_raw,
+            "ambiente": caf.ambiente,
         }
 
     def save_to_odoo(self, caf_data: CAFData) -> bool:
         """Save a CAF to Odoo ir.config_parameter."""
         try:
             from app.adapters.odoo_rpc import odoo_rpc
-            key = self._caf_param_key(caf_data.rut_empresa, caf_data.tipo_dte)
+            key = self._caf_param_key(caf_data.rut_empresa, caf_data.tipo_dte, caf_data.ambiente)
             value = json.dumps(self._caf_to_dict(caf_data))
             odoo_rpc.execute(
                 "ir.config_parameter", "set_param", key, value,
@@ -250,14 +269,17 @@ class CAFManager:
             logger.error(f"Failed to save CAF to Odoo: {e}")
             return False
 
-    def sync_folio_to_odoo(self, rut_empresa: str, tipo_dte: int) -> None:
+    def sync_folio_to_odoo(self, rut_empresa: str, tipo_dte: int, ambiente: str = "") -> None:
         """Sync current folio position back to Odoo after consumption."""
-        caf = self._cafs.get((rut_empresa, tipo_dte))
+        if not ambiente:
+            from app.core.config import settings
+            ambiente = settings.SII_AMBIENTE
+        caf = self._cafs.get((rut_empresa, tipo_dte, ambiente))
         if not caf:
             return
         try:
             from app.adapters.odoo_rpc import odoo_rpc
-            key = self._caf_param_key(rut_empresa, tipo_dte)
+            key = self._caf_param_key(rut_empresa, tipo_dte, ambiente)
             value = json.dumps(self._caf_to_dict(caf))
             odoo_rpc.execute("ir.config_parameter", "set_param", key, value)
         except Exception as e:
@@ -266,7 +288,7 @@ class CAFManager:
     def _update_caf_index(self, odoo_rpc) -> None:
         """Maintain an index of all CAF param keys for restore."""
         keys = [
-            self._caf_param_key(caf.rut_empresa, caf.tipo_dte)
+            self._caf_param_key(caf.rut_empresa, caf.tipo_dte, caf.ambiente)
             for caf in self._cafs.values()
         ]
         odoo_rpc.execute(
@@ -311,6 +333,7 @@ class CAFManager:
                         except Exception as ex:
                             logger.error(f"Failed to re-extract key from XML: {ex}")
 
+                    amb = data.get("ambiente", "certificacion")
                     caf = CAFData(
                         tipo_dte=data["tipo_dte"],
                         rut_empresa=data["rut_empresa"],
@@ -319,10 +342,11 @@ class CAFManager:
                         timestamp_autorizacion=data.get("timestamp_autorizacion", ""),
                         private_key_pem=private_key_pem,
                         caf_xml_raw=caf_xml_raw,
+                        ambiente=amb,
                     )
                     caf._next_folio = data.get("next_folio", data["folio_desde"])
 
-                    mem_key = (data["rut_empresa"], data["tipo_dte"])
+                    mem_key = (data["rut_empresa"], data["tipo_dte"], amb)
                     self._cafs[mem_key] = caf
                     count += 1
                     logger.info(

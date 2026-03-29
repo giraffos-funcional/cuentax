@@ -20,6 +20,7 @@ import {
   useProcessTestSet,
   useResetCertification,
   useSIIStatus,
+  useCAFStatus,
 } from '@/hooks'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -70,6 +71,8 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
   refreshPrereqs: () => void
 }) {
   const p = prerequisites
+  const { uploadCAF } = useCAFStatus('certificacion')
+  const [cafUploading, setCafUploading] = useState(false)
 
   const certOk = p?.certificado?.ok ?? false
   const cafFactura = p?.cafs_ready_factura ?? false
@@ -85,6 +88,25 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
   const missingTypes = Object.entries(cafTypes)
     .filter(([, v]: any) => !v.loaded)
     .map(([, v]: any) => v.label)
+
+  const handleCAFUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.xml')) {
+      alert('Solo se aceptan archivos .xml')
+      return
+    }
+    setCafUploading(true)
+    try {
+      await uploadCAF(file, 'certificacion')
+      refreshPrereqs()
+    } catch (err: any) {
+      alert(err.response?.data?.message ?? 'Error cargando CAF')
+    } finally {
+      setCafUploading(false)
+      e.target.value = ''
+    }
+  }
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -106,13 +128,12 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
 
         <PrerequisiteItem
           ok={cafFactura || cafBoleta}
-          label="Folios (CAF)"
+          label="Folios (CAF) — Certificación"
           detail={
             loadedTypes.length > 0
               ? `Cargados: ${loadedTypes.join(', ')}${missingTypes.length > 0 ? ` · Faltan: ${missingTypes.join(', ')}` : ''}`
-              : 'Debes cargar los CAFs (folios) del SII para cada tipo de documento'
+              : 'Carga los CAFs del ambiente de certificación (maullin.sii.cl)'
           }
-          action={{ href: '/dashboard/folios', text: 'Cargar CAFs' }}
         />
 
         {cafFactura && (
@@ -125,6 +146,23 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
           <div className="ml-8 flex items-center gap-2 text-xs">
             <CheckCircle2 size={12} className="text-emerald-500" />
             <span className="text-emerald-600 font-medium">Set Boleta: listo (tipo 39)</span>
+          </div>
+        )}
+
+        {!(cafFactura && cafBoleta) && (
+          <div className="ml-8">
+            <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+              cafUploading
+                ? 'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-muted)]'
+                : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+            }`}>
+              {cafUploading ? (
+                <><Loader2 size={12} className="animate-spin" /> Subiendo...</>
+              ) : (
+                <><Upload size={12} /> Subir CAF de certificación (.xml)</>
+              )}
+              <input type="file" accept=".xml" className="hidden" onChange={handleCAFUpload} disabled={cafUploading} />
+            </label>
           </div>
         )}
 
@@ -163,12 +201,12 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
         <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
           <Info size={14} className="shrink-0 mt-0.5" />
           <div>
-            <p className="font-semibold">¿Cómo obtener los CAFs?</p>
+            <p className="font-semibold">¿Cómo obtener los CAFs de certificación?</p>
             <ol className="list-decimal list-inside mt-1 space-y-0.5">
-              <li>Entra al portal del SII: <a href="https://maullin.sii.cl" target="_blank" rel="noopener" className="underline font-semibold">maullin.sii.cl</a></li>
+              <li>Entra al portal de certificación: <a href="https://maullin.sii.cl" target="_blank" rel="noopener" className="underline font-semibold">maullin.sii.cl</a></li>
               <li>Ve a Factura Electrónica → Solicitar Folios</li>
               <li>Solicita folios para tipos 33, 39, 61 (y 56 si aplica)</li>
-              <li>Descarga los archivos XML y súbelos en <a href="/dashboard/folios" className="underline font-semibold">Folios</a></li>
+              <li>Descarga los archivos XML y súbelos arriba</li>
             </ol>
           </div>
         </div>
