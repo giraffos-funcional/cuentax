@@ -77,13 +77,22 @@ function ErrorState({ message }: { message?: string }) {
 
 function EmptyState({ hasFilter }: { hasFilter: boolean }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <FileText size={32} className="text-[var(--cx-text-muted)]" />
-      <p className="text-sm font-medium text-[var(--cx-text-secondary)]">
-        {hasFilter ? 'No se encontraron liquidaciones con ese criterio' : 'No hay liquidaciones registradas'}
+    <div className="flex flex-col items-center justify-center py-20 gap-1">
+      <div className="w-16 h-16 mb-3 rounded-2xl bg-gradient-to-br from-violet-100 to-indigo-100 flex items-center justify-center shadow-sm">
+        <FileText size={28} className="text-violet-500" />
+      </div>
+      <p className="text-base font-semibold text-[var(--cx-text-primary)]">
+        {hasFilter ? 'Sin resultados' : 'No hay liquidaciones registradas'}
       </p>
-      {hasFilter && (
-        <p className="text-xs text-[var(--cx-text-muted)]">Prueba con otro período o empleado</p>
+      <p className="text-sm text-[var(--cx-text-muted)] max-w-sm text-center">
+        {hasFilter
+          ? 'No se encontraron liquidaciones con ese criterio. Prueba otro período o empleado.'
+          : 'Para generar liquidaciones, primero registra empleados en el módulo de RRHH'}
+      </p>
+      {!hasFilter && (
+        <a href="/dashboard/remuneraciones/empleados" className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--cx-active-bg)] text-[var(--cx-active-text)] text-xs font-semibold hover:bg-[var(--cx-hover-bg)] transition-all border border-[var(--cx-active-border)]">
+          Ir a Empleados →
+        </a>
       )}
     </div>
   )

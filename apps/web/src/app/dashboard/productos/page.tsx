@@ -78,15 +78,26 @@ function ErrorState({ message }: { message?: string }) {
   )
 }
 
-function EmptyState({ search, cat }: { search: string; cat: string }) {
+function EmptyState({ search, cat, onNew }: { search: string; cat: string; onNew: () => void }) {
+  const isFiltered = search || cat !== 'todas'
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <Package size={32} className="text-[var(--cx-text-muted)]" />
-      <p className="text-sm text-[var(--cx-text-secondary)]">
-        {search || cat !== 'todas'
-          ? 'No se encontraron productos con esos filtros'
-          : 'Aún no hay productos. Agrega el primero.'}
+    <div className="flex flex-col items-center justify-center py-20 gap-1">
+      <div className="w-16 h-16 mb-3 rounded-2xl bg-gradient-to-br from-violet-100 to-indigo-100 flex items-center justify-center shadow-sm">
+        <Package size={28} className="text-violet-500" />
+      </div>
+      <p className="text-base font-semibold text-[var(--cx-text-primary)]">
+        {isFiltered ? 'Sin resultados' : 'Aún no hay productos'}
       </p>
+      <p className="text-sm text-[var(--cx-text-muted)] max-w-xs text-center mb-1">
+        {isFiltered
+          ? 'No se encontraron productos con esos filtros. Prueba con otra búsqueda.'
+          : 'Crea tu catálogo de productos y servicios para agilizar la emisión de DTEs'}
+      </p>
+      {!isFiltered && (
+        <button onClick={onNew} className="mt-3 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold hover:from-violet-700 hover:to-indigo-700 transition-all shadow-md shadow-violet-500/20">
+          <Plus size={14} /> Agregar Producto
+        </button>
+      )}
     </div>
   )
 }
@@ -459,7 +470,7 @@ export default function ProductosPage() {
         {!isLoading && !error && (
           <div className="divide-y divide-[var(--cx-border-light)]">
             {filtered.length === 0 ? (
-              <EmptyState search={search} cat={cat} />
+              <EmptyState search={search} cat={cat} onNew={openCreate} />
             ) : (
               filtered.map((p: Product) => (
                 <div

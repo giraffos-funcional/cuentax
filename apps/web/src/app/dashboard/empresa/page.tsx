@@ -68,27 +68,30 @@ export default function EmpresaPage() {
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
 
   // Pre-fill form when empresa loads or changes
-  const [loadedId, setLoadedId] = useState<number | null>(null)
+  const loadedId_ref = useRef<number | null>(null)
+  const authName = useAuthStore(s => s.user?.company_name)
   useEffect(() => {
     const currentId = empresa?.id ?? null
-    if (empresa && currentId !== loadedId) {
+    if (empresa && currentId !== loadedId_ref.current) {
+      // Odoo returns Python False for empty fields → handle as empty string
+      const clean = (v: unknown) => (!v || v === false || String(v) === 'False') ? '' : String(v)
       setForm({
-        name: empresa.name || '',
-        vat: empresa.vat === false ? '' : (empresa.vat || ''),
-        street: empresa.street === false ? '' : (empresa.street || ''),
-        city: empresa.city === false ? '' : (empresa.city || ''),
-        phone: empresa.phone === false ? '' : (empresa.phone || ''),
-        email: empresa.email === false ? '' : (empresa.email || ''),
-        website: empresa.website === false ? '' : (empresa.website || ''),
+        name: clean(empresa.name) || authName || '',
+        vat: clean(empresa.vat),
+        street: clean(empresa.street),
+        city: clean(empresa.city),
+        phone: clean(empresa.phone),
+        email: clean(empresa.email),
+        website: clean(empresa.website),
       })
-      if (empresa.logo && empresa.logo !== false) {
+      if (empresa.logo && empresa.logo !== false && String(empresa.logo) !== 'False') {
         setLogoPreview(`data:image/png;base64,${empresa.logo}`)
       } else {
         setLogoPreview(null)
       }
-      setLoadedId(currentId)
+      loadedId_ref.current = currentId
     }
-  }, [empresa, loadedId])
+  }, [empresa, authName])
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

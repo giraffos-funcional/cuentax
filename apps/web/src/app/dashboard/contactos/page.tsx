@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { apiClient } from '@/lib/api-client'
 import {
-  Search, Plus, Building2, ArrowRight,
+  Search, Plus, Building2, ArrowRight, Users,
   Edit, Trash2, Phone, Mail, Loader2, AlertCircle, X,
 } from 'lucide-react'
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact } from '@/hooks'
@@ -62,12 +62,19 @@ function ErrorState({ message }: { message?: string }) {
 // ── Empty State ────────────────────────────────────────────────
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <Building2 size={32} className="text-[var(--cx-text-muted)] mb-3" />
-      <p className="text-sm font-medium text-[var(--cx-text-primary)]">No hay contactos</p>
-      <p className="text-xs text-[var(--cx-text-muted)] mt-1 mb-4">Agrega tu primer cliente o proveedor</p>
-      <button onClick={onNew} className="btn-primary">
-        <Plus size={14} /> Nuevo Contacto
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-violet-100 to-indigo-100 flex items-center justify-center shadow-sm">
+        <Users size={28} className="text-violet-500" />
+      </div>
+      <p className="text-base font-semibold text-[var(--cx-text-primary)] mb-1">No hay contactos</p>
+      <p className="text-sm text-[var(--cx-text-muted)] mb-1 max-w-xs">
+        Agrega clientes y proveedores para autocompletar tus DTEs al emitir
+      </p>
+      <p className="text-xs text-[var(--cx-text-muted)] mb-5">
+        También puedes buscar por RUT directamente en el SII
+      </p>
+      <button onClick={onNew} className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-bold hover:from-violet-700 hover:to-indigo-700 transition-all shadow-md shadow-violet-500/20">
+        <Plus size={14} /> Agregar Contacto
       </button>
     </div>
   )

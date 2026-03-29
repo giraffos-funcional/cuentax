@@ -105,19 +105,19 @@ function SIIAlert() {
   }
 
   return (
-    <div className="flex items-center gap-4 p-4 rounded-2xl bg-[var(--cx-status-warn-bg)] border border-[var(--cx-status-warn-border)]">
-      <div className="p-2 bg-[var(--cx-status-warn-bg)] rounded-xl shrink-0">
-        <AlertTriangle size={16} className="text-[var(--cx-status-warn-text)]" />
+    <div className="flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200">
+      <div className="p-2.5 bg-white/80 rounded-xl shrink-0 shadow-sm">
+        <AlertTriangle size={16} className="text-violet-600" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-[var(--cx-status-warn-text)]">Certificado digital no configurado</p>
-        <p className="text-xs text-[var(--cx-status-warn-text)] opacity-80 mt-0.5">
+        <p className="text-sm font-semibold text-violet-900">Certificado digital no configurado</p>
+        <p className="text-xs text-violet-600 mt-0.5">
           Sin certificado no puedes emitir DTEs. Configúralo para habilitar la emisión.
         </p>
       </div>
       <a
         href="/dashboard/configuracion"
-        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--cx-status-warn-text)] text-white text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap shrink-0"
+        className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-bold hover:from-violet-700 hover:to-indigo-700 transition-all shadow-md shadow-violet-500/25 whitespace-nowrap shrink-0"
       >
         Configurar <ArrowRight size={12} />
       </a>
@@ -220,9 +220,9 @@ export default function DashboardPage() {
           label="Folios Disponibles"
           value={String(foliosDisp)}
           subValue="Tipo 33 — Factura"
-          trend={foliosDisp < 300 ? 'down' : 'neutral'}
-          trendValue={foliosDisp < 300 ? `⚠ Quedan < 300` : 'OK'}
-          accent="amber"
+          trend={foliosDisp === 0 ? 'down' : foliosDisp < 300 ? 'down' : 'up'}
+          trendValue={foliosDisp === 0 ? '🔴 Sin folios — Solicitar CAF' : foliosDisp < 100 ? `⚠ Quedan pocos folios` : foliosDisp < 300 ? `Quedan ${foliosDisp}` : '✓ Suficientes'}
+          accent={foliosDisp === 0 ? 'amber' : 'amber'}
           icon={<Clock size={16} />}
         />
       </div>
@@ -248,8 +248,15 @@ export default function DashboardPage() {
             <span className="ml-2 text-sm text-[var(--cx-text-muted)]">Cargando documentos...</span>
           </div>
         ) : recentDocs.length === 0 ? (
-          <div className="px-6 py-8 text-center text-sm text-[var(--cx-text-muted)]">
-            No hay documentos emitidos aún
+          <div className="px-6 py-10 text-center">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-[var(--cx-bg-elevated)] flex items-center justify-center">
+              <FileText size={20} className="text-[var(--cx-text-muted)]" />
+            </div>
+            <p className="text-sm font-medium text-[var(--cx-text-secondary)] mb-1">No hay documentos emitidos aún</p>
+            <p className="text-xs text-[var(--cx-text-muted)] mb-4">Emite tu primer DTE para verlo aquí</p>
+            <a href="/dashboard/emitir" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-bold hover:from-violet-700 hover:to-indigo-700 transition-all shadow-md shadow-violet-500/20">
+              <Zap size={12} /> Emitir DTE
+            </a>
           </div>
         ) : (
           <div className="divide-y divide-[var(--cx-border-lighter)]">
