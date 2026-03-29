@@ -425,27 +425,101 @@ function SetUploadCard({
 
       {/* Process Result */}
       {processResult && (
-        <div className={`p-3 rounded-lg border space-y-1 ${
-          processResult.success ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
-        }`}>
-          <div className="flex items-center gap-2">
-            {processResult.success
-              ? <CheckCircle2 size={14} className="text-emerald-600" />
-              : <AlertTriangle size={14} className="text-red-600" />
-            }
-            <p className={`text-xs font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
-              {processResult.total != null
-                ? <>{processResult.emitidos ?? 0}/{processResult.total} DTEs enviados</>
-                : processResult.mensaje ?? 'Error al procesar'
-              }
-              {processResult.track_id && <span className="font-mono ml-1">Track: {processResult.track_id}</span>}
-            </p>
-          </div>
-          {processResult.mensaje && !processResult.success && processResult.total != null && (
-            <p className="text-[10px] text-red-600 font-medium">{processResult.mensaje}</p>
+        <>
+          {/* Case 1: Sent to SII with track_id */}
+          {processResult.track_id ? (
+            <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50 space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-600" />
+                <p className="text-sm font-bold text-emerald-700">
+                  ¡Enviado al SII exitosamente!
+                </p>
+              </div>
+              <p className="text-xs text-emerald-600">
+                {processResult.emitidos ?? 0}/{processResult.total} DTEs generados, firmados y enviados.
+              </p>
+
+              {/* Prominent Track ID */}
+              <div className="p-3 bg-white rounded-lg border border-emerald-200 flex items-center gap-3">
+                <div className="shrink-0">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">N° Envío (Track ID)</p>
+                  <p className="text-lg font-mono font-bold text-violet-700">{processResult.track_id}</p>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(processResult.track_id); }}
+                  className="ml-auto shrink-0 px-2 py-1 text-[10px] font-semibold text-violet-600 bg-violet-100 rounded-lg hover:bg-violet-200 transition-colors"
+                >
+                  Copiar
+                </button>
+              </div>
+
+              <div className="p-2.5 bg-violet-50 rounded-lg border border-violet-200 text-[11px] text-violet-700 flex items-start gap-2">
+                <Info size={14} className="shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Usa este N° en el portal del SII:</p>
+                  <p className="mt-0.5">Ingresa <span className="font-mono font-bold">{processResult.track_id}</span> como "N° Envío" en el formulario de avance del SII junto con la fecha de hoy.</p>
+                </div>
+              </div>
+            </div>
+
+          ) : processResult.success && processResult.estado === 'firmado' ? (
+            /* Case 2: Signed but NOT sent (no SII token) */
+            <div className="p-4 rounded-xl border-2 border-amber-300 bg-amber-50 space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} className="text-amber-600" />
+                <p className="text-sm font-bold text-amber-700">
+                  DTEs firmados pero NO enviados al SII
+                </p>
+              </div>
+              <p className="text-xs text-amber-600">
+                {processResult.emitidos ?? 0}/{processResult.total} DTEs fueron generados y firmados correctamente,
+                pero <strong>no se pudieron enviar al SII</strong> porque no hay token de sesión activo.
+              </p>
+              <div className="p-2.5 bg-white rounded-lg border border-amber-200 text-[11px] text-amber-700 space-y-1">
+                <p className="font-semibold">Para resolver esto:</p>
+                <ol className="list-decimal list-inside space-y-0.5">
+                  <li>Verifica que el certificado digital esté cargado</li>
+                  <li>Verifica que la conexión SII diga "Conectado" en el panel inferior</li>
+                  <li>Vuelve a subir el archivo del set y procésalo de nuevo</li>
+                </ol>
+              </div>
+            </div>
+
+          ) : processResult.success ? (
+            /* Case 3: Success but no track_id (unexpected) */
+            <div className="p-3 rounded-lg border bg-emerald-50 border-emerald-200 space-y-1">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={14} className="text-emerald-600" />
+                <p className="text-xs font-semibold text-emerald-700">
+                  {processResult.emitidos ?? 0}/{processResult.total} DTEs procesados
+                </p>
+              </div>
+              {processResult.mensaje && (
+                <p className="text-[10px] text-emerald-600">{processResult.mensaje}</p>
+              )}
+            </div>
+
+          ) : (
+            /* Case 4: Error */
+            <div className="p-3 rounded-lg border bg-red-50 border-red-200 space-y-1">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={14} className="text-red-600" />
+                <p className="text-xs font-semibold text-red-700">
+                  {processResult.total != null
+                    ? <>{processResult.emitidos ?? 0}/{processResult.total} DTEs procesados</>
+                    : processResult.mensaje ?? 'Error al procesar'
+                  }
+                </p>
+              </div>
+              {processResult.mensaje && processResult.total != null && (
+                <p className="text-[10px] text-red-600 font-medium">{processResult.mensaje}</p>
+              )}
+            </div>
           )}
+
+          {/* Errors list (shown in all cases) */}
           {processResult.errores?.length > 0 && (
-            <div className="text-[10px] text-red-600 space-y-0.5 max-h-40 overflow-y-auto">
+            <div className="text-[10px] text-red-600 space-y-0.5 max-h-40 overflow-y-auto mt-2">
               {processResult.errores.map((e: any, i: number) => (
                 <p key={i} className="bg-red-100/50 px-2 py-0.5 rounded">
                   <span className="font-bold">Caso {e.caso} (Tipo {e.tipo_dte}):</span> {e.error}
@@ -453,7 +527,7 @@ function SetUploadCard({
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
 
       {error && (
