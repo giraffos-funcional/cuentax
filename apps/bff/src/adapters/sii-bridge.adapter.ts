@@ -118,6 +118,72 @@ export class SIIBridgeAdapter {
     return data
   }
 
+  // ── Certificación Wizard ──────────────────────────────────
+
+  /** Get wizard overview */
+  async certWizard(rutEmisor: string): Promise<any> {
+    const { data } = await this.http.get('/certification/wizard', { params: { rut_emisor: rutEmisor } })
+    return data
+  }
+
+  /** Get certification status */
+  async certStatus(rutEmisor: string): Promise<any> {
+    const { data } = await this.http.get('/certification/status', { params: { rut_emisor: rutEmisor } })
+    return data
+  }
+
+  /** Mark manual step as complete */
+  async certCompleteStep(rutEmisor: string, step: number): Promise<any> {
+    const { data } = await this.http.post('/certification/wizard/complete-step', { rut_emisor: rutEmisor, step })
+    return data
+  }
+
+  /** Upload test set file */
+  async certUploadTestSet(fileBuffer: Buffer, filename: string, emisor: any): Promise<any> {
+    const form = new FormData()
+    form.append('file', fileBuffer, { filename, contentType: 'text/plain' })
+    // Emit emisor fields as query-like form fields for the FastAPI dependency
+    Object.entries(emisor).forEach(([key, value]) => {
+      form.append(key, String(value))
+    })
+    const { data } = await this.http.post('/certification/wizard/set-prueba/upload', form, {
+      headers: { ...form.getHeaders() },
+    })
+    return data
+  }
+
+  /** Process loaded test set */
+  async certProcessTestSet(rutEmisor: string, fechaEmision?: string): Promise<any> {
+    const { data } = await this.http.post('/certification/wizard/set-prueba/process', {
+      rut_emisor: rutEmisor,
+      fecha_emision: fechaEmision || undefined,
+    })
+    return data
+  }
+
+  /** Send simulation batch */
+  async certSimulacion(payloads: any[]): Promise<any> {
+    const { data } = await this.http.post('/certification/wizard/simulacion/send', payloads)
+    return data
+  }
+
+  /** Generate PDF for muestras */
+  async certGeneratePDF(dteData: any, tedString?: string): Promise<any> {
+    const { data } = await this.http.post('/certification/wizard/muestras/generate-pdf', {
+      dte_data: dteData,
+      ted_string: tedString,
+    })
+    return data
+  }
+
+  /** Reset wizard */
+  async certReset(rutEmisor: string): Promise<any> {
+    const { data } = await this.http.post('/certification/wizard/reset', null, {
+      params: { rut_emisor: rutEmisor },
+    })
+    return data
+  }
+
   // ── SII Conectividad ───────────────────────────────────────
 
   /** Verifica conectividad con el SII y genera token si hay certificado */

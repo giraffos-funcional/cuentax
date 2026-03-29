@@ -19,7 +19,8 @@ import {
   Building2, Bell, Search, Menu,
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
-  UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity
+  UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
+  Wrench, ShieldCheck
 } from 'lucide-react'
 
 // ── Navigation structure ─────────────────────────────────────
@@ -73,6 +74,16 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/remuneraciones/contratos',     icon: Briefcase,     label: 'Contratos' },
       { href: '/dashboard/remuneraciones/asistencia',    icon: Clock4,        label: 'Asistencia' },
       { href: '/dashboard/remuneraciones/indicadores',   icon: Activity,      label: 'Indicadores' },
+    ],
+  },
+
+  // Herramientas
+  {
+    section: 'Herramientas',
+    icon: Wrench,
+    collapsible: true,
+    items: [
+      { href: '/dashboard/herramientas/certificacion', icon: ShieldCheck, label: 'Certificación SII' },
     ],
   },
 

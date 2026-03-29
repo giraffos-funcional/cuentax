@@ -423,6 +423,78 @@ export function useCertificateList() {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Certification Wizard Hooks
+// ══════════════════════════════════════════════════════════════
+
+/** Wizard overview — steps and progress */
+export function useCertificationWizard() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/certification/wizard', fetcher, {
+    refreshInterval: 30_000,
+  })
+  return { wizard: data ?? null, isLoading, error, refresh: mutate }
+}
+
+/** Certification status with SII connectivity */
+export function useCertificationStatus() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/certification/status', fetcher, {
+    refreshInterval: 60_000,
+  })
+  return { status: data ?? null, isLoading, error, refresh: mutate }
+}
+
+/** Complete a manual step */
+export function useCompleteStep() {
+  const complete = async (step: number) => {
+    const { data } = await apiClient.post('/api/v1/certification/complete-step', { step })
+    globalMutate('/api/v1/certification/wizard')
+    return data
+  }
+  return { complete }
+}
+
+/** Upload test set file */
+export function useUploadTestSet() {
+  const upload = async (file: File, emisorOverrides?: Record<string, string>) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (emisorOverrides) {
+      Object.entries(emisorOverrides).forEach(([key, value]) => {
+        formData.append(key, value)
+      })
+    }
+    const { data } = await apiClient.post('/api/v1/certification/upload-set', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    globalMutate('/api/v1/certification/wizard')
+    return data
+  }
+  return { upload }
+}
+
+/** Process loaded test set */
+export function useProcessTestSet() {
+  const process = async (fechaEmision?: string) => {
+    const { data } = await apiClient.post('/api/v1/certification/process-set', {
+      fecha_emision: fechaEmision,
+    })
+    globalMutate('/api/v1/certification/wizard')
+    return data
+  }
+  return { process }
+}
+
+/** Reset certification wizard */
+export function useResetCertification() {
+  const reset = async () => {
+    const { data } = await apiClient.post('/api/v1/certification/reset')
+    globalMutate('/api/v1/certification/wizard')
+    globalMutate('/api/v1/certification/status')
+    return data
+  }
+  return { reset }
+}
+
+// ══════════════════════════════════════════════════════════════
 // Auth Hooks
 // ══════════════════════════════════════════════════════════════
 
