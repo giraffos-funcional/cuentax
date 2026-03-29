@@ -116,30 +116,34 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
         Antes de iniciar la certificación, verifica que todos los componentes necesarios estén configurados.
       </p>
 
-      <div className="space-y-2">
-        {certOk ? (
-          <PrerequisiteItem
-            ok={true}
-            label="Certificado Digital"
-            detail='Certificado cargado y listo para firmar'
-            action={{ href: '/dashboard/configuracion', text: 'Configurar' }}
-          />
-        ) : (
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-red-400">
-                <AlertTriangle size={12} className="text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-red-700">Certificado Digital</p>
-                <p className="text-xs mt-0.5 text-red-600">Debes cargar tu certificado digital (.pfx) para firmar los DTEs</p>
-              </div>
+      <div className="space-y-3">
+        <div className={`p-4 rounded-xl border space-y-4 ${
+          certOk ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+              certOk ? 'bg-emerald-500' : 'bg-red-400'
+            }`}>
+              {certOk
+                ? <CheckCircle2 size={12} className="text-white" />
+                : <AlertTriangle size={12} className="text-white" />
+              }
             </div>
-            <div className="bg-white rounded-lg p-4 sm:p-6 border border-slate-200 shadow-sm">
-              <CertificateStep onSuccess={refreshPrereqs} />
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-semibold ${certOk ? 'text-emerald-700' : 'text-red-700'}`}>
+                Certificado Digital
+              </p>
+              <p className={`text-xs mt-0.5 ${certOk ? 'text-emerald-600' : 'text-red-600'}`}>
+                {certOk
+                  ? 'Certificado cargado y listo para firmar. Puedes re-cargarlo si lo necesitas.'
+                  : 'Debes cargar tu certificado digital (.pfx) para firmar los DTEs'}
+              </p>
             </div>
           </div>
-        )}
+          <div className="bg-white rounded-lg p-4 sm:p-6 border border-slate-200 shadow-sm">
+            <CertificateStep onSuccess={refreshPrereqs} />
+          </div>
+        </div>
 
         {/* CAF Section — Rich card UI */}
         <div className={`p-4 rounded-xl border space-y-3 ${
