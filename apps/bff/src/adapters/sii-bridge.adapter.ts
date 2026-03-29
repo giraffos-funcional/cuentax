@@ -25,7 +25,7 @@ export class SIIBridgeAdapter {
   constructor() {
     this.http = axios.create({
       baseURL: config.SII_BRIDGE_URL,
-      timeout: 60_000, // El SII puede ser lento
+      timeout: 15_000, // Default 15s; long operations override per-request
       headers: {
         'Content-Type': 'application/json',
         'X-Internal-Token': config.INTERNAL_SECRET,
@@ -55,7 +55,9 @@ export class SIIBridgeAdapter {
 
   /** Emite un DTE completo: genera XML, firma, envía al SII */
   async emitDTE(payload: DTEPayload): Promise<DTEResult> {
-    const { data } = await siiBridgeCircuit.execute(() => this.http.post('/dte/emit', payload))
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/dte/emit', payload, { timeout: 45_000 }), // SII round-trip can be slow
+    )
     return data
   }
 
@@ -69,14 +71,16 @@ export class SIIBridgeAdapter {
 
   /** Anula un DTE emitiendo una Nota de Crédito */
   async anularDTE(payload: AnulacionPayload): Promise<DTEResult> {
-    const { data } = await siiBridgeCircuit.execute(() => this.http.post('/dte/anular', payload))
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/dte/anular', payload, { timeout: 45_000 }), // SII round-trip can be slow
+    )
     return data
   }
 
   /** Genera el PDF de un DTE firmado */
   async generatePDF(xmlB64: string, tipo: number): Promise<Buffer> {
     const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/dte/pdf', { xml_b64: xmlB64, tipo_dte: tipo }, { responseType: 'arraybuffer' }),
+      this.http.post('/dte/pdf', { xml_b64: xmlB64, tipo_dte: tipo }, { responseType: 'arraybuffer', timeout: 30_000 }),
     )
     return Buffer.from(data)
   }
@@ -114,7 +118,10 @@ export class SIIBridgeAdapter {
     form.append('rut_empresa', rutEmpresa)
 
     const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certificate/load', form, { headers: { ...form.getHeaders() } }),
+      this.http.post('/certificate/load', form, {
+        headers: { ...form.getHeaders() },
+        timeout: 10_000, // Certificate upload is small (~4KB), 10s is plenty
+      }),
     )
     return data
   }
@@ -199,7 +206,7 @@ export class SIIBridgeAdapter {
         rut_emisor: rutEmisor,
         fecha_emision: fechaEmision || undefined,
         set_type: setType,
-      }),
+      }, { timeout: 60_000 }), // Processing test set generates multiple DTEs
     )
     return data
   }
