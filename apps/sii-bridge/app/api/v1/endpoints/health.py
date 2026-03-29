@@ -76,6 +76,7 @@ async def debug_token():
             result["has_X509Certificate"] = "X509Certificate" in signed if signed else False
             result["has_KeyInfo"] = "KeyInfo" in signed if signed else False
             result["has_Signature"] = "Signature" in signed if signed else False
+            result["signed_tail"] = signed[-500:] if signed else None
         except Exception as e:
             result["sign_error"] = f"{type(e).__name__}: {e}"
             result["sign_traceback"] = traceback.format_exc()[-500:]
