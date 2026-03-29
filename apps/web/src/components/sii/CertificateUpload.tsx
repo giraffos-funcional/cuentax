@@ -142,7 +142,7 @@ export function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
 }
 
 export function CertificateStep({ onSuccess }: { onSuccess: () => void }) {
-  const { certificates, isLoading: listLoading, associateCertificate } = useCertificateList()
+  const { certificates, isLoading: listLoading, error: listError, associateCertificate } = useCertificateList()
   const { cert, mutateCert } = useSIIStatus()
   const [associating, setAssociating] = useState(false)
   const [associateError, setAssociateError] = useState<string | null>(null)
@@ -170,7 +170,8 @@ export function CertificateStep({ onSuccess }: { onSuccess: () => void }) {
     }
   }
 
-  if (listLoading) {
+  // Show loading only while first fetch is in progress AND no error
+  if (listLoading && !listError) {
     return (
       <div className="animate-fade-in space-y-4">
         <h3 className="text-sm font-semibold text-slate-800">Certificado Digital PFX</h3>
