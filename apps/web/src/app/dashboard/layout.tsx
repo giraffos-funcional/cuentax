@@ -234,10 +234,11 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
         // Full page reload to clear all SWR cache and component state
         window.location.replace('/dashboard')
       }
-    } catch (err) {
-      console.error('Error switching company:', err)
+    } catch (err: any) {
+      const apiMsg = err?.response?.data?.message ?? err?.response?.data?.error ?? err?.message ?? 'Error desconocido'
+      console.error('Error switching company:', err?.response?.data ?? err)
       setSwitching(false)
-      alert('Error al cambiar empresa')
+      alert(`Error al cambiar empresa: ${apiMsg}`)
     }
   }
 
