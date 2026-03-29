@@ -55,6 +55,7 @@ import { generatePayslipPDF } from '@/services/payslip-pdf.service'
 import type { PayslipPDFData, PayslipPDFLine } from '@/services/payslip-pdf.service'
 import { generateContractPDF } from '@/services/contract-pdf.service'
 import type { ContractPDFData } from '@/services/contract-pdf.service'
+import { authService } from '@/services/auth.service'
 
 export async function remuneracionesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -1783,7 +1784,6 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
 
       // If RUT was updated, regenerate tokens with the new value
       if (success && body.vat && typeof body.vat === 'string' && body.vat !== user.company_rut) {
-        const { authService } = await import('@/services/auth.service')
         const newTokens = await authService.generateTokensForCompany({
           uid: user.uid,
           name: user.name,
