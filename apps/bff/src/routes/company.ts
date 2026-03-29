@@ -125,6 +125,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
 
     // Generate new tokens with this company
     const odooCompanyId = company.odoo_company_id || company.id
+    // Local DB rut is the source of truth (Odoo may have 'false' or empty)
+    const companyRut = (company.rut && company.rut !== 'false' && company.rut !== 'False') ? company.rut : ''
 
     // Fetch all companies so the new token includes the full list for subsequent switches
     const allCompanies = await db.select().from(companies).where(eq(companies.activo, true))
@@ -132,51 +134,32 @@ export async function companyRoutes(fastify: FastifyInstance) {
     const companiesList = allCompanies.map(c => ({
       id: c.odoo_company_id ?? c.id,
       name: c.razon_social,
-      rut: c.rut,
+      rut: (c.rut && c.rut !== 'false' && c.rut !== 'False') ? c.rut : '',
     }))
 
-    const tokens = await authService.switchCompany(
-      { sub: user.uid, email: user.email, name: user.name, company_ids: companyIds },
-      odooCompanyId,
-    )
+    // Always use direct path with local DB data — most reliable
+    const resultTokens = await authService.generateTokensForCompany({
+      uid: user.uid,
+      name: user.name,
+      email: user.email,
+      company_id: odooCompanyId,
+      company_name: company.razon_social,
+      company_rut: companyRut,
+    })
 
-    if (!tokens) {
-      // If switchCompany fails (company not in _getCompanyData), generate tokens directly
-      const directTokens = await authService.generateTokensForCompany({
-        uid: user.uid,
-        name: user.name,
-        email: user.email,
-        company_id: odooCompanyId,
-        company_name: company.razon_social,
-        company_rut: company.rut,
-      })
-
-      // Patch the user response to include all companies
-      if (directTokens.user) {
-        directTokens.user.company_ids = companyIds
-        directTokens.user.companies = companiesList
-      }
-
-      reply.setCookie('cuentax_refresh', directTokens.refresh_token ?? '', {
-        httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
-      })
-
-      logger.info({ companyId: odooCompanyId, userId: user.uid }, 'Switch: tokens generated (direct path)')
-      return reply.send(directTokens)
+    // Patch the user response to include all companies + guaranteed rut
+    if (resultTokens.user) {
+      resultTokens.user.company_ids = companyIds
+      resultTokens.user.companies = companiesList
+      resultTokens.user.company_rut = companyRut
     }
 
-    // Patch the user response to include all companies
-    if (tokens.user) {
-      tokens.user.company_ids = companyIds
-      tokens.user.companies = companiesList
-    }
-
-    reply.setCookie('cuentax_refresh', tokens.refresh_token ?? '', {
+    reply.setCookie('cuentax_refresh', resultTokens.refresh_token ?? '', {
       httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
     })
 
-    logger.info({ companyId: odooCompanyId, userId: user.uid }, 'Switch: tokens generated (standard path)')
-    return reply.send(tokens)
+    logger.info({ companyId: odooCompanyId, companyRut, userId: user.uid }, 'Switch: tokens generated')
+    return reply.send(resultTokens)
   })
 
   // POST / — create a new company (in Cuentax DB + Odoo)
