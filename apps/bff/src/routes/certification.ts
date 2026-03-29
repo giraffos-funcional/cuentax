@@ -113,11 +113,12 @@ export async function certificationRoutes(fastify: FastifyInstance) {
   // ── POST /process-set ──────────────────────────────────────
   fastify.post('/process-set', async (request, reply) => {
     const rut = getRut(request)
-    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
-    const { fecha_emision, set_type } = (request.body as any) ?? {}
+    const { fecha_emision, set_type, rut_emisor: bodyRut } = (request.body as any) ?? {}
+    // Use RUT from JWT, or from body, or empty (bridge will find session)
+    const efectiveRut = rut || bodyRut || ''
 
     try {
-      const data = await siiBridgeAdapter.certProcessTestSet(rut, fecha_emision, set_type ?? 'factura')
+      const data = await siiBridgeAdapter.certProcessTestSet(efectiveRut, fecha_emision, set_type ?? 'factura')
       return reply.send(data)
     } catch (err: any) {
       const detail = err.response?.data?.detail

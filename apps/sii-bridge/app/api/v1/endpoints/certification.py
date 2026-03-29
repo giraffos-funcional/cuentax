@@ -209,7 +209,7 @@ async def complete_step(req: StepCompleteRequest):
 @router.post("/wizard/set-prueba/upload")
 async def upload_test_set(
     file: UploadFile = File(...),
-    rut_emisor: str = Form(...),
+    rut_emisor: str = Form(""),
     razon_social: str = Form(""),
     giro: str = Form(""),
     direccion: str = Form(""),
@@ -262,9 +262,21 @@ async def upload_test_set(
             detail="No test cases found in the file. Check the file format.",
         )
 
+    # If rut_emisor was not provided, use the one from the parsed set
+    if not rut_emisor and parsed.rut_emisor:
+        rut_emisor = parsed.rut_emisor
+
+    if not rut_emisor:
+        raise HTTPException(status_code=400, detail="No se pudo determinar el RUT emisor")
+
     session = _get_session(rut_emisor)
     session[f"set_pruebas_{set_type}"] = parsed
     session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
+
+    # Ensure all payloads have the correct rut_emisor
+    for p in session[f"payloads_{set_type}"]:
+        if not p.get("rut_emisor"):
+            p["rut_emisor"] = rut_emisor
 
     return {
         "success": True,
@@ -303,7 +315,22 @@ async def process_test_set(req: ProcessRequest):
             detail=f"Invalid set_type '{set_type}'. Must be 'factura' or 'boleta'.",
         )
 
-    session = _get_session(req.rut_emisor)
+    # Find the session — use provided rut_emisor, or search for any session with payloads
+    rut_emisor = req.rut_emisor
+    if not rut_emisor or rut_emisor == "auto":
+        # Find any session that has the requested payloads loaded
+        for session_rut, sess in _sessions.items():
+            if sess.get(f"payloads_{set_type}"):
+                rut_emisor = session_rut
+                break
+
+    if not rut_emisor:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo determinar el RUT emisor. Sube un set de pruebas primero.",
+        )
+
+    session = _get_session(rut_emisor)
 
     payloads_key = f"payloads_{set_type}"
     if not session.get(payloads_key):
@@ -313,8 +340,12 @@ async def process_test_set(req: ProcessRequest):
         )
 
     payloads = session[payloads_key]
-    if req.fecha_emision:
-        for p in payloads:
+
+    # Ensure all payloads have the correct rut_emisor (may be empty if JWT had no RUT at upload time)
+    for p in payloads:
+        if not p.get("rut_emisor") or p["rut_emisor"] == "auto":
+            p["rut_emisor"] = rut_emisor
+        if req.fecha_emision:
             p["fecha_emision"] = req.fecha_emision
 
     try:
