@@ -48,3 +48,28 @@ async def get_caf_status(
         "rut_empresa": rut_empresa,
         "cafs": caf_manager.get_status(rut_empresa, ambiente=ambiente),
     }
+
+@router.post("/reset/{rut_empresa}/{tipo_dte}")
+async def reset_caf_folios(rut_empresa: str, tipo_dte: int):
+    """Resetea el contador de folios de un CAF.
+    Útil cuando los DTEs fueron firmados pero nunca enviados al SII."""
+    key = f"{rut_empresa}_{tipo_dte}"
+    found = False
+    for k, caf in caf_manager._cafs.items():
+        if caf.rut_empresa == rut_empresa and caf.tipo_dte == tipo_dte:
+            old_folio = caf._next_folio
+            caf._next_folio = caf.folio_desde
+            found = True
+            return {
+                "success": True,
+                "tipo_dte": tipo_dte,
+                "rut_empresa": rut_empresa,
+                "folio_desde": caf.folio_desde,
+                "folio_hasta": caf.folio_hasta,
+                "old_next_folio": old_folio,
+                "new_next_folio": caf.folio_desde,
+                "folios_disponibles": caf.folios_disponibles,
+                "mensaje": f"Reseteo exitoso: {caf.folios_disponibles} folios disponibles",
+            }
+    if not found:
+        raise HTTPException(404, detail=f"No se encontró CAF tipo {tipo_dte} para {rut_empresa}")
