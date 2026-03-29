@@ -133,13 +133,13 @@ export class OdooAuthAdapter {
         email: user.email as string,
         companyId: user.company_id[0] as number,
         companyName: (defaultCompany?.name ?? 'Empresa') as string,
-        companyRut: (defaultCompany?.vat ?? '') as string,
+        companyRut: (defaultCompany?.vat || '') as string,
         groups: (user.groups_id ?? []) as string[],
         companyIds,
         companies: companiesData.map((c: any) => ({
           id: c.id,
           name: c.name ?? '',
-          rut: c.vat ?? '',
+          rut: c.vat || '',
         })),
       }
     } catch (error) {
