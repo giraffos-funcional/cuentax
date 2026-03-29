@@ -140,24 +140,48 @@ class SIISoapClient:
     def _get_seed(self) -> Optional[str]:
         """
         Paso 1: Llama a CrSeed del SII para obtener una semilla temporal.
-        La semilla tiene vigencia de pocos minutos.
+        Uses raw SOAP over HTTP (works reliably through proxy).
         """
         try:
-            client = zeep.Client(self._wsdls["auth"], transport=self._transport)
-            response = client.service.getSeed()
+            # Raw SOAP envelope for getSeed
+            soap_body = """<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <getSeed/>
+  </soapenv:Body>
+</soapenv:Envelope>"""
 
-            # Parsear la respuesta XML
-            root = etree.fromstring(response.encode() if isinstance(response, str) else response)
+            # Derive SOAP endpoint from WSDL URL
+            endpoint = self._wsdls["auth"].replace("?WSDL", "")
+            proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
+
+            resp = requests.post(
+                endpoint,
+                data=soap_body,
+                headers={
+                    "Content-Type": "text/xml; charset=utf-8",
+                    "SOAPAction": '""',
+                },
+                proxies=proxies,
+                timeout=30,
+            )
+
+            if resp.status_code != 200:
+                logger.error(f"SII getSeed HTTP {resp.status_code}: {resp.text[:200]}")
+                return None
+
+            # Parse SOAP response
+            root = etree.fromstring(resp.content)
             seed_element = root.find(".//{http://DefaultNamespace}SEMILLA") or \
                            root.find(".//SEMILLA") or \
                            root.find(".//semilla")
 
             if seed_element is None or not seed_element.text:
-                logger.error(f"No se encontró semilla en respuesta SII: {response}")
+                logger.error(f"No se encontró semilla en respuesta SII: {resp.text[:300]}")
                 return None
 
             seed = seed_element.text.strip()
-            logger.debug(f"Semilla SII obtenida: {seed[:10]}...")
+            logger.info(f"✅ Semilla SII obtenida: {seed[:10]}...")
             return seed
 
         except Exception as e:
@@ -187,13 +211,39 @@ class SIISoapClient:
     def _exchange_seed_for_token(self, signed_seed_xml: str) -> Optional[str]:
         """
         Paso 3: Envía la semilla firmada al SII y recibe el token de sesión.
+        Uses raw SOAP over HTTP (works reliably through proxy).
         """
         try:
-            client = zeep.Client(self._wsdls["token"], transport=self._transport)
-            response = client.service.getToken(signed_seed_xml)
+            # Wrap signed seed XML in SOAP envelope
+            soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
+  <soapenv:Body>
+    <getToken>
+      <pszXml><![CDATA[{signed_seed_xml}]]></pszXml>
+    </getToken>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+            endpoint = self._wsdls["token"].replace("?WSDL", "")
+            proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
+
+            resp = requests.post(
+                endpoint,
+                data=soap_body.encode("utf-8"),
+                headers={
+                    "Content-Type": "text/xml; charset=utf-8",
+                    "SOAPAction": '""',
+                },
+                proxies=proxies,
+                timeout=30,
+            )
+
+            if resp.status_code != 200:
+                logger.error(f"SII getToken HTTP {resp.status_code}: {resp.text[:200]}")
+                return None
 
             # Parsear respuesta
-            root = etree.fromstring(response.encode() if isinstance(response, str) else response)
+            root = etree.fromstring(resp.content)
 
             token_element = root.find(".//{http://DefaultNamespace}TOKEN") or \
                             root.find(".//TOKEN") or \
@@ -207,7 +257,7 @@ class SIISoapClient:
                 return None
 
             if token_element is None or not token_element.text:
-                logger.error(f"No se encontró TOKEN en respuesta SII: {response}")
+                logger.error(f"No se encontró TOKEN en respuesta SII: {resp.text[:300]}")
                 return None
 
             return token_element.text.strip()
