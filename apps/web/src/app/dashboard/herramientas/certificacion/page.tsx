@@ -404,8 +404,7 @@ function SetUploadCard({
       const result = await process(undefined, setType)
       // Always show the result so errores are visible
       setProcessResult(result)
-      // Advance wizard when DTEs were signed (even if not sent to SII)
-      if (result.success || (result.emitidos && result.emitidos > 0)) refresh()
+      // Don't auto-advance — let user review results first
     } catch (e: any) {
       const msg = e.response?.data?.message ?? e.message ?? 'Error al procesar'
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
