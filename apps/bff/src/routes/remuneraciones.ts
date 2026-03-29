@@ -1125,8 +1125,7 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         [
           'name', 'employee_id', 'job_id', 'wage', 'date_start', 'date_end',
           'state', 'struct_id', 'resource_calendar_id',
-          'l10n_cl_colacion', 'l10n_cl_movilizacion', 'l10n_cl_contract_type', 'l10n_cl_jornada',
-          'l10n_cl_jurisdiction_commune',
+          'l10n_cl_colacion', 'l10n_cl_movilizacion', 'l10n_cl_contract_type',
         ],
         { limit: 1 },
       )
@@ -1158,10 +1157,9 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         [
           'name', 'identification_id', 'marital', 'birthday', 'country_id',
           'work_email', 'work_phone', 'job_title',
-          'address_home_id', 'private_street', 'private_city',
-          'l10n_cl_commune', 'l10n_cl_nationality', 'l10n_cl_afp_id', 'l10n_cl_health_plan',
+          'private_street', 'private_city',
+          'l10n_cl_afp_id', 'l10n_cl_health_plan',
           'l10n_cl_isapre_id', 'l10n_cl_isapre_cotizacion_uf',
-          'l10n_cl_private_address', 'l10n_cl_private_commune',
         ],
         { limit: 1 },
       )
@@ -1174,7 +1172,6 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
         [['id', '=', user.company_id]],
         [
           'name', 'vat', 'street', 'city', 'email', 'logo',
-          'l10n_cl_commune', 'l10n_cl_rep_legal_name', 'l10n_cl_rep_legal_rut',
         ],
         { limit: 1 },
       )
