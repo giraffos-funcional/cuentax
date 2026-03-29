@@ -145,19 +145,14 @@ function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
       formData.append('file', file)
       formData.append('password', password)
 
-      const res = await fetch(`${process.env['NEXT_PUBLIC_BFF_URL']}/api/v1/sii/certificate/load`, {
-        method: 'POST',
-        body: formData,
+      await apiClient.post('/api/v1/sii/certificate/load', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
 
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail ?? 'Error cargando certificado')
-      }
-
       onSuccess()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Error desconocido')
+    } catch (e: any) {
+      const msg = e.response?.data?.message ?? e.message ?? 'Error desconocido'
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
     } finally {
       setLoading(false)
     }
