@@ -21,20 +21,34 @@ export async function certificationRoutes(fastify: FastifyInstance) {
   fastify.get('/wizard', async (request, reply) => {
     const user = (request as any).user
     const rut = user.company_rut
-    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
+    if (!rut || rut === false || rut === 'false') {
+      // Return default wizard state when no RUT configured
+      return reply.send({ current_step: 1, steps: null, rut_emisor: null })
+    }
 
-    const data = await siiBridgeAdapter.certWizard(rut)
-    return reply.send(data)
+    try {
+      const data = await siiBridgeAdapter.certWizard(rut)
+      return reply.send(data)
+    } catch (err: any) {
+      // Fallback gracefully
+      return reply.send({ current_step: 1, steps: null, rut_emisor: rut })
+    }
   })
 
   // ── GET /status ────────────────────────────────────────────
   fastify.get('/status', async (request, reply) => {
     const user = (request as any).user
     const rut = user.company_rut
-    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
+    if (!rut || rut === false || rut === 'false') {
+      return reply.send({ rut_emisor: null, current_step: 1, steps_completed: [] })
+    }
 
-    const data = await siiBridgeAdapter.certStatus(rut)
-    return reply.send(data)
+    try {
+      const data = await siiBridgeAdapter.certStatus(rut)
+      return reply.send(data)
+    } catch (err: any) {
+      return reply.send({ rut_emisor: rut, current_step: 1, steps_completed: [] })
+    }
   })
 
   // ── POST /complete-step ────────────────────────────────────

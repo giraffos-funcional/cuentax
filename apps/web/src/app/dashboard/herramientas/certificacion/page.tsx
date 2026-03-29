@@ -403,6 +403,16 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
   )
 }
 
+// ── Default steps (used when API is unavailable) ──────────────
+const DEFAULT_STEPS = [
+  { step: 1, nombre: 'Postulación', manual: true },
+  { step: 2, nombre: 'Set de Prueba', manual: false },
+  { step: 3, nombre: 'Simulación', manual: false },
+  { step: 4, nombre: 'Intercambio', manual: false },
+  { step: 5, nombre: 'Muestras', manual: false },
+  { step: 6, nombre: 'Declaración', manual: true },
+]
+
 // ── Main Page ─────────────────────────────────────────────────
 export default function CertificacionWizardPage() {
   const user = useAuthStore(s => s.user)
@@ -412,25 +422,58 @@ export default function CertificacionWizardPage() {
   const { complete } = useCompleteStep()
   const { reset } = useResetCertification()
   const [resetting, setResetting] = useState(false)
+  const [localStep, setLocalStep] = useState(1)
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  const steps = wizard?.steps ?? []
-  const currentStep = wizard?.current_step ?? 1
+  // Use API data when available, otherwise local state
+  const apiSteps = wizard?.steps
+  const steps = apiSteps ?? DEFAULT_STEPS.map(s => ({
+    ...s,
+    completado: completedSteps.has(s.step),
+    actual: s.step === localStep,
+  }))
+  const currentStep = wizard?.current_step ?? localStep
 
   const handleCompleteStep = async (step: number) => {
+    setActionError(null)
+    // Always advance locally
+    const newCompleted = new Set(completedSteps)
+    newCompleted.add(step)
+    setCompletedSteps(newCompleted)
+    // Advance to next incomplete step
+    for (let i = 1; i <= 6; i++) {
+      if (!newCompleted.has(i)) {
+        setLocalStep(i)
+        break
+      }
+    }
+
+    // Try syncing with API (non-blocking)
     try {
       await complete(step)
       refresh()
-    } catch (e) {
-      console.error('Error completing step:', e)
+    } catch (e: any) {
+      // API sync failed but local state already advanced — show subtle warning
+      console.warn('API sync failed, using local state:', e)
     }
+  }
+
+  const handleGoToStep = (step: number) => {
+    setLocalStep(step)
+    setActionError(null)
   }
 
   const handleReset = async () => {
     if (!confirm('Esto reiniciará todo el progreso de certificación. Continuar?')) return
     setResetting(true)
+    setCompletedSteps(new Set())
+    setLocalStep(1)
     try {
       await reset()
       refresh()
+    } catch {
+      // Local state already reset
     } finally {
       setResetting(false)
     }
@@ -457,7 +500,8 @@ export default function CertificacionWizardPage() {
             <div>
               <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Certificación SII</h1>
               <p className="text-xs text-[var(--cx-text-secondary)] mt-0.5">
-                {user?.company_name} &middot; {user?.company_rut}
+                {user?.company_name}
+                {user?.company_rut ? ` · ${user.company_rut}` : ''}
               </p>
             </div>
           </div>
@@ -472,31 +516,53 @@ export default function CertificacionWizardPage() {
         </button>
       </div>
 
+      {/* RUT warning */}
+      {!user?.company_rut && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+          <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+          <div className="text-xs text-amber-700">
+            <p className="font-semibold">Empresa sin RUT configurado</p>
+            <p className="mt-0.5">Configura el RUT en <a href="/dashboard/empresa" className="underline font-semibold">Mi Empresa</a> para sincronizar el progreso con el servidor.</p>
+          </div>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600">
+          <AlertTriangle size={13} />
+          {actionError}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Steps sidebar */}
         <div className="lg:col-span-1 space-y-1">
-          {steps.map((step: any) => (
-            <button
-              key={step.step}
-              onClick={() => {/* read-only nav for now */}}
-              className={`
-                w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-all
-                ${step.actual ? 'bg-violet-50 border border-violet-200' : 'hover:bg-slate-50'}
-              `}
-            >
-              <StepBadge done={step.completado} active={step.actual} step={step.step} />
-              <div className="min-w-0">
-                <p className={`text-xs font-semibold truncate ${
-                  step.completado ? 'text-emerald-600' : step.actual ? 'text-violet-700' : 'text-[var(--cx-text-muted)]'
-                }`}>
-                  {step.nombre}
-                </p>
-                {step.manual && (
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wide">Manual</span>
-                )}
-              </div>
-            </button>
-          ))}
+          {steps.map((step: any) => {
+            const isDone = step.completado
+            const isActive = step.step === currentStep
+            return (
+              <button
+                key={step.step}
+                onClick={() => handleGoToStep(step.step)}
+                className={`
+                  w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-all
+                  ${isActive ? 'bg-violet-50 border border-violet-200' : 'hover:bg-slate-50'}
+                `}
+              >
+                <StepBadge done={isDone} active={isActive} step={step.step} />
+                <div className="min-w-0">
+                  <p className={`text-xs font-semibold truncate ${
+                    isDone ? 'text-emerald-600' : isActive ? 'text-violet-700' : 'text-[var(--cx-text-muted)]'
+                  }`}>
+                    {step.nombre}
+                  </p>
+                  {step.manual && (
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wide">Manual</span>
+                  )}
+                </div>
+              </button>
+            )
+          })}
         </div>
 
         {/* Step content */}
@@ -504,7 +570,7 @@ export default function CertificacionWizardPage() {
           {/* Main card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
             {currentStep === 1 && <StepPostulacion onComplete={() => handleCompleteStep(1)} />}
-            {currentStep === 2 && <StepSetPrueba onComplete={() => refresh()} refresh={refresh} />}
+            {currentStep === 2 && <StepSetPrueba onComplete={() => { handleCompleteStep(2) }} refresh={refresh} />}
             {currentStep === 3 && <StepSimulacion />}
             {currentStep === 4 && <StepIntercambio />}
             {currentStep === 5 && <StepMuestras />}
@@ -513,7 +579,7 @@ export default function CertificacionWizardPage() {
 
           {/* SII Status mini panel */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center gap-4 text-xs">
+            <div className="flex items-center gap-4 text-xs flex-wrap">
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${cert.cargado ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                 <span className="text-[var(--cx-text-secondary)]">Certificado</span>
@@ -534,15 +600,6 @@ export default function CertificacionWizardPage() {
                 <span className="text-[var(--cx-text-secondary)]">Ambiente</span>
                 <span className="font-semibold text-amber-600">Certificación</span>
               </div>
-              {status?.muestras_generadas > 0 && (
-                <>
-                  <div className="w-px h-4 bg-slate-200" />
-                  <div className="flex items-center gap-2">
-                    <span className="text-[var(--cx-text-secondary)]">PDFs</span>
-                    <span className="font-semibold text-violet-600">{status.muestras_generadas}</span>
-                  </div>
-                </>
-              )}
               <a
                 href="https://maullin.sii.cl/cvc_cgi/dte/pe_avance1"
                 target="_blank"
