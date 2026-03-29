@@ -136,13 +136,9 @@ function SetUploadCard({
     setError(null)
     try {
       const result = await process(undefined, setType)
-      if (!result.success && result.mensaje) {
-        // Bridge returned an error (e.g. no certificate loaded)
-        setError(result.mensaje)
-      } else {
-        setProcessResult(result)
-        if (result.success) refresh()
-      }
+      // Always show the result so errores are visible
+      setProcessResult(result)
+      if (result.success) refresh()
     } catch (e: any) {
       const msg = e.response?.data?.message ?? e.message ?? 'Error al procesar'
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
@@ -249,10 +245,15 @@ function SetUploadCard({
               {processResult.track_id && <span className="font-mono ml-1">Track: {processResult.track_id}</span>}
             </p>
           </div>
+          {processResult.mensaje && !processResult.success && processResult.total != null && (
+            <p className="text-[10px] text-red-600 font-medium">{processResult.mensaje}</p>
+          )}
           {processResult.errores?.length > 0 && (
-            <div className="text-[10px] text-red-600 space-y-0.5">
+            <div className="text-[10px] text-red-600 space-y-0.5 max-h-40 overflow-y-auto">
               {processResult.errores.map((e: any, i: number) => (
-                <p key={i}>Caso {e.caso}: {e.error}</p>
+                <p key={i} className="bg-red-100/50 px-2 py-0.5 rounded">
+                  <span className="font-bold">Caso {e.caso} (Tipo {e.tipo_dte}):</span> {e.error}
+                </p>
               ))}
             </div>
           )}
