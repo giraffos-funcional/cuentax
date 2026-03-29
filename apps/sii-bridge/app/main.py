@@ -1,10 +1,25 @@
 """
 CUENTAX — SII Bridge FastAPI Main App
 """
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 import logging
+
+# Sentry — optional, only active when SENTRY_DSN is set
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+if SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=os.getenv("SII_AMBIENTE", "development"),
+        release=f"cuentax-sii-bridge@1.0.0",
+        traces_sample_rate=0.1,
+    )
+    logging.getLogger(__name__).info("Sentry initialized")
+else:
+    logging.getLogger(__name__).info("Sentry DSN not configured — error tracking disabled")
 
 from app.api.v1.endpoints import (
     health, certificate, dte, caf, webhooks, public_api, certification

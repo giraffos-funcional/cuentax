@@ -5,6 +5,7 @@
  * Orden: security → auth → business routes
  */
 
+import { initSentry, captureException } from '@/core/sentry'
 import { randomUUID } from 'node:crypto'
 import Fastify from 'fastify'
 import type { FastifyRequest, FastifyReply } from 'fastify'
@@ -12,6 +13,7 @@ import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
+import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
 import { redis, isRedisReady } from '@/adapters/redis.adapter'
@@ -58,6 +60,41 @@ declare module 'fastify' {
   }
 }
 
+// ── Prometheus Metrics ────────────────────────────────────
+const metricsRegistry = new Registry()
+collectDefaultMetrics({ register: metricsRegistry })
+
+const httpRequestsTotal = new Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'] as const,
+  registers: [metricsRegistry],
+})
+
+const httpRequestDuration = new Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request duration in seconds',
+  labelNames: ['method', 'route'] as const,
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+  registers: [metricsRegistry],
+})
+
+const circuitBreakerState = new Gauge({
+  name: 'circuit_breaker_state',
+  help: 'Circuit breaker state (0=closed, 1=open, 2=half-open)',
+  labelNames: ['name'] as const,
+  registers: [metricsRegistry],
+})
+
+const CIRCUIT_STATE_MAP: Record<string, number> = {
+  closed: 0,
+  open: 1,
+  'half-open': 2,
+}
+
+// Initialize Sentry before anything else (no-op if SENTRY_DSN is not set)
+initSentry()
+
 const fastify = Fastify({
   logger: false, // Usamos Pino directo
   trustProxy: true,
@@ -103,6 +140,34 @@ async function bootstrap() {
     // Store in AsyncLocalStorage so adapters can read it without explicit threading
     requestContext.enterWith({ requestId: reqId })
     done()
+  })
+
+  // ── Prometheus request tracking ────────────────────────────
+  fastify.addHook('onResponse', (request, reply, done) => {
+    // Normalize route to avoid high-cardinality label explosion
+    const route = request.routeOptions?.url ?? request.url
+    const method = request.method
+    const statusCode = String(reply.statusCode)
+
+    httpRequestsTotal.inc({ method, route, status_code: statusCode })
+    // reply.elapsedTime is in milliseconds (Fastify built-in)
+    httpRequestDuration.observe({ method, route }, reply.elapsedTime / 1000)
+    done()
+  })
+
+  // ── Prometheus /metrics endpoint ──────────────────────────
+  fastify.get('/metrics', async (_, reply) => {
+    // Update circuit breaker gauges on each scrape
+    for (const circuit of [siiBridgeCircuit, odooAccountingCircuit, odooAuthCircuit]) {
+      const info = circuit.getState()
+      circuitBreakerState.set(
+        { name: info.name },
+        CIRCUIT_STATE_MAP[info.state] ?? 0,
+      )
+    }
+
+    reply.header('Content-Type', metricsRegistry.contentType)
+    return metricsRegistry.metrics()
   })
 
   // ── Connect Redis ─────────────────────────────────────────
@@ -318,6 +383,13 @@ async function bootstrap() {
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {
     logger.error({ error, url: request.url, method: request.method, reqId: request.id }, 'Unhandled error')
+
+    // Report to Sentry (no-op if SENTRY_DSN is not configured)
+    captureException(error, {
+      url: request.url,
+      method: request.method,
+      reqId: request.id,
+    })
 
     const statusCode = error.statusCode ?? 500
     reply.status(statusCode).send({
