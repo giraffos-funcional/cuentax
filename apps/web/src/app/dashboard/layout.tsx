@@ -58,7 +58,6 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/contabilidad/balance',            icon: Scale,          label: 'Balance General' },
       { href: '/dashboard/contabilidad/resultados',         icon: TrendingUp,     label: 'Estado Resultados' },
       { href: '/dashboard/contabilidad/conciliacion',       icon: ArrowLeftRight, label: 'Conciliación' },
-      { href: '/dashboard/folios',                          icon: Folders,        label: 'Folios (CAF)' },
     ],
   },
   {
@@ -84,6 +83,7 @@ const NAV: NavEntry[] = [
     collapsible: true,
     items: [
       { href: '/dashboard/herramientas/certificacion', icon: ShieldCheck, label: 'Certificación SII' },
+      { href: '/dashboard/folios',                     icon: Folders,     label: 'Folios (CAF)' },
     ],
   },
 
