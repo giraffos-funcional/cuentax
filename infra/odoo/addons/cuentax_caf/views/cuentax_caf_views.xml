@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <!-- Tree View -->
+    <record id="cuentax_caf_view_tree" model="ir.ui.view">
+        <field name="name">cuentax.caf.tree</field>
+        <field name="model">cuentax.caf</field>
+        <field name="arch" type="xml">
+            <list string="CAF" decoration-danger="state == 'agotado'" decoration-warning="necesita_renovacion">
+                <field name="tipo_dte"/>
+                <field name="folio_desde"/>
+                <field name="folio_hasta"/>
+                <field name="folio_actual"/>
+                <field name="folios_disponibles"/>
+                <field name="porcentaje_usado" widget="progressbar"/>
+                <field name="ambiente"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'activo'"
+                       decoration-danger="state == 'agotado'"
+                       decoration-warning="state == 'expirado'"/>
+                <field name="necesita_renovacion" column_invisible="True"/>
+                <field name="fecha_carga"/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="cuentax_caf_view_form" model="ir.ui.view">
+        <field name="name">cuentax.caf.form</field>
+        <field name="model">cuentax.caf</field>
+        <field name="arch" type="xml">
+            <form string="CAF">
+                <header>
+                    <button name="action_mark_exhausted"
+                            string="Marcar como Agotado"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state != 'activo'"
+                            confirm="Esto marcará el CAF como agotado. ¿Continuar?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="activo,agotado"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box"/>
+                    <widget name="web_ribbon" title="Necesita Renovación"
+                            bg_color="text-bg-warning"
+                            invisible="not necesita_renovacion"/>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Información del CAF">
+                            <field name="tipo_dte"/>
+                            <field name="ambiente"/>
+                            <field name="rut_empresa"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                        <group string="Rango de Folios">
+                            <field name="folio_desde"/>
+                            <field name="folio_hasta"/>
+                            <field name="folio_actual"/>
+                            <field name="folios_disponibles"/>
+                            <field name="porcentaje_usado" widget="progressbar"/>
+                            <field name="necesita_renovacion"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Fechas">
+                            <field name="fecha_autorizacion"/>
+                            <field name="fecha_carga"/>
+                        </group>
+                        <group string="Archivo CAF">
+                            <field name="xml_content" filename="xml_filename"/>
+                            <field name="xml_filename" invisible="True"/>
+                        </group>
+                    </group>
+                    <group string="Clave Privada" groups="base.group_system">
+                        <field name="private_key_pem" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="cuentax_caf_view_search" model="ir.ui.view">
+        <field name="name">cuentax.caf.search</field>
+        <field name="model">cuentax.caf</field>
+        <field name="arch" type="xml">
+            <search string="Buscar CAF">
+                <field name="tipo_dte"/>
+                <field name="rut_empresa"/>
+                <separator/>
+                <filter name="filter_activo" string="Activos"
+                        domain="[('state', '=', 'activo')]"/>
+                <filter name="filter_agotado" string="Agotados"
+                        domain="[('state', '=', 'agotado')]"/>
+                <filter name="filter_expirado" string="Expirados"
+                        domain="[('state', '=', 'expirado')]"/>
+                <separator/>
+                <filter name="filter_certificacion" string="Certificación"
+                        domain="[('ambiente', '=', 'certificacion')]"/>
+                <filter name="filter_produccion" string="Producción"
+                        domain="[('ambiente', '=', 'produccion')]"/>
+                <separator/>
+                <filter name="filter_necesita_renovacion" string="Necesita Renovación"
+                        domain="[('necesita_renovacion', '=', True)]"/>
+                <separator/>
+                <group expand="0" string="Agrupar por">
+                    <filter name="groupby_tipo_dte" string="Tipo DTE"
+                            context="{'group_by': 'tipo_dte'}"/>
+                    <filter name="groupby_ambiente" string="Ambiente"
+                            context="{'group_by': 'ambiente'}"/>
+                    <filter name="groupby_state" string="Estado"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="groupby_company" string="Compañía"
+                            context="{'group_by': 'company_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="cuentax_caf_action" model="ir.actions.act_window">
+        <field name="name">CAF</field>
+        <field name="res_model">cuentax.caf</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="cuentax_caf_view_search"/>
+        <field name="context">{'search_default_filter_activo': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Carga tu primer CAF
+            </p>
+            <p>
+                Los Códigos de Autorización de Folios (CAF) son emitidos por
+                el SII y contienen los rangos de folios autorizados para la
+                emisión de documentos tributarios electrónicos.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="cuentax_caf_menu_root"
+              name="Facturación Electrónica"
+              web_icon="cuentax_caf,static/description/icon.png"
+              sequence="50"/>
+    <menuitem id="cuentax_caf_menu_parent"
+              name="CAF"
+              parent="cuentax_caf_menu_root"
+              sequence="10"/>
+    <menuitem id="cuentax_caf_menu"
+              name="Códigos de Autorización de Folios"
+              parent="cuentax_caf_menu_parent"
+              action="cuentax_caf_action"
+              sequence="10"/>
+
+</odoo>

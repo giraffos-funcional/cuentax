@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+    <data noupdate="1">
+
+        <record id="cuentax_certificate_company_rule" model="ir.rule">
+            <field name="name">Certificate: multi-company</field>
+            <field name="model_id" ref="model_cuentax_certificate"/>
+            <field name="domain_force">[
+                '|',
+                ('empresa_ids', '=', False),
+                ('empresa_ids', 'in', company_ids),
+            ]</field>
+        </record>
+
+    </data>
+</odoo>

@@ -1,7 +1,7 @@
 """
-CUENTAX — CAF Manager (Folios SII)
+CUENTAX -- CAF Manager (Folios SII)
 ====================================
-Gestiona los Códigos de Autorización de Folios (CAF) del SII.
+Gestiona los Codigos de Autorizacion de Folios (CAF) del SII.
 Un CAF es un archivo XML que autoriza un rango de folios por tipo de DTE.
 
 Flujo:
@@ -9,8 +9,11 @@ Flujo:
 2. CUENTAX lo carga y valida
 3. Por cada DTE emitido, se consume un folio del rango
 4. Cuando quedan < 10% de folios, alertar para renovar
+
+Persistence: CAFs are saved to Odoo (cuentax.caf model) and restored on startup.
 """
 
+import base64
 import logging
 import json
 from pathlib import Path
@@ -161,6 +164,9 @@ class CAFManager:
                 f"Folios {folio_desde}-{folio_hasta} ({folio_hasta - folio_desde + 1} folios)"
             )
 
+            # Persist to Odoo
+            self.save_to_odoo(caf_data)
+
             return caf_data
 
         except Exception as e:
@@ -186,6 +192,9 @@ class CAFManager:
             logger.error(f"CAF agotado para tipo {tipo_dte} — renovar urgente")
             return None
 
+        # Sync folio position to Odoo
+        self.sync_folio_to_odoo(rut_empresa, tipo_dte)
+
         if caf.necesita_renovacion:
             logger.warning(
                 f"⚠️  CAF tipo {tipo_dte}: solo quedan {caf.folios_disponibles} folios. "
@@ -204,6 +213,117 @@ class CAFManager:
 
     def get_caf(self, rut_empresa: str, tipo_dte: int) -> Optional[CAFData]:
         return self._cafs.get((rut_empresa, tipo_dte))
+
+    # ── Odoo Persistence (ir.config_parameter) ─────────────────
+    # Uses Odoo's built-in key-value store so no custom modules needed.
+    # Key format: cuentax.caf.{rut}.{tipo} → JSON blob
+
+    def _caf_param_key(self, rut: str, tipo: int) -> str:
+        return f"cuentax.caf.{rut}.{tipo}"
+
+    def _caf_to_dict(self, caf: CAFData) -> dict:
+        return {
+            "tipo_dte": caf.tipo_dte,
+            "rut_empresa": caf.rut_empresa,
+            "folio_desde": caf.folio_desde,
+            "folio_hasta": caf.folio_hasta,
+            "next_folio": caf._next_folio,
+            "timestamp_autorizacion": caf.timestamp_autorizacion,
+            "private_key_pem": caf.private_key_pem,
+            "caf_xml_raw": caf.caf_xml_raw,
+        }
+
+    def save_to_odoo(self, caf_data: CAFData) -> bool:
+        """Save a CAF to Odoo ir.config_parameter."""
+        try:
+            from app.adapters.odoo_rpc import odoo_rpc
+            key = self._caf_param_key(caf_data.rut_empresa, caf_data.tipo_dte)
+            value = json.dumps(self._caf_to_dict(caf_data))
+            odoo_rpc.execute(
+                "ir.config_parameter", "set_param", key, value,
+            )
+            # Also maintain an index of all CAF keys
+            self._update_caf_index(odoo_rpc)
+            logger.info(f"CAF saved to Odoo: {key}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save CAF to Odoo: {e}")
+            return False
+
+    def sync_folio_to_odoo(self, rut_empresa: str, tipo_dte: int) -> None:
+        """Sync current folio position back to Odoo after consumption."""
+        caf = self._cafs.get((rut_empresa, tipo_dte))
+        if not caf:
+            return
+        try:
+            from app.adapters.odoo_rpc import odoo_rpc
+            key = self._caf_param_key(rut_empresa, tipo_dte)
+            value = json.dumps(self._caf_to_dict(caf))
+            odoo_rpc.execute("ir.config_parameter", "set_param", key, value)
+        except Exception as e:
+            logger.error(f"Failed to sync folio to Odoo: {e}")
+
+    def _update_caf_index(self, odoo_rpc) -> None:
+        """Maintain an index of all CAF param keys for restore."""
+        keys = [
+            self._caf_param_key(caf.rut_empresa, caf.tipo_dte)
+            for caf in self._cafs.values()
+        ]
+        odoo_rpc.execute(
+            "ir.config_parameter", "set_param",
+            "cuentax.caf._index", json.dumps(keys),
+        )
+
+    def restore_from_odoo(self) -> int:
+        """Load all CAFs from Odoo into memory. Returns count loaded."""
+        try:
+            from app.adapters.odoo_rpc import odoo_rpc
+
+            # Read the index of CAF keys
+            index_raw = odoo_rpc.execute(
+                "ir.config_parameter", "get_param",
+                "cuentax.caf._index", "[]",
+            )
+            keys = json.loads(index_raw) if index_raw else []
+
+            count = 0
+            for key in keys:
+                try:
+                    raw = odoo_rpc.execute(
+                        "ir.config_parameter", "get_param", key, "",
+                    )
+                    if not raw:
+                        continue
+                    data = json.loads(raw)
+                    caf = CAFData(
+                        tipo_dte=data["tipo_dte"],
+                        rut_empresa=data["rut_empresa"],
+                        folio_desde=data["folio_desde"],
+                        folio_hasta=data["folio_hasta"],
+                        timestamp_autorizacion=data.get("timestamp_autorizacion", ""),
+                        private_key_pem=data.get("private_key_pem", ""),
+                        caf_xml_raw=data.get("caf_xml_raw", ""),
+                    )
+                    caf._next_folio = data.get("next_folio", data["folio_desde"])
+
+                    mem_key = (data["rut_empresa"], data["tipo_dte"])
+                    self._cafs[mem_key] = caf
+                    count += 1
+                    logger.info(
+                        f"Restored CAF: tipo={data['tipo_dte']}, "
+                        f"rut={data['rut_empresa']}, "
+                        f"folios={data['folio_desde']}-{data['folio_hasta']}, "
+                        f"next={caf._next_folio}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to restore CAF key {key}: {e}")
+
+            logger.info(f"Restored {count} CAFs from Odoo")
+            return count
+
+        except Exception as e:
+            logger.error(f"Failed to restore CAFs from Odoo: {e}")
+            return 0
 
 
 # Singleton global

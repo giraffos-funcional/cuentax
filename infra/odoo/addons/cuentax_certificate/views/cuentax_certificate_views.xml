@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright 2026 Giraffos
+     License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl). -->
+<odoo>
+
+    <record id="cuentax_certificate_view_tree" model="ir.ui.view">
+        <field name="name">cuentax.certificate.tree</field>
+        <field name="model">cuentax.certificate</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="rut_titular"/>
+                <field name="nombre_titular"/>
+                <field name="fecha_vencimiento"/>
+                <field name="dias_para_vencer"/>
+                <field name="ambiente"/>
+                <field name="state"
+                       decoration-success="state == 'activo'"
+                       decoration-danger="state == 'vencido'"
+                       widget="badge"/>
+                <field name="fecha_carga"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="cuentax_certificate_view_form" model="ir.ui.view">
+        <field name="name">cuentax.certificate.form</field>
+        <field name="model">cuentax.certificate</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Titular">
+                            <field name="rut_titular"/>
+                            <field name="nombre_titular"/>
+                        </group>
+                        <group string="Detalles">
+                            <field name="ambiente"/>
+                            <field name="fecha_vencimiento"/>
+                            <field name="dias_para_vencer"/>
+                            <field name="fecha_carga"/>
+                        </group>
+                    </group>
+                    <group string="Archivo">
+                        <field name="pfx_content" filename="pfx_filename"/>
+                        <field name="pfx_filename" invisible="1"/>
+                    </group>
+                    <group string="Empresas Asociadas">
+                        <field name="empresa_ids" widget="many2many_tags"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="cuentax_certificate_action" model="ir.actions.act_window">
+        <field name="name">Certificados Digitales</field>
+        <field name="res_model">cuentax.certificate</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem
+        id="menu_cuentax_certificate"
+        name="Certificados Digitales"
+        parent="base.menu_custom"
+        action="cuentax_certificate_action"
+        sequence="20"/>
+
+</odoo>

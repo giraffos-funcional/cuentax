@@ -177,6 +177,14 @@ class CertificateService:
             if tit == rut_titular
         ]
 
+        # Persist to Odoo (pass raw PFX bytes for storage)
+        # Skip during restore to avoid recursive save
+        if not getattr(self, '_restoring', False):
+            self.save_to_odoo(
+                pfx_bytes, password, rut_titular,
+                nombre_titular, not_after, rut_empresa,
+            )
+
         return {
             "success": True,
             "rut_empresa": rut_empresa,
@@ -415,6 +423,125 @@ class CertificateService:
             return cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
         except Exception:
             return "Desconocido"
+
+
+    # ── Odoo Persistence (ir.config_parameter) ─────────────────
+    # Stores PFX (base64), password, and metadata as JSON in Odoo's
+    # built-in key-value store. No custom modules required.
+
+    def save_to_odoo(
+        self, pfx_bytes: bytes, password: str, rut_titular: str,
+        nombre_titular: str, vence: datetime, rut_empresa: str,
+    ) -> bool:
+        """Save certificate to Odoo ir.config_parameter."""
+        try:
+            from app.adapters.odoo_rpc import odoo_rpc
+            import base64
+            import json
+
+            normalized_titular = _normalize_rut(rut_titular)
+            key = f"cuentax.cert.{normalized_titular}"
+
+            # Read existing to preserve empresa list
+            existing_raw = odoo_rpc.execute(
+                "ir.config_parameter", "get_param", key, "",
+            )
+            existing_empresas = []
+            if existing_raw:
+                try:
+                    existing_data = json.loads(existing_raw)
+                    existing_empresas = existing_data.get("empresas", [])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            normalized_empresa = _normalize_rut(rut_empresa)
+            empresas = list(set(existing_empresas + [normalized_empresa]))
+
+            value = json.dumps({
+                "rut_titular": normalized_titular,
+                "nombre_titular": nombre_titular,
+                "pfx_b64": base64.b64encode(pfx_bytes).decode(),
+                "password": password,
+                "vence": vence.isoformat(),
+                "empresas": empresas,
+            })
+
+            odoo_rpc.execute(
+                "ir.config_parameter", "set_param", key, value,
+            )
+            # Update cert index
+            self._update_cert_index(odoo_rpc)
+            logger.info(f"Certificate saved to Odoo: {key}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save certificate to Odoo: {e}")
+            return False
+
+    def _update_cert_index(self, odoo_rpc) -> None:
+        """Maintain an index of all cert param keys."""
+        import json
+        keys = [
+            f"cuentax.cert.{rut_titular}"
+            for rut_titular in self._certs
+        ]
+        odoo_rpc.execute(
+            "ir.config_parameter", "set_param",
+            "cuentax.cert._index", json.dumps(keys),
+        )
+
+    def restore_from_odoo(self) -> int:
+        """Load all certificates from Odoo into memory. Returns count."""
+        try:
+            from app.adapters.odoo_rpc import odoo_rpc
+            import base64
+            import json
+
+            index_raw = odoo_rpc.execute(
+                "ir.config_parameter", "get_param",
+                "cuentax.cert._index", "[]",
+            )
+            keys = json.loads(index_raw) if index_raw else []
+
+            count = 0
+            self._restoring = True
+            for key in keys:
+                try:
+                    raw = odoo_rpc.execute(
+                        "ir.config_parameter", "get_param", key, "",
+                    )
+                    if not raw:
+                        continue
+                    data = json.loads(raw)
+
+                    pfx_bytes = base64.b64decode(data["pfx_b64"])
+                    password = data["password"]
+                    empresas = data.get("empresas", [])
+
+                    # Load PFX for first empresa
+                    first_empresa = empresas[0] if empresas else data["rut_titular"]
+                    self.load_pfx(pfx_bytes, password, first_empresa)
+
+                    # Associate remaining empresas
+                    rut_titular = _normalize_rut(data["rut_titular"])
+                    for extra_rut in empresas[1:]:
+                        self._empresa_to_titular[_normalize_rut(extra_rut)] = rut_titular
+
+                    count += 1
+                    logger.info(
+                        f"Restored cert: titular={data['rut_titular']}, "
+                        f"empresas={empresas}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to restore cert key {key}: {e}")
+
+            self._restoring = False
+            logger.info(f"Restored {count} certificates from Odoo")
+            return count
+
+        except Exception as e:
+            self._restoring = False
+            logger.error(f"Failed to restore certificates from Odoo: {e}")
+            return 0
 
 
 certificate_service = CertificateService()

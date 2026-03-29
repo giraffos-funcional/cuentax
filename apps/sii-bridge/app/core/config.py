@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     # Odoo 18
     ODOO_URL: str = "http://odoo:8069"
     ODOO_DB: str = "giraffos_sii"
+    ODOO_USERNAME: str = "admin"
+    ODOO_PASSWORD: str = "admin"
 
     # Redis
     REDIS_URL: str = "redis://redis:6379"

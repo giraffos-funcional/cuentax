@@ -43,3 +43,20 @@ app.include_router(public_api.router,  prefix=f"{PREFIX}/v1",           tags=["A
 @app.on_event("startup")
 async def startup():
     logger.info("🚀 CUENTAX SII Bridge iniciado — http://0.0.0.0:8000/docs")
+
+    # Restore persisted data from Odoo
+    try:
+        from app.adapters.odoo_rpc import odoo_rpc
+        if odoo_rpc.ping():
+            logger.info("Odoo reachable — restoring CAFs and certificates...")
+            from app.services.caf_manager import caf_manager
+            from app.services.certificate import certificate_service
+            caf_count = caf_manager.restore_from_odoo()
+            cert_count = certificate_service.restore_from_odoo()
+            logger.info(
+                f"Restored from Odoo: {caf_count} CAFs, {cert_count} certificates"
+            )
+        else:
+            logger.warning("Odoo not reachable — starting with empty state")
+    except Exception as e:
+        logger.error(f"Failed to restore from Odoo on startup: {e}")
