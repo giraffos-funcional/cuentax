@@ -13,10 +13,21 @@ async def health():
 async def sii_connectivity():
     """Verifica conectividad con el SII y estado del token."""
     cert = certificate_service.get_status()
-    token = sii_soap_client.get_token()
+    connectivity = sii_soap_client.check_connectivity()
+
+    token = None
+    token_error = None
+    try:
+        token = sii_soap_client.get_token()
+    except Exception as e:
+        token_error = str(e)
+
     return {
-        "conectado": token is not None,
+        "conectado": connectivity.get("conectado", False) or token is not None,
         "token_vigente": token is not None,
+        "token_error": token_error,
         "ambiente": sii_soap_client._ambiente,
+        "proxy": sii_soap_client._proxy_url or "none",
+        "connectivity": connectivity,
         "certificado": cert,
     }
