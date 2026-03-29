@@ -23,6 +23,7 @@ import {
   useCAFStatus,
 } from '@/hooks'
 import { useAuthStore } from '@/stores/auth.store'
+import { CertificateStep } from '@/components/sii/CertificateUpload'
 
 // ── Step Indicator ────────────────────────────────────────────
 function StepBadge({ done, active, step }: { done: boolean; active: boolean; step: number }) {
@@ -116,15 +117,29 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
       </p>
 
       <div className="space-y-2">
-        <PrerequisiteItem
-          ok={certOk}
-          label="Certificado Digital"
-          detail={certOk
-            ? 'Certificado cargado y listo para firmar'
-            : 'Debes cargar tu certificado digital (.pfx) para firmar los DTEs'
-          }
-          action={{ href: '/dashboard/configuracion', text: 'Configurar' }}
-        />
+        {certOk ? (
+          <PrerequisiteItem
+            ok={true}
+            label="Certificado Digital"
+            detail='Certificado cargado y listo para firmar'
+            action={{ href: '/dashboard/configuracion', text: 'Configurar' }}
+          />
+        ) : (
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-red-400">
+                <AlertTriangle size={12} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-red-700">Certificado Digital</p>
+                <p className="text-xs mt-0.5 text-red-600">Debes cargar tu certificado digital (.pfx) para firmar los DTEs</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg p-4 sm:p-6 border border-slate-200 shadow-sm">
+              <CertificateStep onSuccess={refreshPrereqs} />
+            </div>
+          </div>
+        )}
 
         <PrerequisiteItem
           ok={cafFactura || cafBoleta}
