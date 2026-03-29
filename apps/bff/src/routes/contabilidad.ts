@@ -243,10 +243,30 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const asientos = moves.map((m: any) => ({
-        ...m,
-        lineas: lineasPorMove[m.id] ?? [],
-      }))
+      const asientos = moves.map((m: any) => {
+        const lineas = (lineasPorMove[m.id] ?? []).map((l: any) => ({
+          id: l.id,
+          cuenta: l.account_id ? (Array.isArray(l.account_id) ? l.account_id[1] : l.account_id) : '-',
+          descripcion: l.name ?? '',
+          debe: l.debit ?? 0,
+          haber: l.credit ?? 0,
+          partner: l.partner_id ? (Array.isArray(l.partner_id) ? l.partner_id[1] : l.partner_id) : null,
+        }))
+        const totalDebe = lineas.reduce((s: number, l: any) => s + l.debe, 0)
+        const totalHaber = lineas.reduce((s: number, l: any) => s + l.haber, 0)
+        return {
+          id: m.id,
+          fecha: m.date ?? '',
+          numero: m.name ?? '',
+          referencia: m.ref ?? '',
+          diario: m.journal_id ? (Array.isArray(m.journal_id) ? m.journal_id[1] : m.journal_id) : '',
+          debe: totalDebe,
+          haber: totalHaber,
+          estado: m.state ?? 'draft',
+          tipo: m.move_type ?? '',
+          lineas,
+        }
+      })
 
       return reply.send({
         source: 'odoo',
