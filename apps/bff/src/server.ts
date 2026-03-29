@@ -18,6 +18,7 @@ import { config } from '@/core/config'
 import { logger } from '@/core/logger'
 import { redis, isRedisReady } from '@/adapters/redis.adapter'
 import { siiBridgeCircuit } from '@/adapters/sii-bridge.adapter'
+import { CircuitOpenError } from '@/core/circuit-breaker'
 import { odooAccountingCircuit } from '@/adapters/odoo-accounting.adapter'
 import { odooAuthCircuit } from '@/adapters/odoo-auth.adapter'
 
@@ -388,6 +389,15 @@ async function bootstrap() {
 
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {
+    // Circuit breaker open → 503 Service Unavailable (not a bug, just downstream down)
+    if (error instanceof CircuitOpenError) {
+      logger.warn({ circuit: error.message, url: request.url, reqId: request.id }, 'Request rejected by circuit breaker')
+      return reply.status(503).send({
+        error: 'service_unavailable',
+        message: 'Servicio temporalmente no disponible. Intente nuevamente en unos segundos.',
+      })
+    }
+
     logger.error({ error, url: request.url, method: request.method, reqId: request.id }, 'Unhandled error')
 
     // Report to Sentry (no-op if SENTRY_DSN is not configured)

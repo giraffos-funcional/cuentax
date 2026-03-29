@@ -10,6 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
+import { CircuitOpenError } from '@/core/circuit-breaker'
 
 export async function siiRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -60,7 +61,8 @@ export async function siiRoutes(fastify: FastifyInstance) {
       const result = await siiBridgeAdapter.loadCertificate(fileBuffer, password, rut)
       return reply.status(result.success ? 200 : 422).send(result)
     } catch (err: any) {
-      return reply.status(422).send({ error: 'cert_error', message: extractError(err, 'Error cargando certificado') })
+      const status = err.response?.status ?? 502
+      return reply.status(status).send({ error: 'cert_error', message: extractError(err, 'Error cargando certificado') })
     }
   })
 
@@ -92,14 +94,33 @@ export async function siiRoutes(fastify: FastifyInstance) {
 
   // ── GET /certificate/list ────────────────────────────────────
   fastify.get('/certificate/list', async (request, reply) => {
-    const result = await siiBridgeAdapter.listCertificates()
-    return reply.send(result)
+    try {
+      const result = await siiBridgeAdapter.listCertificates()
+      return reply.send(result)
+    } catch (err: any) {
+      if (err instanceof CircuitOpenError) {
+        return reply.status(503).send({ error: 'service_unavailable', message: 'SII Bridge no disponible, intente en unos momentos' })
+      }
+      return reply.status(500).send({ error: 'list_error', message: extractError(err, 'Error listando certificados') })
+    }
   })
 
   // ── GET /connectivity ──────────────────────────────────────
   fastify.get('/connectivity', async (request, reply) => {
-    const result = await siiBridgeAdapter.checkSIIConnectivity()
-    return reply.send(result)
+    try {
+      const result = await siiBridgeAdapter.checkSIIConnectivity()
+      return reply.send(result)
+    } catch (err: any) {
+      const isCircuitOpen = err instanceof CircuitOpenError
+      return reply.status(503).send({
+        conectado: false,
+        ambiente: 'unknown',
+        token_vigente: false,
+        error: isCircuitOpen
+          ? 'SII Bridge no disponible (circuit breaker abierto)'
+          : extractError(err, 'Error verificando conectividad SII'),
+      })
+    }
   })
 
   // ── GET /health ────────────────────────────────────────────

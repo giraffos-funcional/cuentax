@@ -37,9 +37,7 @@ export function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
       formData.append('file', file)
       formData.append('password', password)
 
-      await apiClient.post('/api/v1/sii/certificate/load', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      await apiClient.post('/api/v1/sii/certificate/load', formData)
 
       onSuccess()
     } catch (e: any) {

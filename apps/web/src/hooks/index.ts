@@ -349,9 +349,7 @@ export function useCAFStatus(ambiente: string = 'produccion') {
     const amb = uploadAmbiente ?? ambiente
     const formData = new FormData()
     formData.append('file', file)
-    await apiClient.post(`/api/v1/caf/load?ambiente=${amb}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    await apiClient.post(`/api/v1/caf/load?ambiente=${amb}`, formData)
     mutate()
   }
 
@@ -375,9 +373,7 @@ export function useSIIStatus() {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('password', password)
-    const { data } = await apiClient.post('/api/v1/sii/certificate/load', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const { data } = await apiClient.post('/api/v1/sii/certificate/load', formData)
     mutateCert()
     return data
   }
@@ -469,9 +465,7 @@ export function useUploadTestSet() {
         formData.append(key, value)
       })
     }
-    const { data } = await apiClient.post('/api/v1/certification/upload-set', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const { data } = await apiClient.post('/api/v1/certification/upload-set', formData)
     globalMutate('/api/v1/certification/wizard')
     return data
   }
