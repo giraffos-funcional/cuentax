@@ -252,8 +252,14 @@ async function bootstrap() {
   logger.info(dbAlive ? '✅ PostgreSQL conectado' : '⚠️  PostgreSQL no disponible (usando mock DB)')
 
   // ── Auto-migration: ensure schema is up to date ──────────
+  // TODO: Remove after Drizzle Kit migrations are verified in production
+  // This inline DDL block is a legacy safety net. The canonical schema lives in
+  // src/db/schema.ts and migrations are managed by Drizzle Kit (see src/db/migrations/README.md).
+  // Once `drizzle-kit migrate` has been validated in staging and production,
+  // delete this entire block (lines through "Schema auto-migration complete").
   if (dbAlive) {
     try {
+      // TODO: Remove after Drizzle Kit migrations are verified in production
       // Auto-create enums and tables if they don't exist
       await db.execute(sql`DO $$ BEGIN CREATE TYPE dte_status AS ENUM('borrador','firmado','enviado','aceptado','rechazado','anulado'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
       await db.execute(sql`DO $$ BEGIN CREATE TYPE cotizacion_status AS ENUM('borrador','enviada','aceptada','rechazada','expirada','convertida'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
