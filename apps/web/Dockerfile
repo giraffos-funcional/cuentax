@@ -39,8 +39,8 @@ COPY --from=builder /app/apps/web/public ./apps/web/public
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=20s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:3000 || exit 1
+HEALTHCHECK --interval=20s --timeout=5s --retries=3 --start-period=30s \
+  CMD wget -qO- http://localhost:3000/api/health || exit 1
 
 USER node
 

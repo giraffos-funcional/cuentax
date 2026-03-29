@@ -13,7 +13,7 @@ import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
-import { redis } from '@/adapters/redis.adapter'
+import { redis, isRedisReady } from '@/adapters/redis.adapter'
 
 // Routes
 import { authRoutes }     from '@/routes/auth'
@@ -90,13 +90,64 @@ async function bootstrap() {
   logger.info('Redis conectado')
 
   // ── Health ────────────────────────────────────────────────
-  fastify.get('/health', async (_, reply) => {
-    const redisAlive = redis.status === 'ready'
-    return reply.send({
+
+  // Liveness probe — confirms process is running, no dependency checks
+  fastify.get('/health/live', async (_, reply) => {
+    return reply.status(200).send({
       status: 'ok',
       service: 'cuentax-bff',
+      timestamp: new Date().toISOString(),
+    })
+  })
+
+  // Readiness probe — checks all dependencies, returns 503 if any are down
+  fastify.get('/health/ready', async (_, reply) => {
+    const redisAlive = isRedisReady()
+
+    let pgAlive = false
+    try {
+      pgAlive = await pingDB()
+    } catch {
+      pgAlive = false
+    }
+
+    const allHealthy = redisAlive && pgAlive
+    const statusCode = allHealthy ? 200 : 503
+
+    return reply.status(statusCode).send({
+      status: allHealthy ? 'ok' : 'degraded',
+      service: 'cuentax-bff',
       version: '0.1.0',
-      redis: redisAlive ? 'ok' : 'down',
+      dependencies: {
+        redis: redisAlive ? 'ok' : 'down',
+        postgresql: pgAlive ? 'ok' : 'down',
+      },
+      timestamp: new Date().toISOString(),
+    })
+  })
+
+  // Legacy health endpoint — now checks all dependencies properly
+  fastify.get('/health', async (_, reply) => {
+    const redisAlive = isRedisReady()
+
+    let pgAlive = false
+    try {
+      pgAlive = await pingDB()
+    } catch {
+      pgAlive = false
+    }
+
+    const allHealthy = redisAlive && pgAlive
+    const statusCode = allHealthy ? 200 : 503
+
+    return reply.status(statusCode).send({
+      status: allHealthy ? 'ok' : 'degraded',
+      service: 'cuentax-bff',
+      version: '0.1.0',
+      dependencies: {
+        redis: redisAlive ? 'ok' : 'down',
+        postgresql: pgAlive ? 'ok' : 'down',
+      },
       timestamp: new Date().toISOString(),
     })
   })
