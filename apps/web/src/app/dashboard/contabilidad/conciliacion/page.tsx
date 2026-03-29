@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import {
   Download, Printer, CheckCircle2, Clock, Loader2, AlertCircle,
-  Landmark, Upload, Wand2, Check, X,
+  Landmark, Upload, Wand2, Check, X, Pencil, Trash2, Plus, Save,
 } from 'lucide-react'
 import {
   useBankReconciliation,
@@ -16,6 +16,9 @@ import {
   useImportStatement,
   useReconcile,
   useAutoReconcile,
+  useEditStatementLine,
+  useDeleteStatementLine,
+  useAddStatementLine,
 } from '@/hooks'
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -206,10 +209,14 @@ function ExtractoPanel({
   extracto,
   selectedIds,
   onToggle,
+  onEdit,
+  onDelete,
 }: {
   extracto: { id?: number; fecha: string; referencia: string; monto: number; conciliado: boolean }[]
   selectedIds: Set<number>
   onToggle: (id: number) => void
+  onEdit: (row: any) => void
+  onDelete: (id: number) => void
 }) {
   if (extracto.length === 0) return <EmptyPanel message="Sin movimientos en el extracto" />
 
@@ -219,9 +226,9 @@ function ExtractoPanel({
         const rowId = row.id ?? i
         const isSelected = selectedIds.has(rowId)
         return (
-          <div key={i} className={`grid grid-cols-5 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors ${
+          <div key={i} className={`grid gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors ${
             isSelected ? 'bg-[var(--cx-active-bg)]' : ''
-          }`}>
+          }`} style={{ gridTemplateColumns: '2fr 3fr 2fr auto auto' }}>
             <div className="flex items-center">
               {!row.conciliado && (
                 <input
@@ -233,13 +240,33 @@ function ExtractoPanel({
               )}
               <span className="text-[var(--cx-text-secondary)] text-xs font-mono">{row.fecha}</span>
             </div>
-            <div className="text-[var(--cx-text-primary)] truncate col-span-2">{row.referencia}</div>
+            <div className="text-[var(--cx-text-primary)] truncate">{row.referencia}</div>
             <div className="text-right text-[var(--cx-text-primary)] tabular-nums">{formatCLP(row.monto)}</div>
             <div className="flex justify-center items-center">
               {row.conciliado
                 ? <CheckCircle2 size={15} className="text-[var(--cx-status-ok-text)]" />
                 : <Clock size={15} className="text-[var(--cx-text-muted)]" />
               }
+            </div>
+            <div className="flex items-center gap-1">
+              {!row.conciliado && row.id && (
+                <>
+                  <button
+                    onClick={() => onEdit(row)}
+                    className="p-1 rounded hover:bg-[var(--cx-hover-bg)] text-[var(--cx-text-muted)] hover:text-[var(--cx-active-icon)] transition-colors"
+                    title="Editar"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(row.id!)}
+                    className="p-1 rounded hover:bg-red-50 text-[var(--cx-text-muted)] hover:text-red-500 transition-colors"
+                    title="Eliminar"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )
@@ -262,6 +289,116 @@ function SinConciliarPanel({ items }: { items: { fecha: string; documento: strin
           <div className="text-right text-[var(--cx-text-primary)] tabular-nums">{formatCLP(row.monto)}</div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── Edit Line Modal ──────────────────────────────────────────
+function EditLineModal({
+  line,
+  isSaving,
+  onSave,
+  onClose,
+}: {
+  line: { id: number; fecha: string; referencia: string; monto: number }
+  isSaving: boolean
+  onSave: (id: number, data: { date?: string; payment_ref?: string; amount?: number }) => Promise<void>
+  onClose: () => void
+}) {
+  const [fecha, setFecha] = useState(line.fecha)
+  const [referencia, setReferencia] = useState(line.referencia)
+  const [monto, setMonto] = useState(String(line.monto))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="card p-6 w-full max-w-md mx-4 shadow-xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-bold text-[var(--cx-text-primary)]">Editar Linea</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha</label>
+            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="input-field text-sm w-full" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Referencia</label>
+            <input value={referencia} onChange={e => setReferencia(e.target.value)} className="input-field text-sm w-full" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Monto</label>
+            <input type="number" value={monto} onChange={e => setMonto(e.target.value)} className="input-field text-sm w-full" />
+          </div>
+        </div>
+        <div className="flex gap-3 mt-5">
+          <button
+            onClick={() => onSave(line.id, { date: fecha, payment_ref: referencia, amount: Number(monto) })}
+            disabled={isSaving}
+            className="btn-primary flex-1 justify-center"
+          >
+            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Guardar
+          </button>
+          <button onClick={onClose} className="btn-secondary">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Add Line Modal ──────────────────────────────────────────
+function AddLineModal({
+  journalId,
+  isSaving,
+  onSave,
+  onClose,
+}: {
+  journalId: number
+  isSaving: boolean
+  onSave: (data: { journal_id: number; date: string; payment_ref: string; amount: number }) => Promise<void>
+  onClose: () => void
+}) {
+  const [fecha, setFecha] = useState('')
+  const [referencia, setReferencia] = useState('')
+  const [monto, setMonto] = useState('')
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="card p-6 w-full max-w-md mx-4 shadow-xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-bold text-[var(--cx-text-primary)]">Agregar Linea</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha *</label>
+            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} className="input-field text-sm w-full" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Referencia *</label>
+            <input value={referencia} onChange={e => setReferencia(e.target.value)} placeholder="Ej: PAGO PROVEEDOR XYZ" className="input-field text-sm w-full" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Monto *</label>
+            <input type="number" value={monto} onChange={e => setMonto(e.target.value)} placeholder="Negativo = cargo, Positivo = abono" className="input-field text-sm w-full" />
+          </div>
+        </div>
+        <div className="flex gap-3 mt-5">
+          <button
+            onClick={() => onSave({ journal_id: journalId, date: fecha, payment_ref: referencia, amount: Number(monto) })}
+            disabled={isSaving || !fecha || !referencia || !monto}
+            className="btn-primary flex-1 justify-center"
+          >
+            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            Agregar
+          </button>
+          <button onClick={onClose} className="btn-secondary">Cancelar</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -297,6 +434,9 @@ export default function ConciliacionPage() {
   const [isReconciling, setIsReconciling] = useState(false)
   const [isAutoReconciling, setIsAutoReconciling] = useState(false)
   const [actionMessage, setActionMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [editingLine, setEditingLine] = useState<any | null>(null)
+  const [showAddLine, setShowAddLine] = useState(false)
+  const [isSavingLine, setIsSavingLine] = useState(false)
 
   const { journals } = useJournals()
   const bankJournals = journals.filter((j: any) => j.tipo === 'bank')
@@ -307,6 +447,9 @@ export default function ConciliacionPage() {
   const { importar } = useImportStatement()
   const { reconcile } = useReconcile()
   const { autoReconcile } = useAutoReconcile()
+  const { editar } = useEditStatementLine()
+  const { eliminar } = useDeleteStatementLine()
+  const { agregar } = useAddStatementLine()
 
   const diferencia = total_extracto - total_sin_conciliar
   const cuadra = diferencia === 0
@@ -363,6 +506,45 @@ export default function ConciliacionPage() {
     }
   }
 
+  const handleEditLine = async (id: number, data: { date?: string; payment_ref?: string; amount?: number }) => {
+    setIsSavingLine(true)
+    setActionMessage(null)
+    try {
+      await editar(id, data)
+      setEditingLine(null)
+      setActionMessage({ type: 'ok', text: 'Linea actualizada' })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Error al editar linea' })
+    } finally {
+      setIsSavingLine(false)
+    }
+  }
+
+  const handleDeleteLine = async (id: number) => {
+    if (!confirm('¿Eliminar esta linea del extracto?')) return
+    setActionMessage(null)
+    try {
+      await eliminar(id)
+      setActionMessage({ type: 'ok', text: 'Linea eliminada' })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Error al eliminar linea' })
+    }
+  }
+
+  const handleAddLine = async (data: { journal_id: number; date: string; payment_ref: string; amount: number }) => {
+    setIsSavingLine(true)
+    setActionMessage(null)
+    try {
+      await agregar(data)
+      setShowAddLine(false)
+      setActionMessage({ type: 'ok', text: 'Linea agregada' })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Error al agregar linea' })
+    } finally {
+      setIsSavingLine(false)
+    }
+  }
+
   return (
     <div className="space-y-5 animate-fade-in">
       {/* Header */}
@@ -401,6 +583,11 @@ export default function ConciliacionPage() {
           <button onClick={() => setShowImport(true)} className="btn-primary">
             <Upload size={13} /> Importar Cartola
           </button>
+          {journalId && (
+            <button onClick={() => setShowAddLine(true)} className="btn-secondary flex items-center gap-2">
+              <Plus size={13} /> Agregar Linea
+            </button>
+          )}
           <button
             className="btn-secondary flex items-center gap-2"
             onClick={() => window.print()}
@@ -485,11 +672,13 @@ export default function ConciliacionPage() {
                       Extracto Bancario
                     </h3>
                   </div>
-                  <TableHeader columns={['Fecha', 'Referencia', '', 'Monto', 'Estado']} />
+                  <TableHeader columns={['Fecha', 'Referencia', 'Monto', 'Estado', '']} />
                   <ExtractoPanel
                     extracto={extracto ?? []}
                     selectedIds={selectedIds}
                     onToggle={toggleSelection}
+                    onEdit={(row) => setEditingLine(row)}
+                    onDelete={handleDeleteLine}
                   />
                 </div>
 
@@ -552,6 +741,26 @@ export default function ConciliacionPage() {
           isSaving={isImporting}
           onImport={handleImport}
           onClose={() => setShowImport(false)}
+        />
+      )}
+
+      {/* Edit Line Modal */}
+      {editingLine && (
+        <EditLineModal
+          line={editingLine}
+          isSaving={isSavingLine}
+          onSave={handleEditLine}
+          onClose={() => setEditingLine(null)}
+        />
+      )}
+
+      {/* Add Line Modal */}
+      {showAddLine && journalId && (
+        <AddLineModal
+          journalId={journalId}
+          isSaving={isSavingLine}
+          onSave={handleAddLine}
+          onClose={() => setShowAddLine(false)}
         />
       )}
     </div>

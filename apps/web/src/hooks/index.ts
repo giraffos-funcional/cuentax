@@ -625,6 +625,35 @@ export function useBankStatements(journalId?: number) {
   return { statements: data?.statements ?? [], isLoading, error }
 }
 
+/** Edit a statement line */
+export function useEditStatementLine() {
+  const editar = async (id: number, payload: { date?: string; payment_ref?: string; amount?: number }) => {
+    const result = await apiClient.put(`/api/v1/contabilidad/cartola/lineas/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+    return result
+  }
+  return { editar }
+}
+
+/** Delete a statement line */
+export function useDeleteStatementLine() {
+  const eliminar = async (id: number) => {
+    await apiClient.delete(`/api/v1/contabilidad/cartola/lineas/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+  }
+  return { eliminar }
+}
+
+/** Add a statement line */
+export function useAddStatementLine() {
+  const agregar = async (payload: { journal_id: number; date: string; payment_ref: string; amount: number; statement_id?: number }) => {
+    const result = await apiClient.post('/api/v1/contabilidad/cartola/lineas', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/contabilidad/'))
+    return result
+  }
+  return { agregar }
+}
+
 /** Reconcile statement lines */
 export function useReconcile() {
   const reconcile = async (statementLineIds: number[]) => {

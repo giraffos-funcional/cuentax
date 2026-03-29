@@ -881,6 +881,60 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
   })
 
   // =========================================================================
+  // Transactional endpoints — Statement Lines CRUD
+  // =========================================================================
+
+  // ── PUT /cartola/lineas/:id — edit a statement line ─────────
+  fastify.put('/cartola/lineas/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as { date?: string; payment_ref?: string; amount?: number }
+
+    const vals: Record<string, unknown> = {}
+    if (body.date) vals['date'] = body.date
+    if (body.payment_ref !== undefined) vals['payment_ref'] = body.payment_ref
+    if (body.amount !== undefined) vals['amount'] = body.amount
+
+    if (Object.keys(vals).length === 0) {
+      return reply.status(400).send({ error: 'No fields to update' })
+    }
+
+    const ok = await odooAccountingAdapter.write('account.bank.statement.line', [Number(id)], vals)
+    if (!ok) return reply.status(502).send({ error: 'odoo_error', message: 'Error actualizando linea' })
+    return reply.send({ ok: true, id: Number(id) })
+  })
+
+  // ── DELETE /cartola/lineas/:id — delete a statement line ────
+  fastify.delete('/cartola/lineas/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const ok = await odooAccountingAdapter.unlink('account.bank.statement.line', [Number(id)])
+    if (!ok) return reply.status(502).send({ error: 'odoo_error', message: 'Error eliminando linea' })
+    return reply.send({ ok: true })
+  })
+
+  // ── POST /cartola/lineas — add a statement line ─────────────
+  fastify.post('/cartola/lineas', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as { journal_id: number; date: string; payment_ref: string; amount: number; statement_id?: number }
+
+    if (!body.journal_id || !body.date || !body.payment_ref || body.amount === undefined) {
+      return reply.status(400).send({ error: 'journal_id, date, payment_ref y amount son requeridos' })
+    }
+
+    const vals: Record<string, unknown> = {
+      journal_id: body.journal_id,
+      date: body.date,
+      payment_ref: body.payment_ref,
+      amount: body.amount,
+      company_id: user.company_id,
+    }
+    if (body.statement_id) vals['statement_id'] = body.statement_id
+
+    const lineId = await odooAccountingAdapter.create('account.bank.statement.line', vals)
+    if (!lineId) return reply.status(502).send({ error: 'odoo_error', message: 'Error creando linea' })
+    return reply.status(201).send({ ok: true, id: lineId })
+  })
+
+  // =========================================================================
   // Transactional endpoints — Conciliacion (Reconciliation)
   // =========================================================================
 
