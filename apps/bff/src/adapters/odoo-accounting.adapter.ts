@@ -247,6 +247,12 @@ export class OdooAccountingAdapter {
     return typeof result === 'number' ? result : 0
   }
 
+  async createBatch(model: string, valuesList: Record<string, unknown>[]): Promise<number[]> {
+    if (valuesList.length === 0) return []
+    const result = await this.rpcCall(model, 'create', [valuesList])
+    return Array.isArray(result) ? (result as number[]) : []
+  }
+
   async write(
     model: string,
     ids: number[],

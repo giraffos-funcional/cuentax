@@ -6,7 +6,8 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Download, Loader2, AlertCircle, BookText } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, Loader2, AlertCircle, BookText, Plus } from 'lucide-react'
+import Link from 'next/link'
 import { useJournalEntries } from '@/hooks'
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -168,12 +169,17 @@ export default function LibroDiarioPage() {
           <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Libro Diario</h1>
           <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Asientos contables en orden cronológico</p>
         </div>
-        <button
-          className="btn-secondary flex items-center gap-2 self-start sm:self-auto"
-          onClick={() => exportCSV(asientos ?? [], 'libro-diario')}
-        >
-          <Download size={13} /> Exportar
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href="/dashboard/contabilidad/asientos" className="btn-primary">
+            <Plus size={14} /> Nuevo Asiento
+          </Link>
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => exportCSV(asientos ?? [], 'libro-diario')}
+          >
+            <Download size={13} /> Exportar
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

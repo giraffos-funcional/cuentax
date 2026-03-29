@@ -238,4 +238,22 @@ export async function companyRoutes(fastify: FastifyInstance) {
     if (!updated) return reply.status(404).send({ error: 'not_found' })
     return reply.send(updated)
   })
+
+  // PATCH /:id/link-odoo — link local company to existing Odoo company
+  fastify.patch('/:id/link-odoo', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const { odoo_company_id } = req.body as { odoo_company_id: number }
+
+    if (!odoo_company_id) return reply.status(400).send({ error: 'odoo_company_id required' })
+
+    const [updated] = await db.update(companies)
+      .set({ odoo_company_id, updated_at: new Date() })
+      .where(eq(companies.id, Number(id)))
+      .returning()
+
+    if (!updated) return reply.status(404).send({ error: 'not_found' })
+
+    logger.info({ id, odoo_company_id }, 'Company linked to Odoo')
+    return reply.send(updated)
+  })
 }

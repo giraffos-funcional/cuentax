@@ -141,45 +141,111 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
           </div>
         )}
 
-        <PrerequisiteItem
-          ok={cafFactura || cafBoleta}
-          label="Folios (CAF) — Certificación"
-          detail={
-            loadedTypes.length > 0
-              ? `Cargados: ${loadedTypes.join(', ')}${missingTypes.length > 0 ? ` · Faltan: ${missingTypes.join(', ')}` : ''}`
-              : 'Carga los CAFs del ambiente de certificación (maullin.sii.cl)'
-          }
-        />
-
-        {cafFactura && (
-          <div className="ml-8 flex items-center gap-2 text-xs">
-            <CheckCircle2 size={12} className="text-emerald-500" />
-            <span className="text-emerald-600 font-medium">Set Factura: listo (tipos 33 + 61)</span>
+        {/* CAF Section — Rich card UI */}
+        <div className={`p-4 rounded-xl border space-y-3 ${
+          (cafFactura || cafBoleta) ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+              (cafFactura || cafBoleta) ? 'bg-emerald-500' : 'bg-red-400'
+            }`}>
+              {(cafFactura || cafBoleta)
+                ? <CheckCircle2 size={12} className="text-white" />
+                : <AlertTriangle size={12} className="text-white" />
+              }
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-semibold ${(cafFactura || cafBoleta) ? 'text-emerald-700' : 'text-red-700'}`}>
+                Folios (CAF) — Ambiente Certificación
+              </p>
+              <p className={`text-xs mt-0.5 ${(cafFactura || cafBoleta) ? 'text-emerald-600' : 'text-red-600'}`}>
+                {(cafFactura || cafBoleta)
+                  ? 'Folios cargados para el ambiente de certificación'
+                  : 'Carga los CAFs del ambiente de certificación (maullin.sii.cl)'}
+              </p>
+            </div>
           </div>
-        )}
-        {cafBoleta && (
-          <div className="ml-8 flex items-center gap-2 text-xs">
-            <CheckCircle2 size={12} className="text-emerald-500" />
-            <span className="text-emerald-600 font-medium">Set Boleta: listo (tipo 39)</span>
-          </div>
-        )}
 
-        {missingTypes.length > 0 && (
-          <div className="ml-8">
-            <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+          {/* Individual CAF type cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {Object.entries(cafTypes).map(([tipo, info]: [string, any]) => (
+              <div
+                key={tipo}
+                className={`p-3 rounded-lg border flex items-start gap-3 ${
+                  info.loaded
+                    ? 'bg-white border-emerald-200'
+                    : 'bg-white border-slate-200'
+                }`}
+              >
+                <div className={`mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold ${
+                  info.loaded ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                }`}>
+                  {tipo}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-semibold ${info.loaded ? 'text-slate-800' : 'text-slate-400'}`}>
+                    {info.label}
+                  </p>
+                  {info.loaded ? (
+                    <div className="mt-1 space-y-0.5">
+                      <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                        <span>Folios: <span className="font-mono font-bold text-slate-700">{info.folio_desde}</span> — <span className="font-mono font-bold text-slate-700">{info.folio_hasta}</span></span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px]">
+                        <span className={`font-semibold ${info.folios_disponibles > 5 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {info.folios_disponibles} folios disponibles
+                        </span>
+                      </div>
+                      {info.rut_empresa && (
+                        <p className="text-[10px] text-slate-400 font-mono">{info.rut_empresa}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 mt-0.5">No cargado</p>
+                  )}
+                </div>
+                {info.loaded && (
+                  <CheckCircle2 size={14} className="text-emerald-500 shrink-0 mt-1" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Upload button — always visible */}
+          <div className="flex items-center gap-3">
+            <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
               cafUploading
-                ? 'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-muted)]'
-                : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+                ? 'bg-slate-100 text-slate-400'
+                : 'bg-violet-100 text-violet-700 hover:bg-violet-200 hover:shadow-sm'
             }`}>
               {cafUploading ? (
-                <><Loader2 size={12} className="animate-spin" /> Subiendo...</>
+                <><Loader2 size={12} className="animate-spin" /> Subiendo CAF...</>
               ) : (
                 <><Upload size={12} /> Subir CAF de certificación (.xml)</>
               )}
               <input type="file" accept=".xml" className="hidden" onChange={handleCAFUpload} disabled={cafUploading} />
             </label>
+            {(cafFactura || cafBoleta) && missingTypes.length > 0 && (
+              <span className="text-[10px] text-amber-600 font-medium">
+                Faltan: {missingTypes.join(', ')}
+              </span>
+            )}
           </div>
-        )}
+
+          {/* Ready indicators */}
+          {(cafFactura || cafBoleta) && (
+            <div className="flex flex-wrap gap-3 pt-1">
+              <div className={`flex items-center gap-1.5 text-xs font-medium ${cafFactura ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {cafFactura ? <CheckCircle2 size={12} /> : <Circle size={12} />}
+                Set Factura {cafFactura ? '✓' : '(tipos 33 + 61)'}
+              </div>
+              <div className={`flex items-center gap-1.5 text-xs font-medium ${cafBoleta ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {cafBoleta ? <CheckCircle2 size={12} /> : <Circle size={12} />}
+                Set Boleta {cafBoleta ? '✓' : '(tipo 39)'}
+              </div>
+            </div>
+          )}
+        </div>
 
         <PrerequisiteItem
           ok={siiOk}
