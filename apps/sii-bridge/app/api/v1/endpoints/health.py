@@ -73,6 +73,9 @@ async def debug_token():
             signed = sii_soap_client._sign_seed(seed)
             result["signed_length"] = len(signed) if signed else 0
             result["signed_preview"] = signed[:200] if signed else None
+            result["has_X509Certificate"] = "X509Certificate" in signed if signed else False
+            result["has_KeyInfo"] = "KeyInfo" in signed if signed else False
+            result["has_Signature"] = "Signature" in signed if signed else False
         except Exception as e:
             result["sign_error"] = f"{type(e).__name__}: {e}"
             result["sign_traceback"] = traceback.format_exc()[-500:]
