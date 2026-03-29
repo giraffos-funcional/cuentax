@@ -136,8 +136,13 @@ function SetUploadCard({
     setError(null)
     try {
       const result = await process(undefined, setType)
-      setProcessResult(result)
-      if (result.success) refresh()
+      if (!result.success && result.mensaje) {
+        // Bridge returned an error (e.g. no certificate loaded)
+        setError(result.mensaje)
+      } else {
+        setProcessResult(result)
+        if (result.success) refresh()
+      }
     } catch (e: any) {
       const msg = e.response?.data?.message ?? e.message ?? 'Error al procesar'
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
@@ -237,7 +242,10 @@ function SetUploadCard({
               : <AlertTriangle size={14} className="text-red-600" />
             }
             <p className={`text-xs font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
-              {processResult.emitidos}/{processResult.total} DTEs enviados
+              {processResult.total != null
+                ? <>{processResult.emitidos ?? 0}/{processResult.total} DTEs enviados</>
+                : processResult.mensaje ?? 'Error al procesar'
+              }
               {processResult.track_id && <span className="font-mono ml-1">Track: {processResult.track_id}</span>}
             </p>
           </div>
