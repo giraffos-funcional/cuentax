@@ -241,6 +241,11 @@ class DTEEmissionService:
         mensaje = f"EnvioDTE con {len(signed_dtes)} DTEs generado y firmado"
 
         token = sii_soap_client.get_token()
+        if not token:
+            # Retry with force refresh — cached token may have expired
+            logger.info("Token not available, retrying with force_refresh...")
+            token = sii_soap_client.get_token(force_refresh=True)
+
         if token:
             try:
                 send_result = self._send_to_sii(envio_bytes, rut_emisor, token)
@@ -252,10 +257,20 @@ class DTEEmissionService:
                 estado = "error_envio"
                 mensaje = f"EnvioDTE firmado pero error al enviar: {e}"
         else:
-            logger.warning("No SII token — EnvioDTE signed but not sent")
+            logger.warning("No SII token after retry — EnvioDTE signed but not sent")
+            estado = "firmado_sin_envio"
+            mensaje = (
+                f"DTEs firmados pero NO enviados al SII\n\n"
+                f"{len(signed_dtes)}/{len(payloads)} DTEs fueron generados y firmados correctamente, "
+                f"pero no se pudieron enviar al SII porque no hay token de sesión activo.\n\n"
+                f"Para resolver esto:\n"
+                f"1. Verifica que el certificado digital esté cargado\n"
+                f"2. Verifica que la conexión SII diga \"Conectado\" en el panel inferior\n"
+                f"3. Vuelve a subir el archivo del set y procésalo de nuevo"
+            )
 
         return {
-            "success": track_id is not None or estado == "firmado",
+            "success": track_id is not None,
             "total": len(payloads),
             "emitidos": len(signed_dtes),
             "errores": errores,
