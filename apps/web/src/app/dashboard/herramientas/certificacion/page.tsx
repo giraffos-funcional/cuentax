@@ -847,9 +847,6 @@ export default function CertificacionWizardPage() {
 
   // Sync initial state from API on first load
   useEffect(() => {
-    if (wizard?.current_step && wizard.current_step > localStep) {
-      setLocalStep(wizard.current_step)
-    }
     if (wizard?.steps) {
       const apiCompleted = new Set(completedSteps)
       for (const s of wizard.steps) {
@@ -857,6 +854,10 @@ export default function CertificacionWizardPage() {
       }
       if (apiCompleted.size > completedSteps.size) {
         setCompletedSteps(apiCompleted)
+      }
+      // Only advance past prerequisitos (step 0) if it's completed
+      if (wizard.current_step && wizard.current_step > localStep && apiCompleted.has(0)) {
+        setLocalStep(wizard.current_step)
       }
     }
   }, [wizard]) // eslint-disable-line react-hooks/exhaustive-deps
