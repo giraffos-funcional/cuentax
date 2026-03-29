@@ -55,7 +55,7 @@ STEP_INFO = {
     },
     Step.SET_PRUEBA: {
         "nombre": "Set de Prueba",
-        "descripcion": "Descargar set de pruebas del SII, cargar, generar y enviar DTEs",
+        "descripcion": "Descargar set de pruebas del SII (factura y/o boleta), cargar, generar y enviar DTEs",
         "manual": False,
         "url": "https://maullin.sii.cl/cvc_cgi/dte/pe_generar",
     },
@@ -99,8 +99,10 @@ def _get_session(rut_emisor: str) -> dict:
             "current_step": Step.POSTULACION,
             "steps_completed": set(),
             "created_at": datetime.now().isoformat(),
-            "set_pruebas": None,
-            "payloads": None,
+            "set_pruebas_factura": None,
+            "set_pruebas_boleta": None,
+            "payloads_factura": None,
+            "payloads_boleta": None,
             "last_batch_result": None,
             "intercambio_results": [],
             "muestras_generadas": 0,
@@ -128,6 +130,7 @@ class StepCompleteRequest(BaseModel):
 class ProcessRequest(BaseModel):
     rut_emisor: str
     fecha_emision: Optional[str] = None
+    set_type: Optional[str] = "factura"
 
 
 class InterceptRequest(BaseModel):
@@ -207,11 +210,19 @@ async def complete_step(req: StepCompleteRequest):
 async def upload_test_set(
     emisor: EmisorData,
     file: UploadFile = File(...),
+    set_type: str = Query("factura", description="Type of test set: factura or boleta"),
 ):
     """
     Step 2a: Upload and parse the SII test set file.
     File must be < 2MB text file from https://maullin.sii.cl/cvc_cgi/dte/pe_generar
+    Use set_type='factura' for invoice test set, set_type='boleta' for boleta test set.
     """
+    if set_type not in ("factura", "boleta"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid set_type '{set_type}'. Must be 'factura' or 'boleta'.",
+        )
+
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -236,11 +247,12 @@ async def upload_test_set(
         )
 
     session = _get_session(emisor.rut_emisor)
-    session["set_pruebas"] = parsed
-    session["payloads"] = set_pruebas_parser.to_payloads(parsed)
+    session[f"set_pruebas_{set_type}"] = parsed
+    session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
 
     return {
         "success": True,
+        "set_type": set_type,
         "total_cases": len(parsed.casos),
         "emisor": {
             "rut": parsed.rut_emisor,
@@ -266,16 +278,25 @@ async def process_test_set(req: ProcessRequest):
     """
     Step 2b: Generate, sign, and send all DTEs from the test set to SII.
     Requires: certificate + CAFs loaded, test set uploaded.
+    Use set_type='factura' or 'boleta' to process the corresponding test set.
     """
-    session = _get_session(req.rut_emisor)
-
-    if not session.get("payloads"):
+    set_type = req.set_type or "factura"
+    if set_type not in ("factura", "boleta"):
         raise HTTPException(
             status_code=400,
-            detail="No test set loaded. Upload first via /wizard/set-prueba/upload",
+            detail=f"Invalid set_type '{set_type}'. Must be 'factura' or 'boleta'.",
         )
 
-    payloads = session["payloads"]
+    session = _get_session(req.rut_emisor)
+
+    payloads_key = f"payloads_{set_type}"
+    if not session.get(payloads_key):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {set_type} test set loaded. Upload first via /wizard/set-prueba/upload?set_type={set_type}",
+        )
+
+    payloads = session[payloads_key]
     if req.fecha_emision:
         for p in payloads:
             p["fecha_emision"] = req.fecha_emision
@@ -284,15 +305,17 @@ async def process_test_set(req: ProcessRequest):
         result = dte_emission_service.emit_batch(payloads)
         session["last_batch_result"] = result
     except Exception as e:
-        logger.error(f"Error processing test set: {e}")
+        logger.error(f"Error processing {set_type} test set: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing: {e}")
 
+    # Mark SET_PRUEBA as complete when at least one set has been processed successfully
     if result.get("success"):
         session["steps_completed"].add(Step.SET_PRUEBA)
         _advance_step(session)
 
     return {
         **result,
+        "set_type": set_type,
         "current_step": session["current_step"],
     }
 
@@ -465,8 +488,10 @@ async def certification_status(rut_emisor: str = Query(...)):
         "rut_emisor": rut_emisor,
         "current_step": session["current_step"],
         "steps_completed": [s.value for s in session["steps_completed"]],
-        "set_cargado": session["set_pruebas"] is not None,
-        "total_cases": len(session["set_pruebas"].casos) if session["set_pruebas"] else 0,
+        "set_factura_cargado": session["set_pruebas_factura"] is not None,
+        "set_boleta_cargado": session["set_pruebas_boleta"] is not None,
+        "total_cases_factura": len(session["set_pruebas_factura"].casos) if session["set_pruebas_factura"] else 0,
+        "total_cases_boleta": len(session["set_pruebas_boleta"].casos) if session["set_pruebas_boleta"] else 0,
         "ultimo_resultado": session["last_batch_result"],
         "muestras_generadas": session["muestras_generadas"],
         "sii": sii_conn,

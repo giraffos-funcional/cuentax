@@ -94,8 +94,18 @@ function StepPostulacion({ onComplete }: { onComplete: () => void }) {
   )
 }
 
-// ── Step 2: Set de Prueba ─────────────────────────────────────
-function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refresh: () => void }) {
+// ── Set Upload Card (reusable for factura/boleta) ─────────────
+function SetUploadCard({
+  setType,
+  label,
+  description,
+  refresh,
+}: {
+  setType: 'factura' | 'boleta'
+  label: string
+  description: string
+  refresh: () => void
+}) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -111,10 +121,11 @@ function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refres
     setUploading(true)
     setError(null)
     try {
-      const result = await upload(file)
+      const result = await upload(file, undefined, setType)
       setUploadResult(result)
     } catch (e: any) {
-      setError(e.response?.data?.message ?? e.message ?? 'Error al cargar')
+      const msg = e.response?.data?.message ?? e.message ?? 'Error al cargar'
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
     } finally {
       setUploading(false)
     }
@@ -124,42 +135,30 @@ function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refres
     setProcessing(true)
     setError(null)
     try {
-      const result = await process()
+      const result = await process(undefined, setType)
       setProcessResult(result)
-      if (result.success) {
-        refresh()
-      }
+      if (result.success) refresh()
     } catch (e: any) {
-      setError(e.response?.data?.message ?? e.message ?? 'Error al procesar')
+      const msg = e.response?.data?.message ?? e.message ?? 'Error al procesar'
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
     } finally {
       setProcessing(false)
     }
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Set de Prueba</h3>
-      <p className="text-sm text-[var(--cx-text-secondary)]">
-        Descarga el set de pruebas desde el SII, sube el archivo aquí, y CUENTAX
-        generará y enviará todos los DTEs automáticamente.
-      </p>
-
-      <a
-        href="https://maullin.sii.cl/cvc_cgi/dte/pe_generar"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors"
-      >
-        <Download size={14} />
-        Descargar Set de Prueba del SII
-        <span className="ml-auto text-[10px] text-slate-400">maullin.sii.cl</span>
-      </a>
+    <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+      <div className="flex items-center gap-2">
+        <FileText size={16} className="text-violet-600" />
+        <h4 className="text-sm font-bold text-[var(--cx-text-primary)]">{label}</h4>
+      </div>
+      <p className="text-xs text-[var(--cx-text-secondary)]">{description}</p>
 
       {/* File Upload */}
       <div
         onClick={() => inputRef.current?.click()}
         className={`
-          flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-6 cursor-pointer transition-all
+          flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-4 cursor-pointer transition-all
           ${file
             ? 'border-emerald-300 bg-emerald-50'
             : 'border-[var(--cx-border-hover)] hover:border-violet-300 hover:bg-violet-50 bg-[var(--cx-bg-elevated)]'
@@ -171,42 +170,41 @@ function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refres
           type="file"
           accept=".txt,.text"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); setUploadResult(null); setProcessResult(null) } }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); setUploadResult(null); setProcessResult(null); setError(null) } }}
         />
         {file ? (
           <>
-            <FileText size={24} className="text-emerald-600 mb-2" />
-            <p className="text-sm font-semibold text-emerald-700">{file.name}</p>
-            <p className="text-xs text-emerald-600 mt-0.5">{(file.size / 1024).toFixed(1)} KB</p>
+            <FileText size={20} className="text-emerald-600 mb-1" />
+            <p className="text-xs font-semibold text-emerald-700">{file.name}</p>
+            <p className="text-[10px] text-emerald-600">{(file.size / 1024).toFixed(1)} KB</p>
           </>
         ) : (
           <>
-            <Upload size={24} className="text-[var(--cx-text-muted)] mb-2" />
-            <p className="text-sm font-medium text-[var(--cx-text-primary)]">Sube el archivo del set de pruebas</p>
-            <p className="text-xs text-[var(--cx-text-muted)] mt-0.5">Archivo .txt del SII</p>
+            <Upload size={20} className="text-[var(--cx-text-muted)] mb-1" />
+            <p className="text-xs font-medium text-[var(--cx-text-primary)]">Sube el archivo .txt</p>
           </>
         )}
       </div>
 
       {/* Upload Button */}
       {file && !uploadResult && (
-        <button onClick={handleUpload} disabled={uploading} className="btn-primary w-full justify-center">
-          {uploading ? <><Loader2 size={14} className="animate-spin" /> Cargando...</> : <><Upload size={14} /> Cargar y Analizar</>}
+        <button onClick={handleUpload} disabled={uploading} className="btn-primary w-full justify-center text-xs py-2">
+          {uploading ? <><Loader2 size={12} className="animate-spin" /> Cargando...</> : <><Upload size={12} /> Cargar y Analizar</>}
         </button>
       )}
 
       {/* Upload Result */}
       {uploadResult && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
+        <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 space-y-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-emerald-600" />
-            <p className="text-sm font-semibold text-emerald-700">
+            <CheckCircle2 size={14} className="text-emerald-600" />
+            <p className="text-xs font-semibold text-emerald-700">
               {uploadResult.total_cases} casos encontrados
             </p>
           </div>
-          <div className="max-h-40 overflow-y-auto space-y-1">
+          <div className="max-h-32 overflow-y-auto space-y-1">
             {uploadResult.cases?.map((c: any) => (
-              <div key={c.caso} className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-100/50 px-3 py-1.5 rounded-lg">
+              <div key={c.caso} className="flex items-center gap-2 text-[10px] text-emerald-700 bg-emerald-100/50 px-2 py-1 rounded">
                 <span className="font-mono font-bold">#{c.caso}</span>
                 <span>Tipo {c.tipo_dte}</span>
                 <span className="text-emerald-500">{c.rut_receptor}</span>
@@ -219,32 +217,32 @@ function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refres
 
       {/* Process Button */}
       {uploadResult && !processResult && (
-        <button onClick={handleProcess} disabled={processing} className="btn-primary w-full justify-center">
+        <button onClick={handleProcess} disabled={processing} className="btn-primary w-full justify-center text-xs py-2">
           {processing ? (
-            <><Loader2 size={14} className="animate-spin" /> Generando y Enviando al SII...</>
+            <><Loader2 size={12} className="animate-spin" /> Enviando al SII...</>
           ) : (
-            <><Send size={14} /> Generar DTEs y Enviar al SII</>
+            <><Send size={12} /> Generar DTEs y Enviar</>
           )}
         </button>
       )}
 
       {/* Process Result */}
       {processResult && (
-        <div className={`p-4 rounded-xl border space-y-2 ${
+        <div className={`p-3 rounded-lg border space-y-1 ${
           processResult.success ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
         }`}>
           <div className="flex items-center gap-2">
             {processResult.success
-              ? <CheckCircle2 size={16} className="text-emerald-600" />
-              : <AlertTriangle size={16} className="text-red-600" />
+              ? <CheckCircle2 size={14} className="text-emerald-600" />
+              : <AlertTriangle size={14} className="text-red-600" />
             }
-            <p className={`text-sm font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
+            <p className={`text-xs font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
               {processResult.emitidos}/{processResult.total} DTEs enviados
-              {processResult.track_id && <span className="font-mono ml-2">Track: {processResult.track_id}</span>}
+              {processResult.track_id && <span className="font-mono ml-1">Track: {processResult.track_id}</span>}
             </p>
           </div>
           {processResult.errores?.length > 0 && (
-            <div className="text-xs text-red-600 space-y-1">
+            <div className="text-[10px] text-red-600 space-y-0.5">
               {processResult.errores.map((e: any, i: number) => (
                 <p key={i}>Caso {e.caso}: {e.error}</p>
               ))}
@@ -254,11 +252,51 @@ function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refres
       )}
 
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600">
-          <AlertTriangle size={13} />
+        <div className="flex items-center gap-2 p-2 rounded-lg bg-red-50 border border-red-200 text-[10px] text-red-600">
+          <AlertTriangle size={12} />
           {error}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Step 2: Set de Prueba ─────────────────────────────────────
+function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refresh: () => void }) {
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Set de Prueba</h3>
+      <p className="text-sm text-[var(--cx-text-secondary)]">
+        El SII ofrece dos sets de prueba independientes. Descarga cada uno desde el portal,
+        sube los archivos y CUENTAX generará y enviará los DTEs automáticamente.
+      </p>
+
+      <a
+        href="https://maullin.sii.cl/cvc_cgi/dte/pe_generar"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors"
+      >
+        <Download size={14} />
+        Descargar Sets de Prueba del SII
+        <span className="ml-auto text-[10px] text-slate-400">maullin.sii.cl</span>
+      </a>
+
+      {/* Two upload cards side by side */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SetUploadCard
+          setType="factura"
+          label="Set Factura"
+          description="Facturas (33), Notas de Crédito (61) y Notas de Débito (56)"
+          refresh={refresh}
+        />
+        <SetUploadCard
+          setType="boleta"
+          label="Set Boleta"
+          description="Boletas Electrónicas (39) y Boletas Exentas (41)"
+          refresh={refresh}
+        />
+      </div>
 
       {/* Verify on SII */}
       <a

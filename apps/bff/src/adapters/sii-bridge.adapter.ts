@@ -139,24 +139,25 @@ export class SIIBridgeAdapter {
   }
 
   /** Upload test set file */
-  async certUploadTestSet(fileBuffer: Buffer, filename: string, emisor: any): Promise<any> {
+  async certUploadTestSet(fileBuffer: Buffer, filename: string, emisor: any, setType: string = 'factura'): Promise<any> {
     const form = new FormData()
     form.append('file', fileBuffer, { filename, contentType: 'text/plain' })
-    // Emit emisor fields as query-like form fields for the FastAPI dependency
+    // Emit emisor fields as form fields for the FastAPI dependency
     Object.entries(emisor).forEach(([key, value]) => {
       form.append(key, String(value))
     })
-    const { data } = await this.http.post('/certification/wizard/set-prueba/upload', form, {
+    const { data } = await this.http.post(`/certification/wizard/set-prueba/upload?set_type=${setType}`, form, {
       headers: { ...form.getHeaders() },
     })
     return data
   }
 
   /** Process loaded test set */
-  async certProcessTestSet(rutEmisor: string, fechaEmision?: string): Promise<any> {
+  async certProcessTestSet(rutEmisor: string, fechaEmision?: string, setType: string = 'factura'): Promise<any> {
     const { data } = await this.http.post('/certification/wizard/set-prueba/process', {
       rut_emisor: rutEmisor,
       fecha_emision: fechaEmision || undefined,
+      set_type: setType,
     })
     return data
   }

@@ -68,6 +68,7 @@ export async function certificationRoutes(fastify: FastifyInstance) {
 
     let fileBuffer: Buffer | null = null
     let filename = 'set_pruebas.txt'
+    let setType = 'factura'
     const emisor: Record<string, string> = {
       rut_emisor: user.company_rut ?? '',
       razon_social: user.company_name ?? '',
@@ -82,6 +83,8 @@ export async function certificationRoutes(fastify: FastifyInstance) {
       if (part.type === 'file') {
         fileBuffer = await part.toBuffer()
         filename = part.filename
+      } else if (part.fieldname === 'set_type') {
+        setType = part.value
       } else if (part.fieldname in emisor) {
         emisor[part.fieldname] = part.value
       }
@@ -92,10 +95,11 @@ export async function certificationRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      const data = await siiBridgeAdapter.certUploadTestSet(fileBuffer, filename, emisor)
+      const data = await siiBridgeAdapter.certUploadTestSet(fileBuffer, filename, emisor, setType)
       return reply.send(data)
     } catch (err: any) {
-      const msg = err.response?.data?.detail ?? 'Error cargando set de pruebas'
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ') : 'Error cargando set de pruebas')
       return reply.status(422).send({ error: 'upload_error', message: msg })
     }
   })
@@ -104,13 +108,14 @@ export async function certificationRoutes(fastify: FastifyInstance) {
   fastify.post('/process-set', async (request, reply) => {
     const user = (request as any).user
     const rut = user.company_rut
-    const { fecha_emision } = (request.body as any) ?? {}
+    const { fecha_emision, set_type } = (request.body as any) ?? {}
 
     try {
-      const data = await siiBridgeAdapter.certProcessTestSet(rut, fecha_emision)
+      const data = await siiBridgeAdapter.certProcessTestSet(rut, fecha_emision, set_type ?? 'factura')
       return reply.send(data)
     } catch (err: any) {
-      const msg = err.response?.data?.detail ?? 'Error procesando set de pruebas'
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ') : 'Error procesando set de pruebas')
       return reply.status(500).send({ error: 'process_error', message: msg })
     }
   })

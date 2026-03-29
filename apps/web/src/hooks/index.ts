@@ -454,9 +454,10 @@ export function useCompleteStep() {
 
 /** Upload test set file */
 export function useUploadTestSet() {
-  const upload = async (file: File, emisorOverrides?: Record<string, string>) => {
+  const upload = async (file: File, emisorOverrides?: Record<string, string>, setType: string = 'factura') => {
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('set_type', setType)
     if (emisorOverrides) {
       Object.entries(emisorOverrides).forEach(([key, value]) => {
         formData.append(key, value)
@@ -473,9 +474,10 @@ export function useUploadTestSet() {
 
 /** Process loaded test set */
 export function useProcessTestSet() {
-  const process = async (fechaEmision?: string) => {
+  const process = async (fechaEmision?: string, setType: string = 'factura') => {
     const { data } = await apiClient.post('/api/v1/certification/process-set', {
       fecha_emision: fechaEmision,
+      set_type: setType,
     })
     globalMutate('/api/v1/certification/wizard')
     return data
