@@ -20,10 +20,8 @@ export async function cafRoutes(fastify: FastifyInstance) {
 
   // ── POST /load ─────────────────────────────────────────────
   fastify.post('/load', async (request, reply) => {
-    const rut = getRut(request)
-    if (!rut) {
-      return reply.status(400).send({ error: 'no_rut', message: 'Empresa sin RUT configurado. Configúralo en Mi Empresa.' })
-    }
+    // RUT is optional — the bridge extracts it from the CAF XML itself
+    const rut = getRut(request) ?? 'auto'
 
     // Multipart file
     const data = await (request as any).file()
