@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Server
     PORT: int = 8001
 
+    # SII Proxy (optional — proxy in Chile for SII SOAP calls)
+    # e.g. "http://s1.cl.giraffos.com:3128"
+    SII_PROXY_URL: str = ""
+
     @property
     def SII_BASE_URL(self) -> str:
         """URL base del SII según el ambiente configurado."""

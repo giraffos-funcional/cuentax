@@ -1,0 +1,22 @@
+# CUENTAX — SII SOAP Proxy (Chile)
+# =================================
+# Proxy HTTP liviano que permite al sii-bridge (Hetzner/EU)
+# alcanzar maullin.sii.cl y palena.sii.cl a través de una IP chilena.
+#
+# Deploy en s1.cl.giraffos.com:
+#   docker compose -f docker-compose.sii-proxy.yml up -d
+
+services:
+  sii-proxy:
+    image: ubuntu/squid:latest
+    container_name: cuentax-sii-proxy
+    restart: unless-stopped
+    ports:
+      - "3128:3128"
+    volumes:
+      - ./infra/sii-proxy/squid.conf:/etc/squid/squid.conf:ro
+    healthcheck:
+      test: ["CMD", "squid", "-k", "check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

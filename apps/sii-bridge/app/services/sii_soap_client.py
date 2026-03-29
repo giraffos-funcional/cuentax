@@ -64,19 +64,30 @@ class SIISoapClient:
         self._token_generated_at: Optional[datetime] = None
         self._ambiente = settings.SII_AMBIENTE
         self._wsdls = SII_WSDLS[self._ambiente]
+        self._proxy_url = settings.SII_PROXY_URL or None
         self._transport = Transport(
             timeout=30,
             operation_timeout=60,
             session=self._make_requests_session(),
         )
+        if self._proxy_url:
+            logger.info(f"SII SOAP proxy configured: {self._proxy_url}")
 
     def _make_requests_session(self) -> requests.Session:
-        """Configura la sesión HTTP con headers del SII."""
+        """Configura la sesión HTTP con headers del SII y proxy opcional."""
         session = requests.Session()
         session.headers.update({
             "User-Agent": "CUENTAX/1.0 (DTE SII Chile)",
             "Accept": "text/xml; charset=utf-8",
         })
+        # Configure proxy for SII connectivity (e.g., proxy in Chile)
+        if self._proxy_url:
+            session.proxies = {
+                "http": self._proxy_url,
+                "https": self._proxy_url,
+            }
+            # Auth header for proxy ACL
+            session.headers["X-Proxy-Token"] = "cuentax-sii-proxy-2024"
         return session
 
     def _is_token_valid(self) -> bool:

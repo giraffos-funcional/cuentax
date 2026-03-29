@@ -545,11 +545,32 @@ function SetUploadCard({
               <p className="text-xs text-emerald-600">
                 Todos los DTEs fueron generados y firmados correctamente. Los XMLs están guardados.
               </p>
+
+              {/* Download signed XML */}
+              {processResult.xml_envio_b64 && (
+                <button
+                  onClick={() => {
+                    const raw = atob(processResult.xml_envio_b64)
+                    const blob = new Blob([raw], { type: 'application/xml' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `envio_dte_${setType}_${new Date().toISOString().slice(0,10)}.xml`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition-colors"
+                >
+                  <Download size={14} />
+                  Descargar XML Firmado para envío manual
+                </button>
+              )}
+
               <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-700 flex items-start gap-2">
                 <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold">Nota: No se enviaron al SII automáticamente</p>
-                  <p className="mt-0.5">El servidor no pudo obtener un token de sesión SII (posible problema de conectividad con maullin.sii.cl). Puedes reenviar manualmente desde el paso de Intercambio.</p>
+                  <p className="font-semibold">Envío manual requerido</p>
+                  <p className="mt-0.5">El servidor no pudo conectarse a maullin.sii.cl. Descarga el XML y envíalo con: <code className="bg-amber-100 px-1 rounded font-mono">python3 scripts/send_to_sii.py envio.xml</code></p>
                 </div>
               </div>
             </div>
