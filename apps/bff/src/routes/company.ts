@@ -8,6 +8,7 @@ import { siiRutAdapter } from '@/adapters/sii-rut.adapter'
 import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 import { logger } from '@/core/logger'
+import { getLocalCompanyId } from '@/core/company-resolver'
 
 // ── RUT Validation ───────────────────────────────────────────
 function validateRut(rut: string): boolean {
@@ -250,15 +251,34 @@ export async function companyRoutes(fastify: FastifyInstance) {
   // PUT /me — update active company
   fastify.put('/me', async (req, reply) => {
     const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
     const parse = createCompanySchema.partial().safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error' })
 
     const [updated] = await db.update(companies)
       .set({ ...parse.data, updated_at: new Date() })
-      .where(eq(companies.id, user.company_id))
+      .where(eq(companies.id, localCompanyId))
       .returning()
 
     if (!updated) return reply.status(404).send({ error: 'not_found' })
+
+    // Sync update to Odoo (non-blocking) — if linked to Odoo
+    if (updated.odoo_company_id) {
+      const odooValues: Record<string, unknown> = {}
+      if (parse.data.razon_social) odooValues['name'] = parse.data.razon_social
+      if (parse.data.direccion) odooValues['street'] = parse.data.direccion
+      if (parse.data.ciudad) odooValues['city'] = parse.data.ciudad
+      if (parse.data.telefono) odooValues['phone'] = parse.data.telefono
+      if (parse.data.email) odooValues['email'] = parse.data.email
+
+      if (Object.keys(odooValues).length > 0) {
+        odooAccountingAdapter.write('res.company', [updated.odoo_company_id], odooValues).catch(err => {
+          logger.warn({ err, odooCompanyId: updated.odoo_company_id }, 'Odoo company update sync failed')
+        })
+        logger.info({ odooCompanyId: updated.odoo_company_id, fields: Object.keys(odooValues) }, 'Company update synced to Odoo')
+      }
+    }
+
     return reply.send(updated)
   })
 

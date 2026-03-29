@@ -191,6 +191,28 @@ class OdooSyncService {
     try {
       logger.info({ nombre: product.nombre, companyId }, 'Syncing product to Odoo')
 
+      // Resolve IVA 19% tax ID for non-exempt products
+      let taxIds: number[] = []
+      if (!product.exento) {
+        try {
+          const taxes = await odooAccountingAdapter.searchRead(
+            'account.tax',
+            [
+              ['type_tax_use', '=', 'sale'],
+              ['amount', '=', 19],
+              ['company_id', 'in', [companyId, false]],
+            ],
+            ['id'],
+            { limit: 1 },
+          )
+          if (taxes.length > 0) {
+            taxIds = [(taxes[0] as any).id]
+          }
+        } catch (taxErr) {
+          logger.warn({ taxErr }, 'Could not resolve IVA tax ID from Odoo')
+        }
+      }
+
       const productId = await odooAccountingAdapter.findOrCreateProduct(
         companyId,
         product.codigo ?? product.nombre,
@@ -198,7 +220,7 @@ class OdooSyncService {
           name: product.nombre,
           default_code: product.codigo ?? '',
           list_price: product.precio,
-          taxes_id: product.exento ? [] : [],
+          taxes_id: taxIds,
         },
       )
 

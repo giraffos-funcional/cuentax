@@ -13,6 +13,9 @@ import { odooAuthAdapter } from '@/adapters/odoo-auth.adapter'
 import { odooSyncService } from '@/services/odoo-sync.service'
 import { logger } from '@/core/logger'
 import { dteRepository } from '@/repositories/dte.repository'
+import { db } from '@/db/client'
+import { companies } from '@/db/schema'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 
 // ── Validation Schemas ─────────────────────────────────────────
@@ -163,20 +166,45 @@ export class DTEService {
   }
 
   // ── Private helpers ────────────────────────────────────────
+  /**
+   * Reads emisor (issuer) data from the local companies table.
+   * Looks up by odoo_company_id first, then falls back to local id.
+   */
   private async _getEmisorData(companyId: number) {
     try {
-      // En producción: leer de Odoo o DB cache
-      // Por ahora: datos por defecto más datos de Odoo si están disponibles
+      // Try by odoo_company_id first
+      let [company] = await db.select().from(companies)
+        .where(eq(companies.odoo_company_id, companyId)).limit(1)
+
+      // Fallback: try by local id
+      if (!company) {
+        [company] = await db.select().from(companies)
+          .where(eq(companies.id, companyId)).limit(1)
+      }
+
+      if (company) {
+        logger.info({ companyId, razon_social: company.razon_social }, 'Emisor data loaded from DB')
+        return {
+          razon_social: company.razon_social,
+          giro: company.giro,
+          direccion: company.direccion ?? '',
+          comuna: company.comuna ?? '',
+          ciudad: company.ciudad ?? 'Santiago',
+          actividad_economica: company.actividad_economica ?? 620200,
+        }
+      }
+
+      logger.warn({ companyId }, 'Company not found in DB for emisor data, using defaults')
       return {
-        razon_social: 'Mi Empresa SpA',
-        giro: 'Servicios de Software y Tecnología',
-        direccion: 'Av. Providencia 123',
-        comuna: 'Providencia',
+        razon_social: 'Empresa sin configurar',
+        giro: 'Servicios',
+        direccion: '',
+        comuna: '',
         ciudad: 'Santiago',
         actividad_economica: 620200,
       }
     } catch (err) {
-      logger.warn({ companyId, err }, 'No se pudo leer emisor desde Odoo, usando defaults')
+      logger.error({ companyId, err }, 'Error reading emisor data from DB')
       return {
         razon_social: 'Empresa sin configurar',
         giro: 'Servicios',
