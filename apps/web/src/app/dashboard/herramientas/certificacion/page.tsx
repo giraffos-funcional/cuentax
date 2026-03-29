@@ -149,7 +149,7 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
           </div>
         )}
 
-        {!(cafFactura && cafBoleta) && (
+        {missingTypes.length > 0 && (
           <div className="ml-8">
             <label className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
               cafUploading
