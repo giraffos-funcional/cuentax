@@ -96,7 +96,10 @@ class TimbreElectronicoService:
         self._elem(dd, "TSTED", timestamp)
 
         # Sign DD with CAF private key (RSA-SHA1)
-        signature_b64 = self._sign_dd(dd, caf_data.private_key_pem)
+        pem_key = caf_data.private_key_pem
+        if not pem_key:
+            pem_key = self._extract_private_key_from_xml(caf_data.caf_xml_raw)
+        signature_b64 = self._sign_dd(dd, pem_key)
         frmt = etree.SubElement(ted, "FRMT", attrib={"algoritmo": "SHA1withRSA"})
         frmt.text = signature_b64
 
@@ -129,6 +132,21 @@ class TimbreElectronicoService:
             logger.error(f"Error extracting CAF element: {e}")
 
         return None
+
+    def _extract_private_key_from_xml(self, caf_xml_raw: str) -> str:
+        """Fallback: extract RSA private key directly from the raw CAF XML."""
+        try:
+            root = safe_fromstring(caf_xml_raw)
+            privk = root.find(".//RSASK")
+            if privk is None:
+                privk = root.find(".//ECCSK")
+            if privk is not None and privk.text:
+                key = privk.text.strip()
+                logger.info(f"Extracted private key from caf_xml_raw ({len(key)} chars)")
+                return key
+        except Exception as e:
+            logger.error(f"Failed to extract private key from caf_xml_raw: {e}")
+        return ""
 
     def _sign_dd(self, dd_element: etree._Element, private_key_pem: str) -> str:
         """

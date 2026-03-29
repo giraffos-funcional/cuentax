@@ -295,14 +295,30 @@ class CAFManager:
                     if not raw:
                         continue
                     data = json.loads(raw)
+                    private_key_pem = data.get("private_key_pem", "")
+                    caf_xml_raw = data.get("caf_xml_raw", "")
+
+                    # Re-extract private key from XML if it was lost
+                    if not private_key_pem and caf_xml_raw:
+                        try:
+                            root = etree.fromstring(
+                                caf_xml_raw.encode() if isinstance(caf_xml_raw, str) else caf_xml_raw
+                            )
+                            privk = root.find(".//RSASK") or root.find(".//ECCSK")
+                            if privk is not None and privk.text:
+                                private_key_pem = privk.text.strip()
+                                logger.info(f"Re-extracted private key from stored XML ({len(private_key_pem)} chars)")
+                        except Exception as ex:
+                            logger.error(f"Failed to re-extract key from XML: {ex}")
+
                     caf = CAFData(
                         tipo_dte=data["tipo_dte"],
                         rut_empresa=data["rut_empresa"],
                         folio_desde=data["folio_desde"],
                         folio_hasta=data["folio_hasta"],
                         timestamp_autorizacion=data.get("timestamp_autorizacion", ""),
-                        private_key_pem=data.get("private_key_pem", ""),
-                        caf_xml_raw=data.get("caf_xml_raw", ""),
+                        private_key_pem=private_key_pem,
+                        caf_xml_raw=caf_xml_raw,
                     )
                     caf._next_folio = data.get("next_folio", data["folio_desde"])
 
