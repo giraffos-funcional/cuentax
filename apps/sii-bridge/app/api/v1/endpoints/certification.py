@@ -19,7 +19,7 @@ from datetime import datetime
 from enum import IntEnum
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
 from pydantic import BaseModel
 
 from app.services.set_pruebas_parser import set_pruebas_parser, SetPruebasData
@@ -208,8 +208,14 @@ async def complete_step(req: StepCompleteRequest):
 
 @router.post("/wizard/set-prueba/upload")
 async def upload_test_set(
-    emisor: EmisorData,
     file: UploadFile = File(...),
+    rut_emisor: str = Form(...),
+    razon_social: str = Form(""),
+    giro: str = Form(""),
+    direccion: str = Form(""),
+    comuna: str = Form(""),
+    ciudad: str = Form("Santiago"),
+    actividad_economica: str = Form("620200"),
     set_type: str = Query("factura", description="Type of test set: factura or boleta"),
 ):
     """
@@ -223,6 +229,16 @@ async def upload_test_set(
             detail=f"Invalid set_type '{set_type}'. Must be 'factura' or 'boleta'.",
         )
 
+    emisor_data = {
+        "rut_emisor": rut_emisor,
+        "razon_social": razon_social,
+        "giro": giro,
+        "direccion": direccion,
+        "comuna": comuna,
+        "ciudad": ciudad,
+        "actividad_economica": int(actividad_economica) if actividad_economica else 620200,
+    }
+
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -235,7 +251,7 @@ async def upload_test_set(
         raise HTTPException(status_code=400, detail="Empty file")
 
     try:
-        parsed = set_pruebas_parser.parse(text, emisor.model_dump())
+        parsed = set_pruebas_parser.parse(text, emisor_data)
     except Exception as e:
         logger.error(f"Error parsing test set: {e}")
         raise HTTPException(status_code=400, detail=f"Error parsing test set: {e}")
@@ -246,7 +262,7 @@ async def upload_test_set(
             detail="No test cases found in the file. Check the file format.",
         )
 
-    session = _get_session(emisor.rut_emisor)
+    session = _get_session(rut_emisor)
     session[f"set_pruebas_{set_type}"] = parsed
     session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
 
