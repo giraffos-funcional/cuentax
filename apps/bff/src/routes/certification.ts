@@ -24,6 +24,17 @@ export async function certificationRoutes(fastify: FastifyInstance) {
     return String(rut)
   }
 
+  // ── GET /prerequisites ────────────────────────────────────
+  fastify.get('/prerequisites', async (request, reply) => {
+    const rut = getRut(request) ?? ''
+    try {
+      const data = await siiBridgeAdapter.certPrerequisites(rut)
+      return reply.send(data)
+    } catch {
+      return reply.send({ ready: false, certificado: { ok: false }, cafs: {}, sii: { conectado: false } })
+    }
+  })
+
   // ── GET /wizard ────────────────────────────────────────────
   fastify.get('/wizard', async (request, reply) => {
     const rut = getRut(request)

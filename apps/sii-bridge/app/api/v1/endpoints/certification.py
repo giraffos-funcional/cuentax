@@ -27,6 +27,8 @@ from app.services.dte_emission import dte_emission_service
 from app.services.dte_reception import dte_reception_service
 from app.services.pdf_generator import pdf_generator
 from app.services.sii_soap_client import sii_soap_client
+from app.services.certificate import certificate_service
+from app.services.caf_manager import caf_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -143,6 +145,96 @@ class InterceptRequest(BaseModel):
 class PDFRequest(BaseModel):
     dte_data: dict
     ted_string: Optional[str] = None
+
+
+# ── Prerequisites check ───────────────────────────────────────
+
+@router.get("/prerequisites")
+async def check_prerequisites(rut_emisor: str = Query("")):
+    """
+    Check all prerequisites needed before processing test sets.
+    Returns status of: certificate, CAFs, SII connectivity, and empresa config.
+    """
+    # 1. Certificate check
+    cert_loaded = False
+    cert_info = None
+    if rut_emisor:
+        cert_loaded = certificate_service.is_loaded_for(rut_emisor)
+    # Also check if ANY certificate is loaded
+    any_cert = bool(certificate_service._certs)
+    if any_cert and not cert_loaded:
+        # Certificate loaded for a different RUT — get the loaded ones
+        loaded_ruts = list(certificate_service._empresa_to_titular.keys())
+        cert_info = {"loaded_for": loaded_ruts}
+
+    # 2. CAF check — check for each required DTE type
+    caf_factura_types = [33, 56, 61]  # Factura, ND, NC
+    caf_boleta_types = [39]  # Boleta
+    all_caf_types = caf_factura_types + caf_boleta_types
+
+    cafs_loaded = {}
+    for tipo in all_caf_types:
+        caf = None
+        if rut_emisor:
+            caf = caf_manager.get_caf(rut_emisor, tipo)
+        # If not found by rut_emisor, search all loaded CAFs for this type
+        if not caf:
+            for (rut, t), c in caf_manager._cafs.items():
+                if t == tipo:
+                    caf = c
+                    break
+        cafs_loaded[tipo] = {
+            "loaded": caf is not None,
+            "folio_desde": caf.folio_desde if caf else None,
+            "folio_hasta": caf.folio_hasta if caf else None,
+            "folios_disponibles": caf.folios_disponibles if caf else 0,
+            "rut_empresa": caf.rut_empresa if caf else None,
+        }
+
+    cafs_for_factura = all(cafs_loaded[t]["loaded"] for t in [33, 61])  # Min: 33 + 61
+    cafs_for_boleta = cafs_loaded[39]["loaded"]
+
+    # 3. SII connectivity
+    sii_conn = sii_soap_client.check_connectivity()
+
+    # 4. Token
+    token_ok = sii_soap_client._is_token_valid()
+
+    # 5. Overall readiness
+    ready_factura = (cert_loaded or any_cert) and cafs_for_factura
+    ready_boleta = (cert_loaded or any_cert) and cafs_for_boleta
+
+    tipo_labels = {
+        33: "Factura Electrónica",
+        39: "Boleta Electrónica",
+        41: "Boleta No Afecta",
+        56: "Nota de Débito",
+        61: "Nota de Crédito",
+    }
+
+    return {
+        "rut_emisor": rut_emisor or None,
+        "certificado": {
+            "ok": cert_loaded or any_cert,
+            "loaded_for_rut": cert_loaded,
+            "any_loaded": any_cert,
+            "info": cert_info,
+        },
+        "cafs": {
+            str(tipo): {**info, "label": tipo_labels.get(tipo, f"Tipo {tipo}")}
+            for tipo, info in cafs_loaded.items()
+        },
+        "cafs_ready_factura": cafs_for_factura,
+        "cafs_ready_boleta": cafs_for_boleta,
+        "sii": {
+            "conectado": sii_conn.get("conectado", False),
+            "ambiente": sii_conn.get("ambiente", "certificacion"),
+            "token_vigente": token_ok,
+        },
+        "ready_factura": ready_factura,
+        "ready_boleta": ready_boleta,
+        "ready": ready_factura or ready_boleta,
+    }
 
 
 # ── Wizard overview ───────────────────────────────────────────

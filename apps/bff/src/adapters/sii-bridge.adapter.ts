@@ -120,6 +120,12 @@ export class SIIBridgeAdapter {
 
   // ── Certificación Wizard ──────────────────────────────────
 
+  /** Check prerequisites for certification */
+  async certPrerequisites(rutEmisor: string): Promise<any> {
+    const { data } = await this.http.get('/certification/prerequisites', { params: { rut_emisor: rutEmisor || '' } })
+    return data
+  }
+
   /** Get wizard overview */
   async certWizard(rutEmisor: string): Promise<any> {
     const { data } = await this.http.get('/certification/wizard', { params: { rut_emisor: rutEmisor } })

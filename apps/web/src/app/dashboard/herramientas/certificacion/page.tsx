@@ -14,6 +14,7 @@ import {
 import {
   useCertificationWizard,
   useCertificationStatus,
+  useCertificationPrerequisites,
   useCompleteStep,
   useUploadTestSet,
   useProcessTestSet,
@@ -32,7 +33,146 @@ function StepBadge({ done, active, step }: { done: boolean; active: boolean; ste
       ${active ? 'bg-violet-500 text-white ring-violet-300 shadow-lg shadow-violet-200' : ''}
       ${!done && !active ? 'bg-[var(--cx-bg-elevated)] text-[var(--cx-text-muted)] ring-[var(--cx-border-light)]' : ''}
     `}>
-      {done ? <CheckCircle2 size={16} /> : step}
+      {done ? <CheckCircle2 size={16} /> : step === 0 ? <ShieldCheck size={16} /> : step}
+    </div>
+  )
+}
+
+// ── Step 0: Prerequisitos ─────────────────────────────────────
+function PrerequisiteItem({ ok, label, detail, action }: {
+  ok: boolean; label: string; detail: string; action?: { href: string; text: string }
+}) {
+  return (
+    <div className={`flex items-start gap-3 p-3 rounded-xl border ${
+      ok ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
+    }`}>
+      <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+        ok ? 'bg-emerald-500' : 'bg-red-400'
+      }`}>
+        {ok ? <CheckCircle2 size={12} className="text-white" /> : <AlertTriangle size={12} className="text-white" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-semibold ${ok ? 'text-emerald-700' : 'text-red-700'}`}>{label}</p>
+        <p className={`text-xs mt-0.5 ${ok ? 'text-emerald-600' : 'text-red-600'}`}>{detail}</p>
+      </div>
+      {action && !ok && (
+        <a href={action.href} className="shrink-0 text-xs font-semibold text-violet-600 hover:text-violet-700 underline">
+          {action.text}
+        </a>
+      )}
+    </div>
+  )
+}
+
+function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
+  onReady: () => void
+  prerequisites: any
+  refreshPrereqs: () => void
+}) {
+  const p = prerequisites
+
+  const certOk = p?.certificado?.ok ?? false
+  const cafFactura = p?.cafs_ready_factura ?? false
+  const cafBoleta = p?.cafs_ready_boleta ?? false
+  const siiOk = p?.sii?.conectado ?? false
+  const allReady = certOk && (cafFactura || cafBoleta)
+
+  // CAF detail text
+  const cafTypes = p?.cafs ?? {}
+  const loadedTypes = Object.entries(cafTypes)
+    .filter(([, v]: any) => v.loaded)
+    .map(([, v]: any) => v.label)
+  const missingTypes = Object.entries(cafTypes)
+    .filter(([, v]: any) => !v.loaded)
+    .map(([, v]: any) => v.label)
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Verificación de Prerequisitos</h3>
+      <p className="text-sm text-[var(--cx-text-secondary)]">
+        Antes de iniciar la certificación, verifica que todos los componentes necesarios estén configurados.
+      </p>
+
+      <div className="space-y-2">
+        <PrerequisiteItem
+          ok={certOk}
+          label="Certificado Digital"
+          detail={certOk
+            ? 'Certificado cargado y listo para firmar'
+            : 'Debes cargar tu certificado digital (.pfx) para firmar los DTEs'
+          }
+          action={{ href: '/dashboard/configuracion', text: 'Configurar' }}
+        />
+
+        <PrerequisiteItem
+          ok={cafFactura || cafBoleta}
+          label="Folios (CAF)"
+          detail={
+            loadedTypes.length > 0
+              ? `Cargados: ${loadedTypes.join(', ')}${missingTypes.length > 0 ? ` · Faltan: ${missingTypes.join(', ')}` : ''}`
+              : 'Debes cargar los CAFs (folios) del SII para cada tipo de documento'
+          }
+          action={{ href: '/dashboard/folios', text: 'Cargar CAFs' }}
+        />
+
+        {cafFactura && (
+          <div className="ml-8 flex items-center gap-2 text-xs">
+            <CheckCircle2 size={12} className="text-emerald-500" />
+            <span className="text-emerald-600 font-medium">Set Factura: listo (tipos 33 + 61)</span>
+          </div>
+        )}
+        {cafBoleta && (
+          <div className="ml-8 flex items-center gap-2 text-xs">
+            <CheckCircle2 size={12} className="text-emerald-500" />
+            <span className="text-emerald-600 font-medium">Set Boleta: listo (tipo 39)</span>
+          </div>
+        )}
+
+        <PrerequisiteItem
+          ok={siiOk}
+          label="Conexión con SII"
+          detail={siiOk
+            ? `Conectado al ambiente de ${p?.sii?.ambiente ?? 'certificación'}`
+            : 'No se pudo conectar con el SII. Esto puede resolverse al procesar.'
+          }
+        />
+      </div>
+
+      <div className="flex items-center gap-3 pt-2">
+        <button
+          onClick={refreshPrereqs}
+          className="btn-secondary flex items-center gap-2 text-xs"
+        >
+          <RefreshCw size={12} /> Verificar de nuevo
+        </button>
+
+        <button
+          onClick={onReady}
+          disabled={!allReady}
+          className="btn-primary flex-1 justify-center"
+        >
+          {allReady ? (
+            <>Continuar con la Certificación <ChevronRight size={14} /></>
+          ) : (
+            <>Completa los prerequisitos para continuar</>
+          )}
+        </button>
+      </div>
+
+      {!allReady && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
+          <Info size={14} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">¿Cómo obtener los CAFs?</p>
+            <ol className="list-decimal list-inside mt-1 space-y-0.5">
+              <li>Entra al portal del SII: <a href="https://maullin.sii.cl" target="_blank" rel="noopener" className="underline font-semibold">maullin.sii.cl</a></li>
+              <li>Ve a Factura Electrónica → Solicitar Folios</li>
+              <li>Solicita folios para tipos 33, 39, 61 (y 56 si aplica)</li>
+              <li>Descarga los archivos XML y súbelos en <a href="/dashboard/folios" className="underline font-semibold">Folios</a></li>
+            </ol>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -100,11 +240,13 @@ function SetUploadCard({
   label,
   description,
   refresh,
+  rutEmisor,
 }: {
   setType: 'factura' | 'boleta'
   label: string
   description: string
   refresh: () => void
+  rutEmisor?: string | null
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -121,7 +263,8 @@ function SetUploadCard({
     setUploading(true)
     setError(null)
     try {
-      const result = await upload(file, undefined, setType)
+      const overrides = rutEmisor ? { rut_emisor: rutEmisor } : undefined
+      const result = await upload(file, overrides, setType)
       setUploadResult(result)
     } catch (e: any) {
       const msg = e.response?.data?.message ?? e.message ?? 'Error al cargar'
@@ -271,7 +414,15 @@ function SetUploadCard({
 }
 
 // ── Step 2: Set de Prueba ─────────────────────────────────────
-function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refresh: () => void }) {
+function StepSetPrueba({ onComplete, refresh, prerequisites }: { onComplete: () => void; refresh: () => void; prerequisites: any }) {
+  // Extract the RUT from loaded CAFs for pre-filling
+  const cafRut = (() => {
+    const cafs = prerequisites?.cafs ?? {}
+    for (const [, v] of Object.entries(cafs) as any) {
+      if (v.loaded && v.rut_empresa) return v.rut_empresa
+    }
+    return null
+  })()
   return (
     <div className="space-y-4 animate-fade-in">
       <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Set de Prueba</h3>
@@ -298,12 +449,14 @@ function StepSetPrueba({ onComplete, refresh }: { onComplete: () => void; refres
           label="Set Factura"
           description="Facturas (33), Notas de Crédito (61) y Notas de Débito (56)"
           refresh={refresh}
+          rutEmisor={cafRut}
         />
         <SetUploadCard
           setType="boleta"
           label="Set Boleta"
           description="Boletas Electrónicas (39) y Boletas Exentas (41)"
           refresh={refresh}
+          rutEmisor={cafRut}
         />
       </div>
 
@@ -452,6 +605,7 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
 
 // ── Default steps (used when API is unavailable) ──────────────
 const DEFAULT_STEPS = [
+  { step: 0, nombre: 'Prerequisitos', manual: false },
   { step: 1, nombre: 'Postulación', manual: true },
   { step: 2, nombre: 'Set de Prueba', manual: false },
   { step: 3, nombre: 'Simulación', manual: false },
@@ -465,11 +619,12 @@ export default function CertificacionWizardPage() {
   const user = useAuthStore(s => s.user)
   const { wizard, isLoading, refresh } = useCertificationWizard()
   const { status } = useCertificationStatus()
+  const { prerequisites, refresh: refreshPrereqs } = useCertificationPrerequisites()
   const { cert, connectivity } = useSIIStatus()
   const { complete } = useCompleteStep()
   const { reset } = useResetCertification()
   const [resetting, setResetting] = useState(false)
-  const [localStep, setLocalStep] = useState(1)
+  const [localStep, setLocalStep] = useState(0)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -511,7 +666,7 @@ export default function CertificacionWizardPage() {
     newCompleted.add(step)
     setCompletedSteps(newCompleted)
     // Advance to next incomplete step
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 0; i <= 6; i++) {
       if (!newCompleted.has(i)) {
         setLocalStep(i)
         break
@@ -638,8 +793,9 @@ export default function CertificacionWizardPage() {
         <div className="lg:col-span-3 space-y-6">
           {/* Main card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            {currentStep === 0 && <StepPrerequisitos prerequisites={prerequisites} refreshPrereqs={refreshPrereqs} onReady={() => { handleCompleteStep(0) }} />}
             {currentStep === 1 && <StepPostulacion onComplete={() => handleCompleteStep(1)} />}
-            {currentStep === 2 && <StepSetPrueba onComplete={() => { handleCompleteStep(2) }} refresh={refresh} />}
+            {currentStep === 2 && <StepSetPrueba onComplete={() => { handleCompleteStep(2) }} refresh={refresh} prerequisites={prerequisites} />}
             {currentStep === 3 && <StepSimulacion />}
             {currentStep === 4 && <StepIntercambio />}
             {currentStep === 5 && <StepMuestras />}

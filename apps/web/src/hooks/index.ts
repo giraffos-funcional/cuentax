@@ -426,6 +426,14 @@ export function useCertificateList() {
 // Certification Wizard Hooks
 // ══════════════════════════════════════════════════════════════
 
+/** Prerequisites check — certificate, CAFs, SII connectivity */
+export function useCertificationPrerequisites() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/certification/prerequisites', fetcher, {
+    refreshInterval: 15_000,
+  })
+  return { prerequisites: data ?? null, isLoading, error, refresh: mutate }
+}
+
 /** Wizard overview — steps and progress */
 export function useCertificationWizard() {
   const { data, error, isLoading, mutate } = useSWR('/api/v1/certification/wizard', fetcher, {
