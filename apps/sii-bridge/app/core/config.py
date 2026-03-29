@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     SII_WSDL_CERT: str = "https://maullin.sii.cl/DTEWS/"
     SII_WSDL_PROD: str = "https://palena.sii.cl/DTEWS/"
 
+    # Resolución SII (producción — certificación siempre usa 2014-08-22 / 0)
+    SII_RESOLUCION_FECHA: str = ""  # e.g. "2024-01-15"
+    SII_RESOLUCION_NUMERO: int = 0  # e.g. 80
+
     # Certificado Digital
     SII_CERT_PATH: str = ""
     SII_CERT_PASSWORD: str = ""

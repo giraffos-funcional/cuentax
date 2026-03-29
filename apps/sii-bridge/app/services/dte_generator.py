@@ -8,11 +8,15 @@ Soporta tipos: 33 (Factura), 39 (Boleta), 41 (Boleta No Afecta),
 Referencia: https://www.sii.cl/factura_electronica/factura_mercado/formato_dte.pdf
 """
 
+from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 from lxml import etree
 import logging
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +189,9 @@ class DTEXMLGenerator:
     def _build_item(self, documento, item: DTEItem, idx: int, tipo_dte: int):
         det = etree.SubElement(documento, "Detalle")
         self._elem(det, "NroLinDet", str(idx))
+        # IndExe must appear before NmbItem per SII XSD ordering
+        if item.exento:
+            self._elem(det, "IndExe", "1")
         if item.codigo:
             cd = etree.SubElement(det, "CdgItem")
             self._elem(cd, "TpoCodigo", "INT1")
@@ -196,8 +203,6 @@ class DTEXMLGenerator:
         if item.descuento_pct > 0:
             self._elem(det, "DescuentoPct", str(item.descuento_pct))
         self._elem(det, "MontoItem", str(item.monto_item))
-        if item.exento:
-            self._elem(det, "IndExe", "1")
 
     def _build_referencia(self, documento, doc: DTEDocumento):
         ref = etree.SubElement(documento, "Referencia")
@@ -238,6 +243,99 @@ class DTEXMLGenerator:
         el = etree.SubElement(parent, tag)
         el.text = text
         return el
+
+
+    def generate_envio_dte(
+        self,
+        signed_dtes: list[etree._Element],
+        rut_emisor: str,
+        rut_envia: str,
+        ambiente: str = "certificacion",
+    ) -> etree._Element:
+        """
+        Generate the EnvioDTE envelope that wraps multiple signed DTEs.
+
+        The EnvioDTE contains:
+        - SetDTE (ID="SetDoc") with:
+          - Caratula (metadata: who sends, resolution, document counts)
+          - Multiple <DTE> elements (already individually signed)
+        - The SetDTE itself needs to be signed separately (done by certificate_service)
+
+        Args:
+            signed_dtes: List of individually signed DTE XML elements
+            rut_emisor: RUT of the issuing company
+            rut_envia: RUT of the person sending (certificate holder)
+            ambiente: "certificacion" or "produccion"
+
+        Returns:
+            EnvioDTE XML element (SetDTE NOT yet signed — caller must sign it)
+        """
+        nsmap = {None: SII_DTE_NS}
+
+        envio = etree.Element("EnvioDTE", attrib={"version": "1.0"}, nsmap=nsmap)
+        set_dte = etree.SubElement(envio, "SetDTE", attrib={"ID": "SetDoc"})
+
+        # Build Caratula
+        caratula = self._build_caratula(
+            set_dte, signed_dtes, rut_emisor, rut_envia, ambiente
+        )
+
+        # Append all signed DTEs
+        for dte in signed_dtes:
+            set_dte.append(dte)
+
+        logger.info(
+            f"EnvioDTE generated: {len(signed_dtes)} DTEs, "
+            f"emisor={rut_emisor}, envia={rut_envia}"
+        )
+        return envio
+
+    def _build_caratula(
+        self,
+        set_dte: etree._Element,
+        signed_dtes: list[etree._Element],
+        rut_emisor: str,
+        rut_envia: str,
+        ambiente: str,
+    ) -> etree._Element:
+        """Build the Caratula (header) for EnvioDTE."""
+        caratula = etree.SubElement(set_dte, "Caratula", attrib={"version": "1.0"})
+
+        self._elem(caratula, "RutEmisor", rut_emisor)
+        self._elem(caratula, "RutEnvia", rut_envia)
+        # RutReceptor is SII's own RUT for certification/production uploads
+        self._elem(caratula, "RutReceptor", "60803000-K")
+
+        # Resolution data depends on environment
+        if ambiente == "certificacion":
+            self._elem(caratula, "FchResol", "2014-08-22")
+            self._elem(caratula, "NroResol", "0")
+        else:
+            # Production: company's actual SII resolution from config
+            if not settings.SII_RESOLUCION_FECHA:
+                raise ValueError(
+                    "SII_RESOLUCION_FECHA must be set for production environment"
+                )
+            self._elem(caratula, "FchResol", settings.SII_RESOLUCION_FECHA)
+            self._elem(caratula, "NroResol", str(settings.SII_RESOLUCION_NUMERO))
+
+        # Timestamp
+        self._elem(caratula, "TmstFirmaEnv", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+
+        # SubTotDTE: count documents by type
+        tipo_counts = Counter[int]()
+        for dte in signed_dtes:
+            # Extract TipoDTE from the DTE XML
+            tipo_el = dte.find(".//{%s}TipoDTE" % SII_DTE_NS) or dte.find(".//TipoDTE")
+            if tipo_el is not None and tipo_el.text:
+                tipo_counts[int(tipo_el.text)] += 1
+
+        for tipo_dte, count in sorted(tipo_counts.items()):
+            sub = etree.SubElement(caratula, "SubTotDTE")
+            self._elem(sub, "TpoDTE", str(tipo_dte))
+            self._elem(sub, "NroDTE", str(count))
+
+        return caratula
 
 
 # Singleton

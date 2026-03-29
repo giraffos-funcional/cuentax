@@ -1,0 +1,241 @@
+"""
+CUENTAX — DTE Reception Service
+==================================
+Handles reception of DTEs from other companies or from the SII
+during the certification intercambio step.
+
+Functions:
+1. Parse incoming EnvioDTE XML
+2. Validate DTEs (schema, signature, RUT)
+3. Generate RecepcionDTE response XML
+4. Generate ResultadoDTE (accept/reject) response XML
+"""
+
+import logging
+from datetime import datetime
+from typing import Optional
+from lxml import etree
+
+from app.services.certificate import certificate_service
+from app.utils.xml_safe import safe_fromstring
+
+logger = logging.getLogger(__name__)
+
+SII_DTE_NS = "http://www.sii.cl/SiiDte"
+
+
+class DTEReceptionService:
+    """Handles reception of DTEs from third parties or SII."""
+
+    def parse_envio(self, xml_content: str) -> dict:
+        """
+        Parse an incoming EnvioDTE XML and extract all DTEs.
+
+        Returns:
+            {
+                "success": bool,
+                "rut_emisor": str,
+                "total_dtes": int,
+                "dtes": [{tipo_dte, folio, rut_emisor, rut_receptor, monto_total, fecha}],
+                "errores": [str],
+            }
+        """
+        try:
+            root = safe_fromstring(xml_content)
+        except etree.XMLSyntaxError as e:
+            return {"success": False, "errores": [f"Invalid XML: {e}"]}
+
+        dtes_data = []
+        errores = []
+
+        # Find all DTE elements
+        dte_elements = root.findall(f".//{{{SII_DTE_NS}}}DTE") or root.findall(".//DTE")
+
+        for dte_el in dte_elements:
+            try:
+                doc = dte_el.find(f".//{{{SII_DTE_NS}}}Documento") or dte_el.find(".//Documento")
+                if doc is None:
+                    errores.append("DTE without Documento element")
+                    continue
+
+                enc = doc.find(f".//{{{SII_DTE_NS}}}Encabezado") or doc.find(".//Encabezado")
+                if enc is None:
+                    errores.append("Documento without Encabezado")
+                    continue
+
+                id_doc = enc.find(f".//{{{SII_DTE_NS}}}IdDoc") or enc.find(".//IdDoc")
+                emisor = enc.find(f".//{{{SII_DTE_NS}}}Emisor") or enc.find(".//Emisor")
+                receptor = enc.find(f".//{{{SII_DTE_NS}}}Receptor") or enc.find(".//Receptor")
+                totales = enc.find(f".//{{{SII_DTE_NS}}}Totales") or enc.find(".//Totales")
+
+                tipo_dte = self._get_text(id_doc, "TipoDTE")
+                folio = self._get_text(id_doc, "Folio")
+                fecha = self._get_text(id_doc, "FchEmis")
+                rut_emisor = self._get_text(emisor, "RUTEmisor")
+                rut_receptor = self._get_text(receptor, "RUTRecep")
+                monto = self._get_text(totales, "MntTotal")
+
+                dtes_data.append({
+                    "tipo_dte": int(tipo_dte) if tipo_dte else 0,
+                    "folio": int(folio) if folio else 0,
+                    "rut_emisor": rut_emisor or "",
+                    "rut_receptor": rut_receptor or "",
+                    "monto_total": int(monto) if monto else 0,
+                    "fecha_emision": fecha or "",
+                })
+            except Exception as e:
+                errores.append(f"Error parsing DTE: {e}")
+
+        # Extract caratula info
+        caratula = root.find(f".//{{{SII_DTE_NS}}}Caratula") or root.find(".//Caratula")
+        rut_emisor_envio = self._get_text(caratula, "RutEmisor") if caratula is not None else ""
+
+        return {
+            "success": len(dtes_data) > 0,
+            "rut_emisor": rut_emisor_envio,
+            "total_dtes": len(dtes_data),
+            "dtes": dtes_data,
+            "errores": errores,
+        }
+
+    def generate_recepcion_dte(
+        self,
+        rut_receptor: str,
+        rut_emisor_envio: str,
+        dtes_recibidos: list[dict],
+        rut_firma: Optional[str] = None,
+    ) -> str:
+        """
+        Generate RecepcionDTE XML (acuse de recibo del envío).
+
+        This acknowledges receipt of the EnvioDTE package.
+
+        Args:
+            rut_receptor: Our RUT (the company receiving)
+            rut_emisor_envio: RUT of the company that sent the EnvioDTE
+            dtes_recibidos: List of received DTEs with estado
+            rut_firma: RUT for signing (default: rut_receptor)
+
+        Returns:
+            Signed RecepcionDTE XML string
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        nsmap = {None: SII_DTE_NS}
+
+        recepcion = etree.Element("RespuestaDTE", attrib={"version": "1.0"}, nsmap=nsmap)
+        resultado = etree.SubElement(recepcion, "Resultado", attrib={"ID": "Recepcion"})
+
+        # Caratula
+        caratula = etree.SubElement(resultado, "Caratula", attrib={"version": "1.0"})
+        self._elem(caratula, "RutResponde", rut_receptor)
+        self._elem(caratula, "RutRecibe", rut_emisor_envio)
+        self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
+        self._elem(caratula, "FonoContacto", "")
+        self._elem(caratula, "MailContacto", "")
+        self._elem(caratula, "TmstFirmaResp", timestamp)
+
+        # RecepcionEnvio
+        recep_envio = etree.SubElement(resultado, "RecepcionEnvio")
+        self._elem(recep_envio, "NmbEnvio", "EnvioDTE.xml")
+        self._elem(recep_envio, "FchRecep", timestamp)
+        self._elem(recep_envio, "CodEnvio", "0")  # 0 = OK
+        self._elem(recep_envio, "EnvioDTEID", "SetDoc")
+        self._elem(recep_envio, "Digest", "")
+        self._elem(recep_envio, "EstadoRecepEnv", "0")  # 0 = Envío recibido OK
+        self._elem(recep_envio, "RecepEnvGlosa", "Envío recibido correctamente")
+
+        # RecepcionDTE for each document
+        for dte in dtes_recibidos:
+            recep_dte = etree.SubElement(recep_envio, "RecepcionDTE")
+            self._elem(recep_dte, "TipoDTE", str(dte["tipo_dte"]))
+            self._elem(recep_dte, "Folio", str(dte["folio"]))
+            self._elem(recep_dte, "FchEmis", dte.get("fecha_emision", ""))
+            self._elem(recep_dte, "RUTEmisor", dte.get("rut_emisor", ""))
+            self._elem(recep_dte, "RUTRecep", rut_receptor)
+            self._elem(recep_dte, "MntTotal", str(dte.get("monto_total", 0)))
+            # EstadoRecepDTE: 0 = OK, 1 = Con reparos, 2 = Rechazado
+            self._elem(recep_dte, "EstadoRecepDTE", "0")
+            self._elem(recep_dte, "RecepDTEGlosa", "Documento recibido OK")
+
+        # Sign the Resultado element — signing failure is fatal
+        certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
+
+        return etree.tostring(recepcion, encoding="unicode", xml_declaration=True)
+
+    def generate_resultado_dte(
+        self,
+        rut_receptor: str,
+        rut_emisor: str,
+        tipo_dte: int,
+        folio: int,
+        fecha_emision: str,
+        monto_total: int,
+        aceptado: bool = True,
+        glosa: str = "",
+        rut_firma: Optional[str] = None,
+    ) -> str:
+        """
+        Generate ResultadoDTE XML (commercial acceptance/rejection).
+
+        After receiving a DTE and sending the acuse de recibo,
+        the receiver must accept or reject the document.
+
+        Args:
+            rut_receptor: Our RUT
+            rut_emisor: Emisor RUT
+            tipo_dte: Document type
+            folio: Document folio
+            fecha_emision: Emission date
+            monto_total: Total amount
+            aceptado: True = accept, False = reject
+            glosa: Explanation text
+            rut_firma: RUT for signing
+
+        Returns:
+            Signed ResultadoDTE XML string
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        nsmap = {None: SII_DTE_NS}
+
+        resp = etree.Element("RespuestaDTE", attrib={"version": "1.0"}, nsmap=nsmap)
+        resultado = etree.SubElement(resp, "Resultado", attrib={"ID": "ResultadoDTE"})
+
+        caratula = etree.SubElement(resultado, "Caratula", attrib={"version": "1.0"})
+        self._elem(caratula, "RutResponde", rut_receptor)
+        self._elem(caratula, "RutRecibe", rut_emisor)
+        self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
+        self._elem(caratula, "TmstFirmaResp", timestamp)
+
+        result_dte = etree.SubElement(resultado, "ResultadoDTE")
+        self._elem(result_dte, "TipoDTE", str(tipo_dte))
+        self._elem(result_dte, "Folio", str(folio))
+        self._elem(result_dte, "FchEmis", fecha_emision)
+        self._elem(result_dte, "RUTEmisor", rut_emisor)
+        self._elem(result_dte, "RUTRecep", rut_receptor)
+        self._elem(result_dte, "MntTotal", str(monto_total))
+        # CodEnvio: 0 = aceptado, 2 = rechazado
+        self._elem(result_dte, "CodEnvio", "0" if aceptado else "2")
+        self._elem(result_dte, "EstadoDTE", "0" if aceptado else "2")
+        self._elem(result_dte, "EstadoDTEGlosa", glosa or ("Documento aceptado" if aceptado else "Documento rechazado"))
+
+        # Sign — signing failure is fatal
+        certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
+
+        return etree.tostring(resp, encoding="unicode", xml_declaration=True)
+
+    def _get_text(self, parent, tag: str) -> Optional[str]:
+        """Extract text from a child element, searching with and without namespace."""
+        if parent is None:
+            return None
+        el = parent.find(f"{{{SII_DTE_NS}}}{tag}") or parent.find(tag)
+        return el.text.strip() if el is not None and el.text else None
+
+    @staticmethod
+    def _elem(parent, tag: str, text: str) -> etree._Element:
+        el = etree.SubElement(parent, tag)
+        el.text = text
+        return el
+
+
+# Singleton
+dte_reception_service = DTEReceptionService()
