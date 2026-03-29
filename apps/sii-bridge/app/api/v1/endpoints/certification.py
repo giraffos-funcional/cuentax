@@ -449,10 +449,22 @@ async def process_test_set(req: ProcessRequest):
         logger.error(f"Error processing {set_type} test set: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing: {e}")
 
-    # Mark SET_PRUEBA as complete when at least one set has been processed successfully
-    if result.get("success"):
+    # Mark SET_PRUEBA as complete when DTEs were generated and signed
+    # (even if SII send failed — signed XMLs are stored for later resubmission)
+    emitidos = result.get("emitidos", 0)
+    has_track = result.get("track_id") is not None
+    estado = result.get("estado", "")
+
+    if has_track or emitidos > 0:
         session["steps_completed"].add(Step.SET_PRUEBA)
         _advance_step(session)
+        # Enrich result with advancement info
+        if not has_track and emitidos > 0:
+            result["warning"] = (
+                f"{emitidos} DTEs firmados correctamente pero no enviados al SII "
+                f"(sin token de sesión). Los XMLs firmados están guardados para reenvío."
+            )
+            result["success"] = True  # Mark as success for wizard advancement
 
     return {
         **result,
