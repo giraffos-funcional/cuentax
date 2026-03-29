@@ -1,117 +1,144 @@
 /**
- * CUENTAX — DTE Status Polling Job
- * ==================================
- * Tarea que corre en background cada 2 minutos.
- * Consulta al SII el estado de todos los DTEs "enviados"
- * y actualiza la DB con el resultado (aceptado / rechazado).
+ * CUENTAX — DTE Status Polling Job (BullMQ)
+ * ==========================================
+ * Repeatable job that runs every 2 minutes via BullMQ.
+ * Queries SII for DTE status updates and syncs to DB.
  *
- * En producción: mover a una Cola (BullMQ + Redis) para
- * garantizar ejecución exacta y reintentos.
+ * Replaces the old setInterval-based poller with persistent
+ * Redis-backed scheduling that survives process restarts.
  */
 
+import type { Job, Queue, Worker } from 'bullmq'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
 import { dteRepository } from '@/repositories/dte.repository'
 import { logger } from '@/core/logger'
+import { createQueue, createWorker } from '@/core/queue'
 
-const POLL_INTERVAL_MS = 2 * 60 * 1000 // 2 minutos
+// ---------------------------------------------------------------------------
+// Queue & constants
+// ---------------------------------------------------------------------------
 
-class DTEStatusPoller {
-  private timer: ReturnType<typeof setInterval> | null = null
-  private running = false
+const QUEUE_NAME = 'dte-status-polling'
+const POLL_EVERY_MS = 2 * 60 * 1000 // 2 minutes
+const BATCH_SIZE = 3
 
-  start() {
-    if (this.timer) return
-    logger.info('🔄 DTE Status Poller iniciado (cada 2 min)')
-    this.timer = setInterval(() => this.run(), POLL_INTERVAL_MS)
-    // Primera ejecución inmediata
-    setTimeout(() => this.run(), 5_000)
+let queue: Queue | null = null
+let worker: Worker | null = null
+
+// ---------------------------------------------------------------------------
+// Job processor — same business logic as before
+// ---------------------------------------------------------------------------
+
+async function processDTEStatusPoll(job: Job): Promise<void> {
+  logger.debug({ jobId: job.id }, 'Executing DTE status poll job')
+
+  // Fetch all DTEs in "enviado" state with a track_id
+  const pending = await dteRepository.findPendingPolling()
+
+  if (pending.length === 0) {
+    logger.debug('No pending DTEs to poll')
+    return
   }
 
-  stop() {
-    if (this.timer) {
-      clearInterval(this.timer)
-      this.timer = null
-      logger.info('⏹ DTE Status Poller detenido')
-    }
-  }
+  logger.info({ count: pending.length }, `Polling status for ${pending.length} DTEs`)
 
-  private async run() {
-    if (this.running) {
-      logger.debug('Status poll ya en ejecución, saltando...')
-      return
-    }
+  // Process in batches of 3 to avoid overwhelming SII
+  for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+    const batch = pending.slice(i, i + BATCH_SIZE)
 
-    this.running = true
-    logger.debug('Ejecutando DTE status poll...')
+    await Promise.allSettled(
+      batch.map(async (dte) => {
+        if (!dte.track_id) return
 
-    try {
-      // Obtener todos los DTEs en estado "enviado" con track_id
-      const pending = await dteRepository.findPendingPolling()
+        try {
+          // TODO: resolve company_rut from DB via company_id
+          const companyRut = '12345678-9'
 
-      if (pending.length === 0) {
-        logger.debug('No hay DTEs pendientes de poll')
-        return
-      }
+          const status = await siiBridgeAdapter.getDTEStatus(dte.track_id, companyRut)
+          const nuevoEstado = mapSIIStatus(status.estado)
 
-      logger.info({ count: pending.length }, `Polleando estado de ${pending.length} DTEs`)
-
-      // Consultar estado en lotes (3 a la vez para no saturar el SII)
-      const BATCH_SIZE = 3
-      for (let i = 0; i < pending.length; i += BATCH_SIZE) {
-        const batch = pending.slice(i, i + BATCH_SIZE)
-
-        await Promise.allSettled(
-          batch.map(async (dte) => {
-            if (!dte.track_id) return
-
-            try {
-              // Obtener RUT empresa desde el company_id — simplificado
-              // TODO: resolver company_rut desde DB
-              const companyRut = '12345678-9'
-
-              const status = await siiBridgeAdapter.getDTEStatus(dte.track_id, companyRut)
-              const nuevoEstado = this._mapSIIStatus(status.estado)
-
-              if (nuevoEstado !== dte.estado) {
-                await dteRepository.updateEstado(dte.track_id, nuevoEstado)
-                logger.info(
-                  { folio: dte.folio, track_id: dte.track_id, de: dte.estado, a: nuevoEstado },
-                  'Estado DTE actualizado desde SII'
-                )
-              }
-            } catch (err) {
-              logger.warn({ track_id: dte.track_id, err }, 'Error polleando estado DTE')
-            }
-          })
-        )
-
-        // Pausa entre lotes para no sobrecargar el SII
-        if (i + BATCH_SIZE < pending.length) {
-          await new Promise(r => setTimeout(r, 1_000))
+          if (nuevoEstado !== dte.estado) {
+            await dteRepository.updateEstado(dte.track_id, nuevoEstado)
+            logger.info(
+              { folio: dte.folio, track_id: dte.track_id, de: dte.estado, a: nuevoEstado },
+              'DTE status updated from SII',
+            )
+          }
+        } catch (err) {
+          logger.warn({ track_id: dte.track_id, err }, 'Error polling DTE status')
         }
-      }
-    } catch (err) {
-      logger.error({ err }, 'Error en DTE status poll job')
-    } finally {
-      this.running = false
-    }
-  }
+      }),
+    )
 
-  /** Mapea los estados del SII a nuestro enum interno */
-  private _mapSIIStatus(siiEstado: string): string {
-    const map: Record<string, string> = {
-      'EPR': 'enviado',      // En proceso
-      'ACD': 'aceptado',     // Aceptado con discrepancias
-      'RSC': 'aceptado',     // Aceptado sin reclamo
-      'RCT': 'rechazado',    // Rechazado
-      'VOF': 'rechazado',    // Verificación de firma falló
-      'RFR': 'rechazado',    // Rechazado por firma
-      'RPT': 'rechazado',    // Rechazado por contenido
-      '00':  'aceptado',     // Código OK del SII
-      '01':  'rechazado',
+    // Pause between batches to avoid overloading SII
+    if (i + BATCH_SIZE < pending.length) {
+      await new Promise((r) => setTimeout(r, 1_000))
     }
-    return map[siiEstado] ?? 'enviado'
   }
 }
 
-export const dteStatusPoller = new DTEStatusPoller()
+/** Map SII status codes to internal enum values */
+function mapSIIStatus(siiEstado: string): string {
+  const map: Record<string, string> = {
+    'EPR': 'enviado',      // En proceso
+    'ACD': 'aceptado',     // Aceptado con discrepancias
+    'RSC': 'aceptado',     // Aceptado sin reclamo
+    'RCT': 'rechazado',    // Rechazado
+    'VOF': 'rechazado',    // Verificacion de firma fallo
+    'RFR': 'rechazado',    // Rechazado por firma
+    'RPT': 'rechazado',    // Rechazado por contenido
+    '00':  'aceptado',     // Codigo OK del SII
+    '01':  'rechazado',
+  }
+  return map[siiEstado] ?? 'enviado'
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle: start / stop
+// ---------------------------------------------------------------------------
+
+/**
+ * Initialize the DTE status polling queue and worker.
+ * Registers a repeatable job that fires every 2 minutes.
+ */
+export async function startDTEStatusPoller(): Promise<void> {
+  queue = createQueue(QUEUE_NAME)
+  worker = createWorker(QUEUE_NAME, processDTEStatusPoll)
+
+  // Upsert the repeatable job — BullMQ deduplicates by jobId + repeat config
+  await queue.upsertJobScheduler(
+    'dte-poll-repeat',
+    { every: POLL_EVERY_MS },
+    {
+      name: 'poll-dte-status',
+      opts: {
+        attempts: 2,
+        backoff: { type: 'fixed', delay: 10_000 },
+      },
+    },
+  )
+
+  logger.info(`DTE Status Poller started (BullMQ, every ${POLL_EVERY_MS / 1000}s)`)
+}
+
+/**
+ * Gracefully shut down the worker and close the queue.
+ */
+export async function stopDTEStatusPoller(): Promise<void> {
+  if (worker) {
+    await worker.close()
+    worker = null
+  }
+  if (queue) {
+    await queue.close()
+    queue = null
+  }
+  logger.info('DTE Status Poller stopped')
+}
+
+/**
+ * Get the queue instance for admin/status endpoints.
+ */
+export function getDTEStatusQueue(): Queue | null {
+  return queue
+}

@@ -1,8 +1,11 @@
 /**
- * CUENTAX — Previred Indicators Scraper
- * ======================================
+ * CUENTAX — Previred Indicators Scraper (BullMQ)
+ * ================================================
  * Fetches Chilean labor/pension indicators from Previred's website
  * and syncs them to Odoo's l10n_cl.indicators model.
+ *
+ * Schedule: daily at 08:00 Chile/Santiago time via BullMQ cron.
+ * Can also be triggered manually via POST /api/v1/indicators/sync.
  *
  * Indicators scraped:
  * - UF (Unidad de Fomento)
@@ -13,15 +16,14 @@
  * - Renta Minima Imponible (IMM / sueldo minimo)
  * - Asignacion Familiar tramos
  * - AFP commission rates per AFP
- *
- * Can be triggered manually via POST /api/v1/indicators/sync
- * or scheduled daily at 8am CLT.
  */
 
+import type { Job, Queue, Worker } from 'bullmq'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { logger } from '@/core/logger'
+import { createQueue, createWorker } from '@/core/queue'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,11 +65,15 @@ export interface AsignacionFamiliarTramo {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// Queue & constants
 // ---------------------------------------------------------------------------
 
+const QUEUE_NAME = 'previred-sync'
 const PREVIRED_URL = 'https://www.previred.com/indicadores-previsionales/'
 const SCRAPE_TIMEOUT_MS = 30_000
+
+let queue: Queue | null = null
+let worker: Worker | null = null
 
 // ---------------------------------------------------------------------------
 // Parsing helpers
@@ -102,23 +108,6 @@ function parsePercentage(raw: string): number {
     .trim()
   const value = parseFloat(cleaned)
   return isNaN(value) ? 0 : value
-}
-
-/**
- * Extract first currency value from a text string.
- * Looks for patterns like "$ 39.841,72" or "$539.000"
- */
-function extractCurrencyValue(text: string): number {
-  const match = text.match(/\$\s*[\d.,]+/)
-  return match ? parseCLP(match[0]) : 0
-}
-
-/**
- * Extract first percentage value from a text string.
- */
-function extractPercentage(text: string): number {
-  const match = text.match(/[\d,]+\s*%/)
-  return match ? parsePercentage(match[0]) : 0
 }
 
 // ---------------------------------------------------------------------------
@@ -177,14 +166,11 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
 
   // ── UF ──────────────────────────────────────────────────────
   try {
-    // Look for UF value - typically the first currency value after "UF" heading
-    // The page shows UF with date, e.g., "Al 31 de Marzo del 2026: $ 39.841,72"
     const ufMatch = fullText.match(/(?:valor\s+)?uf[^$]*?\$\s*([\d.,]+)/i)
     if (ufMatch) {
       indicators.uf = parseCLP(ufMatch[1])
     }
 
-    // Alternative: look for the specific end-of-month UF value
     if (indicators.uf === 0) {
       const ufAltMatch = fullText.match(/Al\s+\d+\s+de\s+\w+\s+del\s+\d{4}\s*:\s*\$\s*([\d.,]+)/i)
       if (ufAltMatch) {
@@ -233,18 +219,15 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
 
   // ── Topes Imponibles ────────────────────────────────────────
   try {
-    // AFP tope - usually "AFP" followed by "(90 UF)" or "90 UF" then the CLP value
     const afpTopeMatch = fullText.match(/(?:tope|rentas?\s+topes?\s+imponibles?)[^]*?afp[^]*?\(?\s*(\d+(?:,\d+)?)\s*uf\s*\)?\s*[:\-]?\s*\$\s*([\d.,]+)/i)
     if (afpTopeMatch) {
       indicators.tope_imponible_afp_uf = parseFloat(afpTopeMatch[1].replace(',', '.'))
       indicators.tope_imponible_afp = parseCLP(afpTopeMatch[2])
     } else {
-      // Fallback: look for "90 UF" pattern near AFP context
       const afpUfMatch = fullText.match(/afp\s*\(?\s*(\d+(?:,\d+)?)\s*uf/i)
       if (afpUfMatch) {
         indicators.tope_imponible_afp_uf = parseFloat(afpUfMatch[1].replace(',', '.'))
       }
-      // Try to find the CLP value after
       const afpClpMatch = fullText.match(/afp[^$]*?\$\s*([\d.,]+)/i)
       if (afpClpMatch) {
         indicators.tope_imponible_afp = parseCLP(afpClpMatch[1])
@@ -255,14 +238,12 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
       indicators.tope_imponible_afp = Math.round(indicators.uf * indicators.tope_imponible_afp_uf)
     }
 
-    // IPS/INP tope - usually "(60 UF)"
     const ipsTopeMatch = fullText.match(/(?:ips|inp)[^]*?\(?\s*(\d+(?:,\d+)?)\s*uf\s*\)?\s*[:\-]?\s*\$\s*([\d.,]+)/i)
     if (ipsTopeMatch) {
       indicators.tope_imponible_ips_uf = parseFloat(ipsTopeMatch[1].replace(',', '.'))
       indicators.tope_imponible_ips = parseCLP(ipsTopeMatch[2])
     }
 
-    // Seguro Cesantia tope - usually "(135,2 UF)" or "135.2 UF"
     const cesantiaMatch = fullText.match(/(?:cesant[ií]a|seguro\s+de?\s+cesant[ií]a)[^]*?\(?\s*(\d+(?:[,.]?\d+)?)\s*uf\s*\)?\s*[:\-]?\s*\$\s*([\d.,]+)/i)
     if (cesantiaMatch) {
       indicators.tope_seg_cesantia_uf = parseFloat(cesantiaMatch[1].replace(',', '.'))
@@ -280,25 +261,21 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
 
   // ── Rentas Minimas Imponibles ───────────────────────────────
   try {
-    // IMM / Sueldo minimo - "Dependientes e Independientes"
     const immMatch = fullText.match(/dependientes\s+e\s+independientes[^$]*?\$\s*([\d.,]+)/i)
     if (immMatch) {
       indicators.imm = parseCLP(immMatch[1])
     }
 
-    // Menores 18 / Mayores 65
     const menor18Match = fullText.match(/menores?\s+(?:de\s+)?18[^$]*?\$\s*([\d.,]+)/i)
     if (menor18Match) {
       indicators.renta_min_menor18_mayor65 = parseCLP(menor18Match[1])
     }
 
-    // Casa particular
     const casaMatch = fullText.match(/casa\s+particular[^$]*?\$\s*([\d.,]+)/i)
     if (casaMatch) {
       indicators.renta_min_casa_particular = parseCLP(casaMatch[1])
     }
 
-    // No remuneracionales
     const noRemMatch = fullText.match(/no\s+remuneracion[ae]les?[^$]*?\$\s*([\d.,]+)/i)
     if (noRemMatch) {
       indicators.renta_min_no_remuneracional = parseCLP(noRemMatch[1])
@@ -318,8 +295,6 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
     const knownAFPs = ['Capital', 'Cuprum', 'Habitat', 'PlanVital', 'ProVida', 'Modelo', 'Uno']
 
     for (const afpName of knownAFPs) {
-      // Look for the AFP name followed by percentage values
-      // Pattern: AFP name ... percentage% ... percentage% ... percentage%
       const afpPattern = new RegExp(
         afpName + '[^\\n]*?([\\d,]+)\\s*%[^\\n]*?([\\d,]+)\\s*%[^\\n]*?([\\d,]+)\\s*%',
         'i',
@@ -335,7 +310,6 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
           tasa_independiente: 0,
         }
 
-        // Try to find the independent rate (usually a 4th percentage)
         const indepPattern = new RegExp(
           afpName + '[^\\n]*?(?:[\\d,]+\\s*%[^%]*?){3}([\\d,]+)\\s*%',
           'i',
@@ -360,20 +334,10 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
 
   // ── Asignacion Familiar ─────────────────────────────────────
   try {
-    // Look for "Tramo" rows with amounts and income thresholds
-    const tramoPatterns = [
-      { tramo: 'A', pattern: /tramo\s*[1a][^$]*?\$\s*([\d.,]+)[^$]*?\$\s*([\d.,]+)/i },
-      { tramo: 'B', pattern: /tramo\s*[2b][^$]*?\$\s*([\d.,]+)[^$]*?\$\s*([\d.,]+)(?:[^$]*?\$\s*([\d.,]+))?/i },
-      { tramo: 'C', pattern: /tramo\s*[3c][^$]*?\$\s*([\d.,]+)[^$]*?\$\s*([\d.,]+)(?:[^$]*?\$\s*([\d.,]+))?/i },
-    ]
-
-    // Alternative: parse asignacion familiar section as a whole
     const asigMatch = fullText.match(/asignaci[oó]n\s+familiar[^]*?tramo/i)
     if (asigMatch) {
-      // Try to extract tramo data from the full text after "asignacion familiar"
       const asigSection = fullText.slice(fullText.search(/asignaci[oó]n\s+familiar/i))
 
-      // Tramo A/1
       const tramoAMatch = asigSection.match(/(?:tramo\s*(?:1|a))[^$]*?\$\s*([\d.,]+)[^$]*?(?:renta[^$]*?)?\$\s*([\d.,]+)/i)
       if (tramoAMatch) {
         indicators.asignacion_familiar.push({
@@ -384,7 +348,6 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
         })
       }
 
-      // Tramo B/2
       const tramoBMatch = asigSection.match(/(?:tramo\s*(?:2|b))[^$]*?\$\s*([\d.,]+)[^$]*?\$\s*([\d.,]+)(?:[^$]*?\$\s*([\d.,]+))?/i)
       if (tramoBMatch) {
         indicators.asignacion_familiar.push({
@@ -395,7 +358,6 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
         })
       }
 
-      // Tramo C/3
       const tramoCMatch = asigSection.match(/(?:tramo\s*(?:3|c))[^$]*?\$\s*([\d.,]+)[^$]*?\$\s*([\d.,]+)(?:[^$]*?\$\s*([\d.,]+))?/i)
       if (tramoCMatch) {
         indicators.asignacion_familiar.push({
@@ -406,7 +368,6 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
         })
       }
 
-      // Tramo D/4 - always 0 monto
       const tramoDMatch = asigSection.match(/(?:tramo\s*(?:4|d))[^$]*?\$\s*([\d.,]+)/i)
       if (tramoDMatch) {
         indicators.asignacion_familiar.push({
@@ -450,15 +411,12 @@ async function fetchAndParsePrevired(): Promise<PreviredIndicators | null> {
 
 /**
  * Upsert indicators into Odoo's l10n_cl.indicators model for the given company.
- * If a record for the current month/year already exists, it updates it.
- * Otherwise, it creates a new one.
  */
 async function syncToOdoo(
   indicators: PreviredIndicators,
   companyId: number,
 ): Promise<boolean> {
   try {
-    // Check if a record already exists for this month/year/company
     const existing = await odooAccountingAdapter.searchRead(
       'l10n_cl.indicators',
       [
@@ -478,7 +436,7 @@ async function syncToOdoo(
       uta: indicators.uta,
       imm: indicators.imm,
       tope_imponible_afp: indicators.tope_imponible_afp_uf,
-      tope_imponible_salud: indicators.tope_imponible_afp_uf, // Same as AFP cap (90 UF), NOT IPS (60 UF)
+      tope_imponible_salud: indicators.tope_imponible_afp_uf,
       tope_seg_cesantia: indicators.tope_seg_cesantia_uf,
       company_id: companyId,
     }
@@ -511,7 +469,7 @@ async function syncToOdoo(
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — also used by the manual sync endpoint
 // ---------------------------------------------------------------------------
 
 export interface ScrapeResult {
@@ -523,10 +481,8 @@ export interface ScrapeResult {
 
 /**
  * Main entry point: scrape Previred, parse indicators, sync to Odoo.
- * This function never throws — it returns a result object.
- *
- * @param companyId - The Odoo company ID to associate the indicators with.
- *                    If not provided, syncs for all companies.
+ * This function never throws -- returns a result object.
+ * Used by both the BullMQ worker AND the manual POST endpoint.
  */
 export async function scrapePreviredIndicators(
   companyId?: number,
@@ -543,7 +499,6 @@ export async function scrapePreviredIndicators(
       }
     }
 
-    // Validate scraped data is not all zeros (page might be broken or empty)
     if (indicators.uf === 0 && indicators.utm === 0 && indicators.imm === 0) {
       logger.warn('Previred scrape returned all zeros - skipping sync')
       return {
@@ -554,12 +509,10 @@ export async function scrapePreviredIndicators(
       }
     }
 
-    // If no company ID provided, try to sync for all companies
     let odooSynced = false
     if (companyId) {
       odooSynced = await syncToOdoo(indicators, companyId)
     } else {
-      // Fetch all active companies from Odoo and sync each
       const companies = await odooAccountingAdapter.searchRead(
         'res.company',
         [],
@@ -568,7 +521,7 @@ export async function scrapePreviredIndicators(
       )
 
       if (companies.length === 0) {
-        logger.warn('No companies found in Odoo — skipping sync')
+        logger.warn('No companies found in Odoo -- skipping sync')
       }
 
       let syncedCount = 0
@@ -601,49 +554,70 @@ export async function scrapePreviredIndicators(
 }
 
 // ---------------------------------------------------------------------------
-// Cron scheduler
+// BullMQ job processor
 // ---------------------------------------------------------------------------
 
-const DAILY_8AM_CLT_MS = 60 * 60 * 1000 // Check every hour
+async function processPreviredSync(job: Job): Promise<void> {
+  logger.info({ jobId: job.id }, 'Running scheduled Previred sync job')
+  const result = await scrapePreviredIndicators()
 
-/**
- * Simple daily scheduler that runs at ~8am Chile time (CLT/CLST).
- * Uses setInterval to check hourly and fires at the right hour.
- */
-class PreviredScheduler {
-  private timer: ReturnType<typeof setInterval> | null = null
-  private lastRunDate: string | null = null
-
-  start() {
-    if (this.timer) return
-    logger.info('Previred daily scraper scheduler started (target: 8am CLT)')
-    this.timer = setInterval(() => this.checkAndRun(), DAILY_8AM_CLT_MS)
-    // Run immediately on startup if it hasn't run today
-    setTimeout(() => this.checkAndRun(), 10_000)
+  if (!result.success) {
+    // Throw to trigger BullMQ retry logic
+    throw new Error(`Previred sync failed: ${result.error}`)
   }
 
-  stop() {
-    if (this.timer) {
-      clearInterval(this.timer)
-      this.timer = null
-      logger.info('Previred daily scraper scheduler stopped')
-    }
-  }
-
-  private async checkAndRun() {
-    // Get current time in Chile timezone
-    const nowCLT = new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' })
-    const clDate = new Date(nowCLT)
-    const hour = clDate.getHours()
-    const dateKey = `${clDate.getFullYear()}-${clDate.getMonth() + 1}-${clDate.getDate()}`
-
-    // Only run between 8am-9am CLT and only once per day
-    if (hour >= 8 && hour < 9 && this.lastRunDate !== dateKey) {
-      this.lastRunDate = dateKey
-      logger.info({ dateKey, hour }, 'Running scheduled Previred scrape')
-      await scrapePreviredIndicators()
-    }
-  }
+  logger.info(
+    { odooSynced: result.odooSynced, uf: result.indicators?.uf },
+    'Previred sync job completed',
+  )
 }
 
-export const previredScheduler = new PreviredScheduler()
+// ---------------------------------------------------------------------------
+// Lifecycle: start / stop
+// ---------------------------------------------------------------------------
+
+/**
+ * Initialize the Previred sync queue and worker.
+ * Registers a repeatable job that fires daily at 08:00 Chile/Santiago time.
+ */
+export async function startPreviredScraper(): Promise<void> {
+  queue = createQueue(QUEUE_NAME)
+  worker = createWorker(QUEUE_NAME, processPreviredSync)
+
+  // Daily at 08:00 Chile time (America/Santiago)
+  await queue.upsertJobScheduler(
+    'previred-daily',
+    { pattern: '0 8 * * *', tz: 'America/Santiago' },
+    {
+      name: 'sync-previred-indicators',
+      opts: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+      },
+    },
+  )
+
+  logger.info('Previred Scraper started (BullMQ, daily 08:00 CLT)')
+}
+
+/**
+ * Gracefully shut down the worker and close the queue.
+ */
+export async function stopPreviredScraper(): Promise<void> {
+  if (worker) {
+    await worker.close()
+    worker = null
+  }
+  if (queue) {
+    await queue.close()
+    queue = null
+  }
+  logger.info('Previred Scraper stopped')
+}
+
+/**
+ * Get the queue instance for admin/status endpoints.
+ */
+export function getPreviredQueue(): Queue | null {
+  return queue
+}

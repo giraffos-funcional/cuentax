@@ -9,6 +9,14 @@
 import axios from 'axios'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
+import { getRequestId } from '@/core/request-context'
+import { CircuitBreaker } from '@/core/circuit-breaker'
+
+const odooAccountingCircuit = new CircuitBreaker({
+  name: 'odoo-accounting',
+  failureThreshold: 5,
+  resetTimeout: 30_000,
+})
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -132,6 +140,12 @@ export class OdooAccountingAdapter {
     this.adminPassword = process.env['ODOO_ADMIN_PASSWORD'] ?? ''
   }
 
+  /** Build headers with correlation ID for distributed tracing */
+  private get correlationHeaders(): Record<string, string> {
+    const requestId = getRequestId()
+    return requestId !== 'unknown' ? { 'X-Request-ID': requestId } : {}
+  }
+
   // -------------------------------------------------------------------------
   // Auth — lazy, cached
   // -------------------------------------------------------------------------
@@ -158,7 +172,7 @@ export class OdooAccountingAdapter {
             args: [config.ODOO_DB, this.adminUser, this.adminPassword, {}],
           },
         },
-        { timeout: 15_000 },
+        { timeout: 15_000, headers: this.correlationHeaders },
       )
 
       const uid = response.data?.result
@@ -195,24 +209,26 @@ export class OdooAccountingAdapter {
     if (!session) return null
 
     try {
-      const response = await axios.post<RpcResponse>(
-        this.rpcUrl,
-        {
-          jsonrpc: '2.0',
-          method: 'call',
-          id: Date.now(),
-          params: {
-            service: 'object',
-            method: 'execute_kw',
-            args: [session.db, session.uid, session.password, model, method, args, kwargs],
+      const response = await odooAccountingCircuit.execute(() =>
+        axios.post<RpcResponse>(
+          this.rpcUrl,
+          {
+            jsonrpc: '2.0',
+            method: 'call',
+            id: Date.now(),
+            params: {
+              service: 'object',
+              method: 'execute_kw',
+              args: [session.db, session.uid, session.password, model, method, args, kwargs],
+            },
           },
-        },
-        { timeout: 15_000 },
+          { timeout: 15_000, headers: this.correlationHeaders },
+        ),
       )
 
       if (response.data?.error) {
         logger.error(
-          { model, method, rpcError: response.data.error },
+          { model, method, rpcError: response.data.error, reqId: getRequestId() },
           'Odoo RPC returned error',
         )
         return null
@@ -220,7 +236,7 @@ export class OdooAccountingAdapter {
 
       return response.data?.result ?? null
     } catch (error) {
-      logger.error({ error, model, method }, 'Odoo RPC call failed')
+      logger.error({ error, model, method, reqId: getRequestId() }, 'Odoo RPC call failed')
       // Invalidate cached uid so next call re-authenticates
       this.uid = null
       return null
@@ -370,29 +386,31 @@ export class OdooAccountingAdapter {
     if (!session) return
 
     try {
-      await axios.post<RpcResponse>(
-        this.rpcUrl,
-        {
-          jsonrpc: '2.0',
-          method: 'call',
-          id: Date.now(),
-          params: {
-            service: 'object',
-            method: 'execute_kw',
-            args: [
-              session.db,
-              session.uid,
-              session.password,
-              'account.move',
-              'action_post',
-              [[moveId]],
-            ],
+      await odooAccountingCircuit.execute(() =>
+        axios.post<RpcResponse>(
+          this.rpcUrl,
+          {
+            jsonrpc: '2.0',
+            method: 'call',
+            id: Date.now(),
+            params: {
+              service: 'object',
+              method: 'execute_kw',
+              args: [
+                session.db,
+                session.uid,
+                session.password,
+                'account.move',
+                'action_post',
+                [[moveId]],
+              ],
+            },
           },
-        },
-        { timeout: 15_000 },
+          { timeout: 15_000, headers: this.correlationHeaders },
+        ),
       )
 
-      logger.info({ moveId }, 'Invoice posted in Odoo')
+      logger.info({ moveId, reqId: getRequestId() }, 'Invoice posted in Odoo')
     } catch (error) {
       logger.error({ error, moveId }, 'Failed to post invoice in Odoo')
     }
@@ -764,3 +782,4 @@ export class OdooAccountingAdapter {
 }
 
 export const odooAccountingAdapter = new OdooAccountingAdapter()
+export { odooAccountingCircuit }

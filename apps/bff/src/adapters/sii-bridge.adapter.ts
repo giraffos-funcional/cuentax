@@ -10,6 +10,14 @@ import axios, { AxiosInstance } from 'axios'
 import FormData from 'form-data'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
+import { CircuitBreaker } from '@/core/circuit-breaker'
+import { getRequestId } from '@/core/request-context'
+
+const siiBridgeCircuit = new CircuitBreaker({
+  name: 'sii-bridge',
+  failureThreshold: 5,
+  resetTimeout: 30_000,
+})
 
 export class SIIBridgeAdapter {
   private readonly http: AxiosInstance
@@ -24,11 +32,20 @@ export class SIIBridgeAdapter {
       },
     })
 
+    // Propagate correlation ID to downstream service
+    this.http.interceptors.request.use((reqConfig) => {
+      const requestId = getRequestId()
+      if (requestId !== 'unknown') {
+        reqConfig.headers.set('X-Request-ID', requestId)
+      }
+      return reqConfig
+    })
+
     this.http.interceptors.response.use(
       (res) => res,
       (err) => {
         const detail = err.response?.data?.detail ?? err.message
-        logger.error({ url: err.config?.url, status: err.response?.status, detail }, 'SII Bridge error')
+        logger.error({ url: err.config?.url, status: err.response?.status, detail, reqId: getRequestId() }, 'SII Bridge error')
         throw err
       },
     )
@@ -38,29 +55,29 @@ export class SIIBridgeAdapter {
 
   /** Emite un DTE completo: genera XML, firma, envía al SII */
   async emitDTE(payload: DTEPayload): Promise<DTEResult> {
-    const { data } = await this.http.post('/dte/emit', payload)
+    const { data } = await siiBridgeCircuit.execute(() => this.http.post('/dte/emit', payload))
     return data
   }
 
   /** Consulta el estado de un DTE en el SII por track_id */
   async getDTEStatus(trackId: string, rutEmisor: string): Promise<DTEStatusResult> {
-    const { data } = await this.http.get(`/dte/status/${trackId}`, {
-      params: { rut_emisor: rutEmisor },
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.get(`/dte/status/${trackId}`, { params: { rut_emisor: rutEmisor } }),
+    )
     return data
   }
 
   /** Anula un DTE emitiendo una Nota de Crédito */
   async anularDTE(payload: AnulacionPayload): Promise<DTEResult> {
-    const { data } = await this.http.post('/dte/anular', payload)
+    const { data } = await siiBridgeCircuit.execute(() => this.http.post('/dte/anular', payload))
     return data
   }
 
   /** Genera el PDF de un DTE firmado */
   async generatePDF(xmlB64: string, tipo: number): Promise<Buffer> {
-    const { data } = await this.http.post('/dte/pdf', { xml_b64: xmlB64, tipo_dte: tipo }, {
-      responseType: 'arraybuffer',
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/dte/pdf', { xml_b64: xmlB64, tipo_dte: tipo }, { responseType: 'arraybuffer' }),
+    )
     return Buffer.from(data)
   }
 
@@ -73,17 +90,17 @@ export class SIIBridgeAdapter {
     form.append('rut_empresa', rutEmpresa)
     if (ambiente) form.append('ambiente', ambiente)
 
-    const { data } = await this.http.post('/caf/load', form, {
-      headers: { ...form.getHeaders() },
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/caf/load', form, { headers: { ...form.getHeaders() } }),
+    )
     return data
   }
 
   /** Estado de los CAFs de una empresa, filtrado por ambiente */
   async getCAFStatus(rutEmpresa: string, ambiente: string = ''): Promise<CAFStatus[]> {
-    const { data } = await this.http.get(`/caf/status/${rutEmpresa}`, {
-      params: ambiente ? { ambiente } : {},
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.get(`/caf/status/${rutEmpresa}`, { params: ambiente ? { ambiente } : {} }),
+    )
     return data.cafs ?? []
   }
 
@@ -96,28 +113,32 @@ export class SIIBridgeAdapter {
     form.append('password', password)
     form.append('rut_empresa', rutEmpresa)
 
-    const { data } = await this.http.post('/certificate/load', form, {
-      headers: { ...form.getHeaders() },
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certificate/load', form, { headers: { ...form.getHeaders() } }),
+    )
     return data
   }
 
   /** Estado del certificado cargado (per-company when rut_empresa provided) */
   async getCertificateStatus(rutEmpresa?: string): Promise<CertStatus> {
     const params = rutEmpresa ? `?rut_empresa=${rutEmpresa}` : ''
-    const { data } = await this.http.get(`/certificate/status${params}`)
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.get(`/certificate/status${params}`),
+    )
     return data
   }
 
   /** Associate current company with an existing loaded certificate */
   async associateCertificate(rutEmpresa: string): Promise<{ success: boolean; mensaje: string }> {
-    const { data } = await this.http.post('/certificate/associate', { rut_empresa: rutEmpresa })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certificate/associate', { rut_empresa: rutEmpresa }),
+    )
     return data
   }
 
   /** List all loaded certificates and their associated companies */
   async listCertificates(): Promise<CertListResult> {
-    const { data } = await this.http.get('/certificate/list')
+    const { data } = await siiBridgeCircuit.execute(() => this.http.get('/certificate/list'))
     return data
   }
 
@@ -125,25 +146,33 @@ export class SIIBridgeAdapter {
 
   /** Check prerequisites for certification */
   async certPrerequisites(rutEmisor: string): Promise<any> {
-    const { data } = await this.http.get('/certification/prerequisites', { params: { rut_emisor: rutEmisor || '' } })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.get('/certification/prerequisites', { params: { rut_emisor: rutEmisor || '' } }),
+    )
     return data
   }
 
   /** Get wizard overview */
   async certWizard(rutEmisor: string): Promise<any> {
-    const { data } = await this.http.get('/certification/wizard', { params: { rut_emisor: rutEmisor } })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.get('/certification/wizard', { params: { rut_emisor: rutEmisor } }),
+    )
     return data
   }
 
   /** Get certification status */
   async certStatus(rutEmisor: string): Promise<any> {
-    const { data } = await this.http.get('/certification/status', { params: { rut_emisor: rutEmisor } })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.get('/certification/status', { params: { rut_emisor: rutEmisor } }),
+    )
     return data
   }
 
   /** Mark manual step as complete */
   async certCompleteStep(rutEmisor: string, step: number): Promise<any> {
-    const { data } = await this.http.post('/certification/wizard/complete-step', { rut_emisor: rutEmisor, step })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certification/wizard/complete-step', { rut_emisor: rutEmisor, step }),
+    )
     return data
   }
 
@@ -155,42 +184,50 @@ export class SIIBridgeAdapter {
     Object.entries(emisor).forEach(([key, value]) => {
       form.append(key, String(value))
     })
-    const { data } = await this.http.post(`/certification/wizard/set-prueba/upload?set_type=${setType}`, form, {
-      headers: { ...form.getHeaders() },
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post(`/certification/wizard/set-prueba/upload?set_type=${setType}`, form, {
+        headers: { ...form.getHeaders() },
+      }),
+    )
     return data
   }
 
   /** Process loaded test set */
   async certProcessTestSet(rutEmisor: string, fechaEmision?: string, setType: string = 'factura'): Promise<any> {
-    const { data } = await this.http.post('/certification/wizard/set-prueba/process', {
-      rut_emisor: rutEmisor,
-      fecha_emision: fechaEmision || undefined,
-      set_type: setType,
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certification/wizard/set-prueba/process', {
+        rut_emisor: rutEmisor,
+        fecha_emision: fechaEmision || undefined,
+        set_type: setType,
+      }),
+    )
     return data
   }
 
   /** Send simulation batch */
   async certSimulacion(payloads: any[]): Promise<any> {
-    const { data } = await this.http.post('/certification/wizard/simulacion/send', payloads)
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certification/wizard/simulacion/send', payloads),
+    )
     return data
   }
 
   /** Generate PDF for muestras */
   async certGeneratePDF(dteData: any, tedString?: string): Promise<any> {
-    const { data } = await this.http.post('/certification/wizard/muestras/generate-pdf', {
-      dte_data: dteData,
-      ted_string: tedString,
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certification/wizard/muestras/generate-pdf', {
+        dte_data: dteData,
+        ted_string: tedString,
+      }),
+    )
     return data
   }
 
   /** Reset wizard */
   async certReset(rutEmisor: string): Promise<any> {
-    const { data } = await this.http.post('/certification/wizard/reset', null, {
-      params: { rut_emisor: rutEmisor },
-    })
+    const { data } = await siiBridgeCircuit.execute(() =>
+      this.http.post('/certification/wizard/reset', null, { params: { rut_emisor: rutEmisor } }),
+    )
     return data
   }
 
@@ -198,7 +235,7 @@ export class SIIBridgeAdapter {
 
   /** Verifica conectividad con el SII y genera token si hay certificado */
   async checkSIIConnectivity(): Promise<SIIConnectivityResult> {
-    const { data } = await this.http.get('/health/sii')
+    const { data } = await siiBridgeCircuit.execute(() => this.http.get('/health/sii'))
     return data
   }
 
@@ -330,3 +367,4 @@ export interface SIIConnectivityResult {
 }
 
 export const siiBridgeAdapter = new SIIBridgeAdapter()
+export { siiBridgeCircuit }

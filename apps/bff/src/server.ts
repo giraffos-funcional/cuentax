@@ -5,6 +5,7 @@
  * Orden: security → auth → business routes
  */
 
+import { randomUUID } from 'node:crypto'
 import Fastify from 'fastify'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import cors from '@fastify/cors'
@@ -14,6 +15,9 @@ import multipart from '@fastify/multipart'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
 import { redis, isRedisReady } from '@/adapters/redis.adapter'
+import { siiBridgeCircuit } from '@/adapters/sii-bridge.adapter'
+import { odooAccountingCircuit } from '@/adapters/odoo-accounting.adapter'
+import { odooAuthCircuit } from '@/adapters/odoo-auth.adapter'
 
 // Routes
 import { authRoutes }     from '@/routes/auth'
@@ -29,9 +33,9 @@ import { remuneracionesRoutes } from '@/routes/remuneraciones'
 import { indicatorsRoutes } from '@/routes/indicators'
 import { certificationRoutes } from '@/routes/certification'
 
-// Jobs
-import { dteStatusPoller } from '@/jobs/dte-status-poller'
-import { previredScheduler } from '@/jobs/previred-scraper'
+// Jobs (BullMQ)
+import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
+import { startPreviredScraper, stopPreviredScraper, getPreviredQueue } from '@/jobs/previred-scraper'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -39,6 +43,9 @@ import { sql } from 'drizzle-orm'
 
 // Middleware
 import { authGuard } from '@/middlewares/auth-guard'
+
+// Request context (AsyncLocalStorage for correlation IDs)
+import { requestContext } from '@/core/request-context'
 
 // Extend Fastify types
 declare module 'fastify' {
@@ -54,6 +61,8 @@ declare module 'fastify' {
 const fastify = Fastify({
   logger: false, // Usamos Pino directo
   trustProxy: true,
+  genReqId: (req) => (req.headers['x-request-id'] as string) || randomUUID(),
+  requestIdHeader: 'x-request-id',
 })
 
 async function bootstrap() {
@@ -66,7 +75,8 @@ async function bootstrap() {
     origin: config.ALLOWED_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID', 'X-API-Key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID', 'X-API-Key', 'X-Request-ID'],
+    exposedHeaders: ['X-Request-ID'],
   })
 
   // ── Plugins ───────────────────────────────────────────────
@@ -84,6 +94,16 @@ async function bootstrap() {
 
   // ── Auth decorator ────────────────────────────────────────
   fastify.decorate('authenticate', authGuard)
+
+  // ── Request correlation ID ────────────────────────────────
+  fastify.addHook('onRequest', (request, reply, done) => {
+    const reqId = request.id as string
+    request.log = logger.child({ reqId })
+    reply.header('x-request-id', reqId)
+    // Store in AsyncLocalStorage so adapters can read it without explicit threading
+    requestContext.enterWith({ requestId: reqId })
+    done()
+  })
 
   // ── Connect Redis ─────────────────────────────────────────
   await redis.connect()
@@ -122,6 +142,11 @@ async function bootstrap() {
         redis: redisAlive ? 'ok' : 'down',
         postgresql: pgAlive ? 'ok' : 'down',
       },
+      circuits: {
+        sii_bridge: siiBridgeCircuit.getState(),
+        odoo_accounting: odooAccountingCircuit.getState(),
+        odoo_auth: odooAuthCircuit.getState(),
+      },
       timestamp: new Date().toISOString(),
     })
   })
@@ -147,6 +172,11 @@ async function bootstrap() {
       dependencies: {
         redis: redisAlive ? 'ok' : 'down',
         postgresql: pgAlive ? 'ok' : 'down',
+      },
+      circuits: {
+        sii_bridge: siiBridgeCircuit.getState(),
+        odoo_accounting: odooAccountingCircuit.getState(),
+        odoo_auth: odooAuthCircuit.getState(),
       },
       timestamp: new Date().toISOString(),
     })
@@ -255,9 +285,39 @@ async function bootstrap() {
   await fastify.register(indicatorsRoutes, { prefix: '/api/v1/indicators' })
   await fastify.register(certificationRoutes, { prefix: '/api/v1/certification' })
 
+  // ── Admin: Job queue status ───────────────────────────────
+  fastify.get('/api/v1/admin/jobs', async (_, reply) => {
+    const queues = [
+      { name: 'dte-status-polling', queue: getDTEStatusQueue() },
+      { name: 'previred-sync', queue: getPreviredQueue() },
+    ]
+
+    const status = await Promise.all(
+      queues.map(async ({ name, queue }) => {
+        if (!queue) {
+          return { name, status: 'not_initialized' }
+        }
+        try {
+          const counts = await queue.getJobCounts(
+            'active', 'completed', 'failed', 'delayed', 'waiting',
+          )
+          return { name, status: 'ok', counts }
+        } catch (err) {
+          return { name, status: 'error', error: String(err) }
+        }
+      }),
+    )
+
+    return reply.send({
+      service: 'cuentax-bff',
+      queues: status,
+      timestamp: new Date().toISOString(),
+    })
+  })
+
   // ── Global error handler ──────────────────────────────────
   fastify.setErrorHandler((error, request, reply) => {
-    logger.error({ error, url: request.url, method: request.method }, 'Unhandled error')
+    logger.error({ error, url: request.url, method: request.method, reqId: request.id }, 'Unhandled error')
 
     const statusCode = error.statusCode ?? 500
     reply.status(statusCode).send({
@@ -285,8 +345,9 @@ async function bootstrap() {
     logger.info(`   SII Bridge: ${config.SII_BRIDGE_URL}`)
     logger.info(`   Odoo: ${config.ODOO_URL}`)
 
-    // ── Background Jobs ───────────────────────────────────────
-    previredScheduler.start()
+    // ── Background Jobs (BullMQ) ────────────────────────────────
+    await startDTEStatusPoller()
+    await startPreviredScraper()
   } catch (err) {
     logger.error(err, 'Error al iniciar BFF')
     process.exit(1)
@@ -296,7 +357,11 @@ async function bootstrap() {
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   logger.info(`${signal} recibido — cerrando servidor...`)
-  previredScheduler.stop()
+  // Shut down BullMQ workers first (stop accepting new jobs)
+  await Promise.all([
+    stopDTEStatusPoller(),
+    stopPreviredScraper(),
+  ])
   await fastify.close()
   await redis.quit()
   process.exit(0)
