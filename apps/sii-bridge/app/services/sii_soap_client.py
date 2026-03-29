@@ -90,6 +90,24 @@ class SIISoapClient:
             session.headers["X-Proxy-Token"] = "cuentax-sii-proxy-2024"
         return session
 
+    def _extract_soap_return(self, soap_content: bytes, return_tag: str) -> Optional[str]:
+        """Extract inner XML from a SOAP response return element.
+        SII returns something like:
+          <getSeedReturn xsi:type="xsd:string">&lt;?xml ...&gt;...&lt;/SII:RESPUESTA&gt;</getSeedReturn>
+        We need the unescaped text content of that element.
+        """
+        try:
+            root = etree.fromstring(soap_content)
+            # Find the return element by local name
+            for el in root.iter():
+                local = etree.QName(el.tag).localname if isinstance(el.tag, str) else ''
+                if local == return_tag and el.text:
+                    return el.text.strip()
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing SOAP return '{return_tag}': {e}")
+            return None
+
     def _is_token_valid(self) -> bool:
         """Verifica si el token SII sigue vigente (válido 2 horas)."""
         if not self._token or not self._token_generated_at:
@@ -170,14 +188,20 @@ class SIISoapClient:
                 logger.error(f"SII getSeed HTTP {resp.status_code}: {resp.text[:200]}")
                 return None
 
-            # Parse SOAP response
-            root = etree.fromstring(resp.content)
+            # SII returns the seed as escaped XML inside a string element.
+            # e.g. <getSeedReturn>&lt;?xml ...&gt;&lt;SEMILLA&gt;123&lt;/SEMILLA&gt;...</getSeedReturn>
+            inner_xml = self._extract_soap_return(resp.content, "getSeedReturn")
+            if not inner_xml:
+                logger.error(f"No getSeedReturn in SII response: {resp.text[:300]}")
+                return None
+
+            root = etree.fromstring(inner_xml.encode())
             seed_element = root.find(".//{http://DefaultNamespace}SEMILLA") or \
                            root.find(".//SEMILLA") or \
                            root.find(".//semilla")
 
             if seed_element is None or not seed_element.text:
-                logger.error(f"No se encontró semilla en respuesta SII: {resp.text[:300]}")
+                logger.error(f"No se encontró semilla en XML interno: {inner_xml[:200]}")
                 return None
 
             seed = seed_element.text.strip()
@@ -242,8 +266,13 @@ class SIISoapClient:
                 logger.error(f"SII getToken HTTP {resp.status_code}: {resp.text[:200]}")
                 return None
 
-            # Parsear respuesta
-            root = etree.fromstring(resp.content)
+            # SII returns the token as escaped XML inside getTokenReturn
+            inner_xml = self._extract_soap_return(resp.content, "getTokenReturn")
+            if not inner_xml:
+                logger.error(f"No getTokenReturn in SII response: {resp.text[:300]}")
+                return None
+
+            root = etree.fromstring(inner_xml.encode())
 
             token_element = root.find(".//{http://DefaultNamespace}TOKEN") or \
                             root.find(".//TOKEN") or \
@@ -257,7 +286,7 @@ class SIISoapClient:
                 return None
 
             if token_element is None or not token_element.text:
-                logger.error(f"No se encontró TOKEN en respuesta SII: {resp.text[:300]}")
+                logger.error(f"No se encontró TOKEN en XML interno: {inner_xml[:200]}")
                 return None
 
             return token_element.text.strip()
