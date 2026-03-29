@@ -635,9 +635,9 @@ export default function DashboardLayout({
 
   // Derive sidebar SII status from real hook data
   const derivedSiiStatus: 'ok' | 'warning' | 'error' | 'loading' = (() => {
+    if (!cert.cargado) return 'warning'
     if (cert.cargado && connectivity.conectado) return 'ok'
-    if (cert.cargado && !connectivity.conectado) return 'warning'
-    if (!cert.cargado) return 'error'
+    if (cert.cargado && !connectivity.conectado) return 'error'
     return 'loading'
   })()
   const derivedAmbiente = connectivity.ambiente ?? 'certificacion'

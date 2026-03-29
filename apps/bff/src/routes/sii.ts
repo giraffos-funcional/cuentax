@@ -51,7 +51,15 @@ export async function siiRoutes(fastify: FastifyInstance) {
   // ── GET /certificate/status ────────────────────────────────
   fastify.get('/certificate/status', async (request, reply) => {
     const user = (request as any).user
-    const status = await siiBridgeAdapter.getCertificateStatus(user.company_rut)
+    const rut = user.company_rut
+
+    // Odoo returns false (bool or string) for empty fields.
+    // If the company has no RUT, there's no way to have an associated cert.
+    if (!rut || rut === false || rut === 'false' || rut === 'False') {
+      return reply.send({ cargado: false })
+    }
+
+    const status = await siiBridgeAdapter.getCertificateStatus(rut)
     return reply.send(status)
   })
 

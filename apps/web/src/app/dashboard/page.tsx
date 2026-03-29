@@ -181,7 +181,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <h2 className="text-lg font-bold text-[var(--cx-text-primary)]">{user.company_name}</h2>
-            {user.company_rut && (
+            {user.company_rut && user.company_rut !== false && user.company_rut !== 'false' && user.company_rut !== 'False' && (
               <p className="text-xs text-[var(--cx-text-muted)] font-mono">{user.company_rut}</p>
             )}
           </div>
