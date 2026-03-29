@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   ShieldCheck, CheckCircle2, Circle, ChevronRight, Upload,
   ExternalLink, Loader2, AlertTriangle, FileText, Send,
@@ -426,14 +426,36 @@ export default function CertificacionWizardPage() {
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // Use API data when available, otherwise local state
-  const apiSteps = wizard?.steps
-  const steps = apiSteps ?? DEFAULT_STEPS.map(s => ({
+  // Sync initial state from API on first load
+  useEffect(() => {
+    if (wizard?.current_step && wizard.current_step > localStep) {
+      setLocalStep(wizard.current_step)
+    }
+    if (wizard?.steps) {
+      const apiCompleted = new Set(completedSteps)
+      for (const s of wizard.steps) {
+        if (s.completado) apiCompleted.add(s.step)
+      }
+      if (apiCompleted.size > completedSteps.size) {
+        setCompletedSteps(apiCompleted)
+      }
+    }
+  }, [wizard]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Local state drives the UI; API syncs in background
+  const currentStep = localStep
+  const mergedCompleted = new Set(completedSteps)
+  // Merge API completed steps into local state
+  if (wizard?.steps) {
+    for (const s of wizard.steps) {
+      if (s.completado) mergedCompleted.add(s.step)
+    }
+  }
+  const steps = DEFAULT_STEPS.map(s => ({
     ...s,
-    completado: completedSteps.has(s.step),
-    actual: s.step === localStep,
+    completado: mergedCompleted.has(s.step),
+    actual: s.step === currentStep,
   }))
-  const currentStep = wizard?.current_step ?? localStep
 
   const handleCompleteStep = async (step: number) => {
     setActionError(null)
