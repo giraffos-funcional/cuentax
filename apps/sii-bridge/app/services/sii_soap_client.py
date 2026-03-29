@@ -228,6 +228,7 @@ class SIISoapClient:
             "conectado": False,
             "token_vigente": self._is_token_valid(),
             "error": None,
+            "proxy": self._proxy_url or "none",
         }
 
         try:
@@ -239,13 +240,16 @@ class SIISoapClient:
                 return result
         except Exception as e:
             logger.debug(f"Seed test failed: {e}")
+            result["seed_error"] = str(e)
 
         try:
             # Fallback: check if WSDL endpoint responds at all
+            proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
             response = requests.get(
                 self._wsdls["auth"],
                 timeout=15,
                 allow_redirects=True,
+                proxies=proxies,
             )
             result["conectado"] = response.status_code < 500
             result["http_status"] = response.status_code
