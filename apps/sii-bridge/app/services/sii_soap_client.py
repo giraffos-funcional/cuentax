@@ -209,6 +209,7 @@ class SIISoapClient:
         """
         Verifica conectividad con el SII.
         Útil para el health check y la pantalla de Configuración.
+        Intenta obtener una semilla real como prueba de conectividad.
         """
         result = {
             "ambiente": self._ambiente,
@@ -219,12 +220,26 @@ class SIISoapClient:
         }
 
         try:
-            # Intentar obtener semilla (no requiere certificado)
+            # Try to actually get a seed — this is the real connectivity test
+            seed = self._get_seed()
+            if seed:
+                result["conectado"] = True
+                result["semilla_ok"] = True
+                return result
+        except Exception as e:
+            logger.debug(f"Seed test failed: {e}")
+
+        try:
+            # Fallback: check if WSDL endpoint responds at all
             response = requests.get(
-                self._wsdls["auth"].replace("?WSDL", ""),
-                timeout=10,
+                self._wsdls["auth"],
+                timeout=15,
+                allow_redirects=True,
             )
-            result["conectado"] = response.status_code in (200, 404, 500)  # Cualquier resp del SII = conectado
+            result["conectado"] = response.status_code < 500
+            result["http_status"] = response.status_code
+            if not result["conectado"]:
+                result["error"] = f"SII respondió con HTTP {response.status_code}"
         except Exception as e:
             result["error"] = str(e)
             logger.warning(f"SII no alcanzable: {e}")
