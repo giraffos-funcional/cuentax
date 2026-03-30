@@ -131,9 +131,11 @@ export async function siiRoutes(fastify: FastifyInstance) {
 
   // ── GET /health ────────────────────────────────────────────
   fastify.get('/bridge-health', async (request, reply) => {
+    const bridgeUrl = config.SII_BRIDGE_URL
     const alive = await siiBridgeAdapter.ping()
     return reply.status(alive ? 200 : 503).send({
       bridge: alive ? 'ok' : 'down',
+      bridgeUrl,
     })
   })
 }
