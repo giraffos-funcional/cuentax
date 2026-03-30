@@ -270,14 +270,20 @@ class CertificateService:
         )
         cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
 
-        # Sign using enveloped method (Signature goes inside the root element)
-        # SII Chile mandates RSA-SHA1. signxml 4.x deprecated SHA1 but still
-        # supports it via the enum values. Use full URI strings as fallback.
-        signer = XMLSigner(
+        # SII Chile mandates RSA-SHA1 for all DTE XML signatures.
+        # signxml 4.x unconditionally blocks SHA1 in check_deprecated_methods()
+        # during __init__, even when using URI strings or enum values.
+        # We subclass XMLSigner to bypass this check for SII compliance.
+        class _SIIXMLSigner(XMLSigner):
+            """XMLSigner that permits SHA1 algorithms required by SII Chile."""
+            def check_deprecated_methods(self):
+                pass  # SII Chile requires RSA-SHA1 — regulatory override
+
+        signer = _SIIXMLSigner(
             method=SignatureConstructionMethod.enveloped,
-            signature_algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1",
-            digest_algorithm="http://www.w3.org/2000/09/xmldsig#sha1",
-            c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
+            signature_algorithm=SignatureMethod.RSA_SHA1,
+            digest_algorithm=DigestAlgorithm.SHA1,
+            c14n_algorithm=CanonicalizationMethod.CANONICAL_XML_1_0,
         )
 
         signed_root = signer.sign(
