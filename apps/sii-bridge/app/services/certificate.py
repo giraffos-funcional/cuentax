@@ -257,7 +257,7 @@ class CertificateService:
                 which titular certificate to use. If not provided,
                 falls back to the first (or only) loaded cert.
         """
-        from signxml import XMLSigner
+        from signxml import XMLSigner, SignatureConstructionMethod
 
         private_key, certificate = self._resolve_cert(rut_emisor)
 
@@ -270,8 +270,9 @@ class CertificateService:
         cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
 
         # Sign using enveloped method (Signature goes inside the root element)
+        # signxml 4.x uses SignatureConstructionMethod enum instead of XMLSigner.Method
         signer = XMLSigner(
-            method=XMLSigner.Method.enveloped,
+            method=SignatureConstructionMethod.enveloped,
             signature_algorithm="rsa-sha1",
             digest_algorithm="sha1",
             c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
