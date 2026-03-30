@@ -19,12 +19,29 @@ const siiBridgeCircuit = new CircuitBreaker({
   resetTimeout: 30_000,
 })
 
+/** Connection error codes that indicate the URL itself is unreachable (not an app-level error) */
+const CONNECTION_ERROR_CODES = new Set(['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNRESET', 'ECONNABORTED'])
+
+const isConnectionError = (err: unknown): boolean => {
+  if (!axios.isAxiosError(err)) return false
+  // Network-level failures (no response received at all)
+  if (err.code && CONNECTION_ERROR_CODES.has(err.code)) return true
+  // Timeout with no response also means unreachable
+  if (err.code === 'ERR_CANCELED' && !err.response) return true
+  return false
+}
+
 export class SIIBridgeAdapter {
   private readonly http: AxiosInstance
+  private _currentBaseUrl: string
+  private readonly _fallbackUrls: string[]
 
   constructor() {
+    this._currentBaseUrl = config.SII_BRIDGE_URL
+    this._fallbackUrls = [...config.SII_BRIDGE_FALLBACK_URLS]
+
     this.http = axios.create({
-      baseURL: config.SII_BRIDGE_URL,
+      baseURL: this._currentBaseUrl,
       timeout: 15_000, // Default 15s; long operations override per-request
       headers: {
         'Content-Type': 'application/json',
@@ -49,38 +66,114 @@ export class SIIBridgeAdapter {
         throw err
       },
     )
+
+    if (this._fallbackUrls.length > 0) {
+      logger.info(
+        { primary: this._currentBaseUrl, fallbacks: this._fallbackUrls },
+        'SII Bridge adapter initialized with fallback URLs',
+      )
+    }
+  }
+
+  // ── URL Fallback ──────────────────────────────────────────
+
+  /** Switch the primary URL and move the old one into fallback pool */
+  private _promoteUrl(newPrimary: string): void {
+    const oldPrimary = this._currentBaseUrl
+    this._currentBaseUrl = newPrimary
+    this.http.defaults.baseURL = newPrimary
+
+    // Remove the new primary from fallback list and push old primary to the end
+    const idx = this._fallbackUrls.indexOf(newPrimary)
+    if (idx !== -1) this._fallbackUrls.splice(idx, 1)
+    this._fallbackUrls.push(oldPrimary)
+
+    logger.warn(
+      { from: oldPrimary, to: newPrimary, fallbacks: this._fallbackUrls },
+      'SII Bridge URL switched to fallback',
+    )
+  }
+
+  /**
+   * Execute a request function with automatic URL fallback on connection errors.
+   * Tries the current primary URL first, then each fallback in order.
+   * When a fallback succeeds, it becomes the new primary.
+   */
+  private async _requestWithFallback<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (err) {
+      if (!isConnectionError(err) || this._fallbackUrls.length === 0) throw err
+
+      logger.warn(
+        { url: this._currentBaseUrl, fallbackCount: this._fallbackUrls.length },
+        'SII Bridge primary URL unreachable, trying fallbacks',
+      )
+
+      // Try each fallback in order
+      for (const fallbackUrl of [...this._fallbackUrls]) {
+        try {
+          // Temporarily switch baseURL for this attempt
+          this.http.defaults.baseURL = fallbackUrl
+          const result = await fn()
+          // Fallback worked — promote it
+          this._promoteUrl(fallbackUrl)
+          return result
+        } catch (fallbackErr) {
+          if (!isConnectionError(fallbackErr)) {
+            // App-level error from this URL means the URL works but request failed
+            // Still promote the URL since it's reachable
+            this._promoteUrl(fallbackUrl)
+            throw fallbackErr
+          }
+          logger.warn({ url: fallbackUrl }, 'SII Bridge fallback URL also unreachable')
+        }
+      }
+
+      // All fallbacks failed — restore original baseURL and throw original error
+      this.http.defaults.baseURL = this._currentBaseUrl
+      throw err
+    }
   }
 
   // ── DTE ────────────────────────────────────────────────────
 
   /** Emite un DTE completo: genera XML, firma, envía al SII */
   async emitDTE(payload: DTEPayload): Promise<DTEResult> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/dte/emit', payload, { timeout: 45_000 }), // SII round-trip can be slow
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/dte/emit', payload, { timeout: 45_000 }),
+      ),
     )
     return data
   }
 
   /** Consulta el estado de un DTE en el SII por track_id */
   async getDTEStatus(trackId: string, rutEmisor: string): Promise<DTEStatusResult> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.get(`/dte/status/${trackId}`, { params: { rut_emisor: rutEmisor } }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.get(`/dte/status/${trackId}`, { params: { rut_emisor: rutEmisor } }),
+      ),
     )
     return data
   }
 
   /** Anula un DTE emitiendo una Nota de Crédito */
   async anularDTE(payload: AnulacionPayload): Promise<DTEResult> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/dte/anular', payload, { timeout: 45_000 }), // SII round-trip can be slow
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/dte/anular', payload, { timeout: 45_000 }),
+      ),
     )
     return data
   }
 
   /** Genera el PDF de un DTE firmado */
   async generatePDF(xmlB64: string, tipo: number): Promise<Buffer> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/dte/pdf', { xml_b64: xmlB64, tipo_dte: tipo }, { responseType: 'arraybuffer', timeout: 30_000 }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/dte/pdf', { xml_b64: xmlB64, tipo_dte: tipo }, { responseType: 'arraybuffer', timeout: 30_000 }),
+      ),
     )
     return Buffer.from(data)
   }
@@ -95,14 +188,18 @@ export class SIIBridgeAdapter {
     form.append('rut_empresa', rutEmpresa)
     if (ambiente) form.append('ambiente', ambiente)
 
-    const { data } = await this.http.post('/caf/load', form, { headers: { ...form.getHeaders() } })
+    const { data } = await this._requestWithFallback(() =>
+      this.http.post('/caf/load', form, { headers: { ...form.getHeaders() } }),
+    )
     return data
   }
 
   /** Estado de los CAFs de una empresa, filtrado por ambiente.
    *  Bypasses circuit breaker — config query, not SII operation. */
   async getCAFStatus(rutEmpresa: string, ambiente: string = ''): Promise<CAFStatus[]> {
-    const { data } = await this.http.get(`/caf/status/${rutEmpresa}`, { params: ambiente ? { ambiente } : {} })
+    const { data } = await this._requestWithFallback(() =>
+      this.http.get(`/caf/status/${rutEmpresa}`, { params: ambiente ? { ambiente } : {} }),
+    )
     return data.cafs ?? []
   }
 
@@ -117,10 +214,12 @@ export class SIIBridgeAdapter {
     form.append('password', password)
     form.append('rut_empresa', rutEmpresa)
 
-    const { data } = await this.http.post('/certificate/load', form, {
-      headers: { ...form.getHeaders() },
-      timeout: 10_000,
-    })
+    const { data } = await this._requestWithFallback(() =>
+      this.http.post('/certificate/load', form, {
+        headers: { ...form.getHeaders() },
+        timeout: 10_000,
+      }),
+    )
     return data
   }
 
@@ -128,21 +227,27 @@ export class SIIBridgeAdapter {
    *  Bypasses circuit breaker — config query, not SII operation. */
   async getCertificateStatus(rutEmpresa?: string): Promise<CertStatus> {
     const params = rutEmpresa ? `?rut_empresa=${rutEmpresa}` : ''
-    const { data } = await this.http.get(`/certificate/status${params}`)
+    const { data } = await this._requestWithFallback(() =>
+      this.http.get(`/certificate/status${params}`),
+    )
     return data
   }
 
   /** Associate current company with an existing loaded certificate.
    *  Bypasses circuit breaker — config operation, not SII operation. */
   async associateCertificate(rutEmpresa: string): Promise<{ success: boolean; mensaje: string }> {
-    const { data } = await this.http.post('/certificate/associate', { rut_empresa: rutEmpresa })
+    const { data } = await this._requestWithFallback(() =>
+      this.http.post('/certificate/associate', { rut_empresa: rutEmpresa }),
+    )
     return data
   }
 
   /** List all loaded certificates and their associated companies.
    *  Bypasses circuit breaker — config query, not SII operation. */
   async listCertificates(): Promise<CertListResult> {
-    const { data } = await this.http.get('/certificate/list')
+    const { data } = await this._requestWithFallback(() =>
+      this.http.get('/certificate/list'),
+    )
     return data
   }
 
@@ -150,32 +255,40 @@ export class SIIBridgeAdapter {
 
   /** Check prerequisites for certification */
   async certPrerequisites(rutEmisor: string): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.get('/certification/prerequisites', { params: { rut_emisor: rutEmisor || '' } }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.get('/certification/prerequisites', { params: { rut_emisor: rutEmisor || '' } }),
+      ),
     )
     return data
   }
 
   /** Get wizard overview */
   async certWizard(rutEmisor: string): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.get('/certification/wizard', { params: { rut_emisor: rutEmisor } }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.get('/certification/wizard', { params: { rut_emisor: rutEmisor } }),
+      ),
     )
     return data
   }
 
   /** Get certification status */
   async certStatus(rutEmisor: string): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.get('/certification/status', { params: { rut_emisor: rutEmisor } }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.get('/certification/status', { params: { rut_emisor: rutEmisor } }),
+      ),
     )
     return data
   }
 
   /** Mark manual step as complete */
   async certCompleteStep(rutEmisor: string, step: number): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certification/wizard/complete-step', { rut_emisor: rutEmisor, step }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/certification/wizard/complete-step', { rut_emisor: rutEmisor, step }),
+      ),
     )
     return data
   }
@@ -188,49 +301,59 @@ export class SIIBridgeAdapter {
     Object.entries(emisor).forEach(([key, value]) => {
       form.append(key, String(value))
     })
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post(`/certification/wizard/set-prueba/upload?set_type=${setType}`, form, {
-        headers: { ...form.getHeaders() },
-      }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post(`/certification/wizard/set-prueba/upload?set_type=${setType}`, form, {
+          headers: { ...form.getHeaders() },
+        }),
+      ),
     )
     return data
   }
 
   /** Process loaded test set */
   async certProcessTestSet(rutEmisor: string, fechaEmision?: string, setType: string = 'factura'): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certification/wizard/set-prueba/process', {
-        rut_emisor: rutEmisor,
-        fecha_emision: fechaEmision || undefined,
-        set_type: setType,
-      }, { timeout: 60_000 }), // Processing test set generates multiple DTEs
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/certification/wizard/set-prueba/process', {
+          rut_emisor: rutEmisor,
+          fecha_emision: fechaEmision || undefined,
+          set_type: setType,
+        }, { timeout: 60_000 }),
+      ),
     )
     return data
   }
 
   /** Send simulation batch */
   async certSimulacion(payloads: any[]): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certification/wizard/simulacion/send', payloads),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/certification/wizard/simulacion/send', payloads),
+      ),
     )
     return data
   }
 
   /** Generate PDF for muestras */
   async certGeneratePDF(dteData: any, tedString?: string): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certification/wizard/muestras/generate-pdf', {
-        dte_data: dteData,
-        ted_string: tedString,
-      }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/certification/wizard/muestras/generate-pdf', {
+          dte_data: dteData,
+          ted_string: tedString,
+        }),
+      ),
     )
     return data
   }
 
   /** Reset wizard */
   async certReset(rutEmisor: string): Promise<any> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certification/wizard/reset', null, { params: { rut_emisor: rutEmisor } }),
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/certification/wizard/reset', null, { params: { rut_emisor: rutEmisor } }),
+      ),
     )
     return data
   }
@@ -239,18 +362,46 @@ export class SIIBridgeAdapter {
 
   /** Verifica conectividad con el SII y genera token si hay certificado */
   async checkSIIConnectivity(): Promise<SIIConnectivityResult> {
-    const { data } = await siiBridgeCircuit.execute(() => this.http.get('/health/sii'))
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() => this.http.get('/health/sii')),
+    )
     return data
   }
 
-  /** Consulta estado del bridge (health check interno) */
+  /** Consulta estado del bridge (health check interno).
+   *  Tries all URLs and sets the first reachable one as primary. */
   async ping(): Promise<boolean> {
+    // Try primary first
     try {
       await this.http.get('/health', { timeout: 8_000 })
       return true
-    } catch {
-      return false
+    } catch (err) {
+      if (!isConnectionError(err) || this._fallbackUrls.length === 0) return false
     }
+
+    // Primary unreachable — try each fallback
+    for (const fallbackUrl of [...this._fallbackUrls]) {
+      try {
+        const saved = this.http.defaults.baseURL
+        this.http.defaults.baseURL = fallbackUrl
+        await this.http.get('/health', { timeout: 8_000 })
+        // This fallback works — promote it
+        this.http.defaults.baseURL = saved // restore before promote (promote sets it)
+        this._promoteUrl(fallbackUrl)
+        return true
+      } catch {
+        // Continue to next fallback
+      }
+    }
+
+    // Restore original baseURL since nothing worked
+    this.http.defaults.baseURL = this._currentBaseUrl
+    return false
+  }
+
+  /** Returns the currently active bridge URL (useful for debugging/health endpoints) */
+  get currentBaseUrl(): string {
+    return this._currentBaseUrl
   }
 }
 

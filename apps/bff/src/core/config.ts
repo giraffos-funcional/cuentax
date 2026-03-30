@@ -37,6 +37,7 @@ export const config = {
 
   // SII Bridge (internal)
   SII_BRIDGE_URL:  optional('SII_BRIDGE_URL', 'http://localhost:8000/api/v1'),
+  SII_BRIDGE_FALLBACK_URLS: optional('SII_BRIDGE_FALLBACK_URLS', '').split(',').filter(Boolean),
   INTERNAL_SECRET: secret('INTERNAL_SECRET', 'dev_internal_secret_change_in_prod'),
 
   // JWT
