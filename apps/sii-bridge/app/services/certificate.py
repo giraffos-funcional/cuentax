@@ -257,7 +257,8 @@ class CertificateService:
                 which titular certificate to use. If not provided,
                 falls back to the first (or only) loaded cert.
         """
-        from signxml import XMLSigner
+        from signxml import XMLSigner, SignatureConstructionMethod
+        from signxml.algorithms import SignatureMethod, DigestAlgorithm, CanonicalizationMethod
 
         private_key, certificate = self._resolve_cert(rut_emisor)
 
@@ -270,11 +271,12 @@ class CertificateService:
         cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
 
         # Sign using enveloped method (Signature goes inside the root element)
-        # SII Chile requires RSA-SHA1 — pinned to signxml 3.x which supports it
+        # SII Chile mandates RSA-SHA1. signxml 4.x deprecated SHA1 but still
+        # supports it via the enum values. Use full URI strings as fallback.
         signer = XMLSigner(
-            method=XMLSigner.Method.enveloped,
-            signature_algorithm="rsa-sha1",
-            digest_algorithm="sha1",
+            method=SignatureConstructionMethod.enveloped,
+            signature_algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1",
+            digest_algorithm="http://www.w3.org/2000/09/xmldsig#sha1",
             c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
         )
 
