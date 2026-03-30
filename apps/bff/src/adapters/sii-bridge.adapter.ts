@@ -87,65 +87,62 @@ export class SIIBridgeAdapter {
 
   // ── CAF ────────────────────────────────────────────────────
 
-  /** Carga un CAF (archivo XML) al SII Bridge */
+  /** Carga un CAF (archivo XML) al SII Bridge.
+   *  Bypasses circuit breaker — config operation, not SII operation. */
   async loadCAF(cafXmlBuffer: Buffer, filename: string, rutEmpresa: string, ambiente: string = ''): Promise<CAFLoadResult> {
     const form = new FormData()
     form.append('file', cafXmlBuffer, { filename, contentType: 'application/xml' })
     form.append('rut_empresa', rutEmpresa)
     if (ambiente) form.append('ambiente', ambiente)
 
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/caf/load', form, { headers: { ...form.getHeaders() } }),
-    )
+    const { data } = await this.http.post('/caf/load', form, { headers: { ...form.getHeaders() } })
     return data
   }
 
-  /** Estado de los CAFs de una empresa, filtrado por ambiente */
+  /** Estado de los CAFs de una empresa, filtrado por ambiente.
+   *  Bypasses circuit breaker — config query, not SII operation. */
   async getCAFStatus(rutEmpresa: string, ambiente: string = ''): Promise<CAFStatus[]> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.get(`/caf/status/${rutEmpresa}`, { params: ambiente ? { ambiente } : {} }),
-    )
+    const { data } = await this.http.get(`/caf/status/${rutEmpresa}`, { params: ambiente ? { ambiente } : {} })
     return data.cafs ?? []
   }
 
   // ── Certificado ────────────────────────────────────────────
 
-  /** Carga el certificado digital PFX al SII Bridge */
+  /** Carga el certificado digital PFX al SII Bridge.
+   *  Certificate config ops bypass circuit breaker — they talk directly to the bridge,
+   *  not to SII Chile, so they should always work if the bridge container is alive. */
   async loadCertificate(pfxBuffer: Buffer, password: string, rutEmpresa: string): Promise<CertResult> {
     const form = new FormData()
     form.append('file', pfxBuffer, { filename: 'certificado.pfx', contentType: 'application/octet-stream' })
     form.append('password', password)
     form.append('rut_empresa', rutEmpresa)
 
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certificate/load', form, {
-        headers: { ...form.getHeaders() },
-        timeout: 10_000, // Certificate upload is small (~4KB), 10s is plenty
-      }),
-    )
+    const { data } = await this.http.post('/certificate/load', form, {
+      headers: { ...form.getHeaders() },
+      timeout: 10_000,
+    })
     return data
   }
 
-  /** Estado del certificado cargado (per-company when rut_empresa provided) */
+  /** Estado del certificado cargado (per-company when rut_empresa provided).
+   *  Bypasses circuit breaker — config query, not SII operation. */
   async getCertificateStatus(rutEmpresa?: string): Promise<CertStatus> {
     const params = rutEmpresa ? `?rut_empresa=${rutEmpresa}` : ''
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.get(`/certificate/status${params}`),
-    )
+    const { data } = await this.http.get(`/certificate/status${params}`)
     return data
   }
 
-  /** Associate current company with an existing loaded certificate */
+  /** Associate current company with an existing loaded certificate.
+   *  Bypasses circuit breaker — config operation, not SII operation. */
   async associateCertificate(rutEmpresa: string): Promise<{ success: boolean; mensaje: string }> {
-    const { data } = await siiBridgeCircuit.execute(() =>
-      this.http.post('/certificate/associate', { rut_empresa: rutEmpresa }),
-    )
+    const { data } = await this.http.post('/certificate/associate', { rut_empresa: rutEmpresa })
     return data
   }
 
-  /** List all loaded certificates and their associated companies */
+  /** List all loaded certificates and their associated companies.
+   *  Bypasses circuit breaker — config query, not SII operation. */
   async listCertificates(): Promise<CertListResult> {
-    const { data } = await siiBridgeCircuit.execute(() => this.http.get('/certificate/list'))
+    const { data } = await this.http.get('/certificate/list')
     return data
   }
 

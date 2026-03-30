@@ -61,9 +61,6 @@ export async function siiRoutes(fastify: FastifyInstance) {
       const result = await siiBridgeAdapter.loadCertificate(fileBuffer, password, rut)
       return reply.status(result.success ? 200 : 422).send(result)
     } catch (err: any) {
-      if (err instanceof CircuitOpenError) {
-        return reply.status(503).send({ error: 'service_unavailable', message: 'SII Bridge no disponible, intente en unos momentos' })
-      }
       const status = err.response?.status ?? 502
       return reply.status(status).send({ error: 'cert_error', message: extractError(err, 'Error cargando certificado') })
     }
@@ -91,9 +88,6 @@ export async function siiRoutes(fastify: FastifyInstance) {
       const result = await siiBridgeAdapter.associateCertificate(rut)
       return reply.status(result.success ? 200 : 422).send(result)
     } catch (err: any) {
-      if (err instanceof CircuitOpenError) {
-        return reply.status(503).send({ error: 'service_unavailable', message: 'SII Bridge no disponible, intente en unos momentos' })
-      }
       return reply.status(422).send({ error: 'associate_error', message: extractError(err, 'Error asociando certificado') })
     }
   })
@@ -104,9 +98,6 @@ export async function siiRoutes(fastify: FastifyInstance) {
       const result = await siiBridgeAdapter.listCertificates()
       return reply.send(result)
     } catch (err: any) {
-      if (err instanceof CircuitOpenError) {
-        return reply.status(503).send({ error: 'service_unavailable', message: 'SII Bridge no disponible, intente en unos momentos' })
-      }
       return reply.status(500).send({ error: 'list_error', message: extractError(err, 'Error listando certificados') })
     }
   })
