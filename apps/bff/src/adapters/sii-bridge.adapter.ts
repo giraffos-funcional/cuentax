@@ -249,7 +249,7 @@ export class SIIBridgeAdapter {
   /** Consulta estado del bridge (health check interno) */
   async ping(): Promise<boolean> {
     try {
-      await this.http.get('/health', { timeout: 3_000 })
+      await this.http.get('/health', { timeout: 8_000 })
       return true
     } catch {
       return false
