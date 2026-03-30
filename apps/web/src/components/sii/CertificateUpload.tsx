@@ -38,14 +38,45 @@ export function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
       // FormData with files can only be read once — if the upload gets a 401
       // and the interceptor retries, the file stream is already consumed and
       // the retry sends an empty body. Pre-flight refresh avoids this.
+      const { default: axios } = await import('axios')
+      const BFF_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000'
+
       if (!useAuthStore.getState().accessToken) {
-        const { default: axios } = await import('axios')
-        const BFF_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000'
         const { data } = await axios.post(`${BFF_URL}/api/v1/auth/refresh`, {}, { withCredentials: true })
         if (data.access_token) {
           useAuthStore.getState().setAccessToken(data.access_token)
-          // Also update stored user if company context changed
           if (data.user) useAuthStore.getState().setAuth(data.user, data.access_token)
+        }
+      }
+
+      // After refresh, verify the token has the correct company context.
+      // The refresh token may return a different company (e.g. company_id=1 "My Company")
+      // than what the user selected in the UI. If so, switch to the correct company.
+      const storedUser = useAuthStore.getState().user
+      if (storedUser?.company_id) {
+        // Decode the current access token to check company context
+        const currentToken = useAuthStore.getState().accessToken
+        if (currentToken) {
+          try {
+            const payload = JSON.parse(atob(currentToken.split('.')[1]))
+            if (payload.company_id !== storedUser.company_id) {
+              // Token has wrong company — switch to the correct one
+              const { data: switchData } = await axios.post(
+                `${BFF_URL}/api/v1/companies/switch`,
+                { company_id: storedUser.company_id },
+                {
+                  headers: { Authorization: `Bearer ${currentToken}` },
+                  withCredentials: true,
+                },
+              )
+              if (switchData.access_token) {
+                useAuthStore.getState().setAccessToken(switchData.access_token)
+                if (switchData.user) useAuthStore.getState().setAuth(switchData.user, switchData.access_token)
+              }
+            }
+          } catch {
+            // If decode/switch fails, proceed with current token — backend will return clear error
+          }
         }
       }
 
