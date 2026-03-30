@@ -402,15 +402,16 @@ class CertificateService:
                 )
             return cert_data["private_key"], cert_data["certificate"]
 
-        # No rut_emisor: fallback
-        if len(self._certs) == 1:
-            cert_data = next(iter(self._certs.values()))
-            return cert_data["private_key"], cert_data["certificate"]
-
-        raise RuntimeError(
-            "Múltiples certificados cargados. Debes indicar rut_emisor "
-            "para seleccionar el certificado correcto."
-        )
+        # No rut_emisor: fallback to first (or only) cert.
+        # This is safe for seed signing (SII token is per-person, any cert works).
+        # For DTE signing, rut_emisor should always be provided.
+        cert_data = next(iter(self._certs.values()))
+        if len(self._certs) > 1:
+            logger.warning(
+                f"Multiple certs loaded but no rut_emisor specified. "
+                f"Using first cert: {cert_data['rut_titular']} ({cert_data['nombre']})"
+            )
+        return cert_data["private_key"], cert_data["certificate"]
 
     @staticmethod
     def _get_cn(cert: x509.Certificate) -> str:

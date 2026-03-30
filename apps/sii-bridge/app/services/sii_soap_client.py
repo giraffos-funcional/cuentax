@@ -193,13 +193,17 @@ class SIISoapClient:
         elapsed = (datetime.now(timezone.utc) - self._token_generated_at).total_seconds()
         return elapsed < 6900  # 115 minutos (margen de 5 min antes de expirar)
 
-    def get_token(self, force_refresh: bool = False) -> Optional[str]:
+    def get_token(self, force_refresh: bool = False, rut_emisor: Optional[str] = None) -> Optional[str]:
         """
         Obtiene un token de sesión válido del SII.
         Reutiliza el token vigente o genera uno nuevo si expiró.
-        
+
         Requiere certificado digital cargado.
-        
+
+        Args:
+            force_refresh: Force a new token even if cached one is valid
+            rut_emisor: Company RUT to select certificate when multiple loaded
+
         Returns:
             Token de sesión SII o None si no tiene certificado
         """
@@ -218,7 +222,7 @@ class SIISoapClient:
                 return None
 
             # Paso 2: Firmar la semilla con el certificado
-            signed_seed_xml = self._sign_seed(seed)
+            signed_seed_xml = self._sign_seed(seed, rut_emisor=rut_emisor)
 
             # Paso 3: Enviar semilla firmada y obtener token
             token = self._exchange_seed_for_token(signed_seed_xml)
@@ -277,11 +281,15 @@ class SIISoapClient:
             logger.error(f"Error obteniendo semilla SII: {e}")
             return None
 
-    def _sign_seed(self, seed: str) -> str:
+    def _sign_seed(self, seed: str, rut_emisor: Optional[str] = None) -> str:
         """
         Paso 2: Construye y firma el XML de la semilla.
         El SII requiere un XML específico con la semilla y firma digital.
         El elemento a firmar DEBE tener un atributo ID (requerido por SII).
+
+        Args:
+            seed: SII seed value
+            rut_emisor: Company RUT to select certificate (needed when multiple loaded)
         """
         # Construir XML de semilla según formato SII
         seed_xml = etree.fromstring(f"""<getToken>
@@ -290,8 +298,8 @@ class SIISoapClient:
 </item>
 </getToken>""")
 
-        # Firmar con certificado de la empresa
-        signed_xml = certificate_service.sign_xml(seed_xml)
+        # Firmar con certificado — pass rut_emisor to resolve correct cert
+        signed_xml = certificate_service.sign_xml(seed_xml, rut_emisor=rut_emisor)
 
         # Serializar — lxml puede mover xmlns al root y crear prefijos ns0:
         # que el parser Java del SII no entiende.

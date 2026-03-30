@@ -107,7 +107,7 @@ class DTEEmissionService:
         estado = "firmado"
         mensaje = "DTE generado y firmado. Envío al SII pendiente de token."
 
-        token = sii_soap_client.get_token()
+        token = sii_soap_client.get_token(rut_emisor=rut_emisor)
         if token:
             try:
                 send_result = self._send_to_sii(xml_bytes, rut_emisor, token)
@@ -240,11 +240,11 @@ class DTEEmissionService:
         estado = "firmado"
         mensaje = f"EnvioDTE con {len(signed_dtes)} DTEs generado y firmado"
 
-        token = sii_soap_client.get_token()
+        token = sii_soap_client.get_token(rut_emisor=rut_emisor)
         if not token:
             # Retry with force refresh — cached token may have expired
             logger.info("Token not available, retrying with force_refresh...")
-            token = sii_soap_client.get_token(force_refresh=True)
+            token = sii_soap_client.get_token(force_refresh=True, rut_emisor=rut_emisor)
 
         if token:
             try:
