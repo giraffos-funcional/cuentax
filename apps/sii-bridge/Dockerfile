@@ -15,5 +15,7 @@ COPY . .
 
 EXPOSE 8000
 
-# Uvicorn con hot-reload en dev (montado como volumen)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Production: multiple workers so slow SII requests don't block config operations.
+# --reload is omitted in production; Coolify handles restarts.
+# Workers = 4 gives enough concurrency for parallel SII + config requests.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-keep-alive", "65"]
