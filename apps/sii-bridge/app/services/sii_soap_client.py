@@ -307,20 +307,19 @@ class SIISoapClient:
         import re as _re
         result = etree.tostring(signed_xml, encoding="unicode", xml_declaration=False)
         
-        # signxml/lxml may add namespace prefixes (ns0:, ds:, etc.) to Signature
-        # elements. SII Chile's Java SOAP parser rejects prefixed elements.
-        # Strip ALL namespace prefixes and re-add the default xmlns on Signature.
+        # signxml/lxml may add namespace prefixes (ns0:, etc.) to Signature
+        # elements. SII Chile's Java SOAP parser rejects ns0: style prefixes.
+        # Strip ns0:/ns1: prefixes but KEEP ds: prefix — SII accepts ds: prefixed XMLDSig.
         result = _re.sub(r'<ns\d+:', '<', result)
         result = _re.sub(r'</ns\d+:', '</', result)
         result = _re.sub(r' xmlns:ns\d+="[^"]*"', '', result)
-        # signxml 4.x uses ds: prefix for XMLDSig elements
-        result = _re.sub(r'<ds:', '<', result)
-        result = _re.sub(r'</ds:', '</', result)
-        result = _re.sub(r' xmlns:ds="[^"]*"', '', result)
 
-        # Re-agregar el namespace de Signature si se perdió
-        if 'xmlns="http://www.w3.org/2000/09/xmldsig#"' not in result:
-            result = result.replace('<Signature>', '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">')
+        # Ensure ds: prefix is present (signxml 4.x uses it by default).
+        # If signxml stripped it, add xmlns:ds back on Signature element.
+        if 'ds:Signature' not in result and '<Signature' in result:
+            # No ds: prefix — the SII needs xmlns on Signature
+            if 'xmlns="http://www.w3.org/2000/09/xmldsig#"' not in result:
+                result = result.replace('<Signature>', '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">')
         
         return result
 
