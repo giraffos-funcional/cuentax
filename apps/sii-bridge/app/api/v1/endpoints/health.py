@@ -30,14 +30,38 @@ async def health():
 
 @router.get("/sii")
 async def sii_connectivity():
-    """Verifica conectividad con el SII y estado del token."""
-    cert = certificate_service.get_status()
-    connectivity = sii_soap_client.check_connectivity()
+    """Verifica conectividad con el SII y estado del token.
 
+    Uses asyncio.to_thread + timeout to prevent blocking all uvicorn workers.
+    SII SOAP calls can take 30-60s; without this, they block the entire bridge.
+    """
+    import asyncio
+
+    cert = certificate_service.get_status()
+
+    # Run blocking SII calls in a thread with a 8s timeout.
+    # If SII is slow, return cached/unknown rather than blocking workers.
+    connectivity = {}
     token = None
     token_error = None
+
     try:
-        token = sii_soap_client.get_token()
+        connectivity = await asyncio.wait_for(
+            asyncio.to_thread(sii_soap_client.check_connectivity),
+            timeout=8.0,
+        )
+    except asyncio.TimeoutError:
+        connectivity = {"conectado": False, "error": "SII connectivity check timed out (8s)"}
+    except Exception as e:
+        connectivity = {"conectado": False, "error": str(e)}
+
+    try:
+        token = await asyncio.wait_for(
+            asyncio.to_thread(sii_soap_client.get_token),
+            timeout=8.0,
+        )
+    except asyncio.TimeoutError:
+        token_error = "Token acquisition timed out (8s)"
     except Exception as e:
         token_error = str(e)
 
