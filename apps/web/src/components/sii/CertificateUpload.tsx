@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useCertificateList, useSIIStatus } from '@/hooks'
 import { apiClient } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth.store'
 
 export function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
   const [dragging, setDragging] = useState(false)
@@ -33,6 +34,21 @@ export function CertificateUploader({ onSuccess }: { onSuccess: () => void }) {
     setError(null)
 
     try {
+      // Ensure we have a valid access token BEFORE uploading.
+      // FormData with files can only be read once — if the upload gets a 401
+      // and the interceptor retries, the file stream is already consumed and
+      // the retry sends an empty body. Pre-flight refresh avoids this.
+      if (!useAuthStore.getState().accessToken) {
+        const { default: axios } = await import('axios')
+        const BFF_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:4000'
+        const { data } = await axios.post(`${BFF_URL}/api/v1/auth/refresh`, {}, { withCredentials: true })
+        if (data.access_token) {
+          useAuthStore.getState().setAccessToken(data.access_token)
+          // Also update stored user if company context changed
+          if (data.user) useAuthStore.getState().setAuth(data.user, data.access_token)
+        }
+      }
+
       const formData = new FormData()
       formData.append('file', file)
       formData.append('password', password)
