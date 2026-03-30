@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
 import { CircuitOpenError } from '@/core/circuit-breaker'
+import { config } from '@/core/config'
 
 export async function siiRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
