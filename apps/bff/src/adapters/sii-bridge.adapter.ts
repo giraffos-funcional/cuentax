@@ -7,11 +7,15 @@
  */
 
 import axios, { AxiosInstance } from 'axios'
+import https from 'node:https'
 import FormData from 'form-data'
 import { config } from '@/core/config'
 import { logger } from '@/core/logger'
 import { CircuitBreaker } from '@/core/circuit-breaker'
 import { getRequestId } from '@/core/request-context'
+
+// Internal HTTPS agent: skip cert verification for container-to-container communication via Traefik
+const internalHttpsAgent = new https.Agent({ rejectUnauthorized: false })
 
 const siiBridgeCircuit = new CircuitBreaker({
   name: 'sii-bridge',
@@ -47,6 +51,8 @@ export class SIIBridgeAdapter {
         'Content-Type': 'application/json',
         'X-Internal-Token': config.INTERNAL_SECRET,
       },
+      // Skip TLS verification for internal bridge URL (container-to-container via Traefik)
+      httpsAgent: internalHttpsAgent,
     })
 
     // Propagate correlation ID to downstream service
