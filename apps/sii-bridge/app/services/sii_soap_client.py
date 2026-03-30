@@ -15,6 +15,7 @@ Referencia: https://palena.sii.cl/DTEWS/ (prod)
 import logging
 import base64
 import hashlib
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -59,12 +60,19 @@ class SIISoapClient:
     4. Usar token en llamadas posteriores
     """
 
+    # Retry configuration
+    MAX_RETRIES = 3
+    BACKOFF_DELAYS = [1, 3]  # seconds between retries (attempts 1→2, 2→3)
+    CONNECTIVITY_CACHE_TTL = 60  # seconds
+
     def __init__(self):
         self._token: Optional[str] = None
         self._token_generated_at: Optional[datetime] = None
         self._ambiente = settings.SII_AMBIENTE
         self._wsdls = SII_WSDLS[self._ambiente]
         self._proxy_url = settings.SII_PROXY_URL or None
+        self._connectivity_cache: Optional[dict] = None
+        self._connectivity_cache_at: Optional[float] = None
         self._transport = Transport(
             timeout=30,
             operation_timeout=60,
@@ -89,6 +97,59 @@ class SIISoapClient:
             # Auth header for proxy ACL
             session.headers["X-Proxy-Token"] = "cuentax-sii-proxy-2024"
         return session
+
+    def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        HTTP request with exponential backoff and direct-connection fallback.
+
+        Tries up to MAX_RETRIES attempts. On the last attempt, if a proxy is
+        configured, retries WITHOUT the proxy as a direct-connection fallback.
+        Raises the last exception if all attempts fail.
+        """
+        last_exception: Optional[Exception] = None
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            is_last_attempt = attempt == self.MAX_RETRIES
+            use_proxy = self._proxy_url and not is_last_attempt
+
+            # Build proxies dict for this attempt
+            if use_proxy:
+                attempt_proxies = {"http": self._proxy_url, "https": self._proxy_url}
+            else:
+                attempt_proxies = None
+
+            # Override proxies in kwargs for this attempt
+            request_kwargs = {**kwargs, "proxies": attempt_proxies}
+
+            try:
+                if is_last_attempt and self._proxy_url:
+                    logger.warning(
+                        f"SII request attempt {attempt}/{self.MAX_RETRIES} — "
+                        f"DIRECT connection fallback (no proxy) → {url}"
+                    )
+                elif attempt > 1:
+                    logger.warning(
+                        f"SII request attempt {attempt}/{self.MAX_RETRIES} — "
+                        f"retrying → {url}"
+                    )
+
+                http_method = getattr(requests, method.lower())
+                response = http_method(url, **request_kwargs)
+                return response
+
+            except Exception as exc:
+                last_exception = exc
+                logger.warning(
+                    f"SII request attempt {attempt}/{self.MAX_RETRIES} failed: {exc}"
+                )
+                # Apply backoff delay before next attempt (not after the last one)
+                if not is_last_attempt:
+                    delay = self.BACKOFF_DELAYS[attempt - 1]
+                    logger.info(f"Backing off {delay}s before next retry...")
+                    time.sleep(delay)
+
+        # All attempts exhausted — raise the last exception
+        raise last_exception  # type: ignore[misc]
 
     def _extract_soap_return(self, soap_content: bytes, return_tag: str) -> Optional[str]:
         """Extract inner XML from a SOAP response return element.
@@ -183,7 +244,8 @@ class SIISoapClient:
             endpoint = self._wsdls["auth"].replace("?WSDL", "")
             proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
 
-            resp = requests.post(
+            resp = self._request_with_retry(
+                "post",
                 endpoint,
                 data=soap_body,
                 headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
@@ -269,7 +331,8 @@ class SIISoapClient:
             endpoint = self._wsdls["token"].replace("?WSDL", "")
             proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
 
-            resp = requests.post(
+            resp = self._request_with_retry(
+                "post",
                 endpoint,
                 data=soap_body.encode("utf-8"),
                 headers={
@@ -314,7 +377,21 @@ class SIISoapClient:
         Verifica conectividad con el SII.
         Útil para el health check y la pantalla de Configuración.
         Intenta obtener una semilla real como prueba de conectividad.
+
+        Results are cached for CONNECTIVITY_CACHE_TTL seconds to avoid
+        hammering SII on frequent health-check polls.
         """
+        # Return cached result if still fresh
+        if (
+            self._connectivity_cache is not None
+            and self._connectivity_cache_at is not None
+            and (time.monotonic() - self._connectivity_cache_at) < self.CONNECTIVITY_CACHE_TTL
+        ):
+            logger.debug("Returning cached SII connectivity result")
+            # Update token_vigente in cached result (cheap local check)
+            self._connectivity_cache["token_vigente"] = self._is_token_valid()
+            return self._connectivity_cache
+
         result = {
             "ambiente": self._ambiente,
             "wsdl_auth": self._wsdls["auth"],
@@ -330,6 +407,8 @@ class SIISoapClient:
             if seed:
                 result["conectado"] = True
                 result["semilla_ok"] = True
+                self._connectivity_cache = result
+                self._connectivity_cache_at = time.monotonic()
                 return result
             else:
                 result["seed_error"] = "seed returned None (no exception)"
@@ -340,7 +419,8 @@ class SIISoapClient:
         try:
             # Fallback: check if WSDL endpoint responds at all
             proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
-            response = requests.get(
+            response = self._request_with_retry(
+                "get",
                 self._wsdls["auth"],
                 timeout=15,
                 allow_redirects=True,
@@ -354,6 +434,8 @@ class SIISoapClient:
             result["error"] = str(e)
             logger.warning(f"SII no alcanzable: {e}")
 
+        self._connectivity_cache = result
+        self._connectivity_cache_at = time.monotonic()
         return result
 
 
