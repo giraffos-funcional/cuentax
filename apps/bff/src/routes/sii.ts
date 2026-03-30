@@ -134,9 +134,42 @@ export async function siiRoutes(fastify: FastifyInstance) {
   fastify.get('/bridge-health', async (request, reply) => {
     const bridgeUrl = config.SII_BRIDGE_URL
     const alive = await siiBridgeAdapter.ping()
+
+    // Temporary debug: test various connection methods
+    const dns = await import('node:dns').then(m => m.promises)
+    const http = await import('node:http')
+    const debug: Record<string, string> = {}
+
+    // DNS lookups
+    for (const host of ['sii-bridge', 'host.docker.internal', 'isg4o4gg00wkko0888s0wgco']) {
+      try {
+        const addrs = await dns.lookup(host)
+        debug[`dns_${host}`] = `${addrs.address}`
+      } catch (e: any) {
+        debug[`dns_${host}`] = `FAIL: ${e.code || e.message}`
+      }
+    }
+
+    // Direct HTTP probes
+    const probeUrls = [
+      'http://sii-bridge:8000/api/v1/health',
+      'http://host.docker.internal:8001/api/v1/health',
+      'http://172.17.0.1:8001/api/v1/health',
+      bridgeUrl + '/health',
+    ]
+    for (const url of probeUrls) {
+      try {
+        const resp = await fetch(url, { signal: AbortSignal.timeout(3000) })
+        debug[`probe_${new URL(url).host}`] = `${resp.status}`
+      } catch (e: any) {
+        debug[`probe_${new URL(url).host}`] = `FAIL: ${e.cause?.code || e.message}`
+      }
+    }
+
     return reply.status(alive ? 200 : 503).send({
       bridge: alive ? 'ok' : 'down',
       bridgeUrl,
+      debug,
     })
   })
 }
