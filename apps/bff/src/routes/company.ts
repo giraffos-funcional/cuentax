@@ -9,6 +9,9 @@ import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
+import { redis } from '@/adapters/redis.adapter'
+
+const PREF_PREFIX = 'cuentax:pref:'
 
 // ── RUT Validation ───────────────────────────────────────────
 function validateRut(rut: string): boolean {
@@ -89,6 +92,47 @@ export async function companyRoutes(fastify: FastifyInstance) {
       })),
       active: user.company_id,
     })
+  })
+
+  // ── POST /favorite — set preferred company for login ────────
+  fastify.post('/favorite', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+    const companyId = Number(body?.company_id)
+    if (!companyId || isNaN(companyId)) {
+      return reply.status(400).send({ error: 'company_id required' })
+    }
+
+    // Verify company exists
+    let [company] = await db.select().from(companies)
+      .where(eq(companies.odoo_company_id, companyId)).limit(1)
+    if (!company) {
+      [company] = await db.select().from(companies)
+        .where(eq(companies.id, companyId)).limit(1)
+    }
+    if (!company) {
+      return reply.status(404).send({ error: 'not_found', message: 'Empresa no encontrada' })
+    }
+
+    const odooId = company.odoo_company_id || company.id
+    await redis.set(`${PREF_PREFIX}${user.uid}:company`, String(odooId))
+    logger.info({ uid: user.uid, companyId: odooId, name: company.razon_social }, 'Favorite company set')
+    return reply.send({ success: true, favorite_company_id: odooId, company_name: company.razon_social })
+  })
+
+  // ── DELETE /favorite — remove preferred company ─────────────
+  fastify.delete('/favorite', async (req, reply) => {
+    const user = (req as any).user
+    await redis.del(`${PREF_PREFIX}${user.uid}:company`)
+    logger.info({ uid: user.uid }, 'Favorite company removed')
+    return reply.send({ success: true, favorite_company_id: null })
+  })
+
+  // ── GET /favorite — get preferred company ───────────────────
+  fastify.get('/favorite', async (req, reply) => {
+    const user = (req as any).user
+    const val = await redis.get(`${PREF_PREFIX}${user.uid}:company`)
+    return reply.send({ favorite_company_id: val ? Number(val) : null })
   })
 
   // POST /switch — switch active company

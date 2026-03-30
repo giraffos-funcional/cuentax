@@ -16,7 +16,7 @@ import {
   LayoutDashboard, FileText, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
-  Building2, Bell, Search, Menu,
+  Building2, Bell, Search, Menu, Star,
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
@@ -193,11 +193,12 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
   const [lookingUp, setLookingUp] = useState(false)
   const [rutError, setRutError] = useState('')
   const [companyList, setCompanyList] = useState<Array<{ id: number, name: string, rut: string }>>([])
+  const [favoriteId, setFavoriteId] = useState<number | null>(null)
   const [form, setForm] = useState({
     rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '',
   })
 
-  // Fetch companies from API
+  // Fetch companies and favorite from API
   const fetchCompanies = () => {
     if (!user || !accessToken) return
     apiClient.get('/api/v1/companies').then(res => {
@@ -205,10 +206,28 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     }).catch(err => {
       console.warn('Failed to fetch companies:', err)
     })
+    apiClient.get('/api/v1/companies/favorite').then(res => {
+      setFavoriteId(res.data?.favorite_company_id ?? null)
+    }).catch(() => {})
   }
   useEffect(() => {
     fetchCompanies()
   }, [user?.uid, accessToken])
+
+  const handleToggleFavorite = async (e: React.MouseEvent, companyId: number) => {
+    e.stopPropagation()
+    try {
+      if (favoriteId === companyId) {
+        await apiClient.delete('/api/v1/companies/favorite')
+        setFavoriteId(null)
+      } else {
+        await apiClient.post('/api/v1/companies/favorite', { company_id: companyId })
+        setFavoriteId(companyId)
+      }
+    } catch (err) {
+      console.warn('Failed to toggle favorite:', err)
+    }
+  }
 
   // All hooks MUST be above this line
   if (collapsed || !user) return null
@@ -345,24 +364,43 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
         {open && (
           <div className="absolute left-3 right-3 top-full mt-1 z-30 rounded-xl bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] shadow-lg overflow-hidden">
             {companies.map((c) => (
-              <button
+              <div
                 key={c.id}
-                onClick={() => { if (c.id !== user.company_id) handleSwitch(c.id) }}
                 className={`flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm transition-colors ${
                   c.id === user.company_id
                     ? 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]'
                     : 'text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)]'
                 }`}
               >
-                <Building2 size={12} className="shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium truncate">{c.name}</p>
-                  <p className="text-[10px] text-[var(--cx-text-muted)] font-mono">{c.rut}</p>
+                <button
+                  onClick={() => { if (c.id !== user.company_id) handleSwitch(c.id) }}
+                  className="flex items-center gap-3 min-w-0 flex-1 text-left"
+                >
+                  <Building2 size={12} className="shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium truncate">{c.name}</p>
+                    <p className="text-[10px] text-[var(--cx-text-muted)] font-mono">{c.rut}</p>
+                  </div>
+                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={(e) => handleToggleFavorite(e, c.id)}
+                    className="p-0.5 rounded hover:bg-[var(--cx-hover-bg)] transition-colors"
+                    title={favoriteId === c.id ? 'Quitar como favorita' : 'Iniciar siempre con esta empresa'}
+                  >
+                    <Star
+                      size={12}
+                      className={favoriteId === c.id
+                        ? 'text-amber-500 fill-amber-500'
+                        : 'text-[var(--cx-text-muted)] hover:text-amber-400'
+                      }
+                    />
+                  </button>
+                  {c.id === user.company_id && (
+                    <CheckCircle2 size={12} className="text-[var(--cx-active-icon)]" />
+                  )}
                 </div>
-                {c.id === user.company_id && (
-                  <CheckCircle2 size={12} className="text-[var(--cx-active-icon)] shrink-0" />
-                )}
-              </button>
+              </div>
             ))}
             {/* Nueva Empresa */}
             <button

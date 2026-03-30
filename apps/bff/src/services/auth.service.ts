@@ -16,6 +16,8 @@ import { redis } from '@/adapters/redis.adapter'
 import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 
+const PREF_PREFIX = 'cuentax:pref:'
+
 // ── JWT Payload Types ─────────────────────────────────────────
 export interface AccessTokenPayload {
   sub: string        // user uid como string
@@ -80,6 +82,22 @@ export class AuthService {
     if (companyRut && user.companyRut && !user.companyRut.includes(companyRut.replace(/[.\-]/g, ''))) {
       logger.warn({ email, companyRut }, 'Company RUT mismatch')
       return null
+    }
+
+    // Check if user has a preferred (favorite) company
+    const preferredId = await this._getPreferredCompany(user.uid)
+    if (preferredId && preferredId !== user.companyId) {
+      // Verify the preferred company is in the user's accessible list
+      const companyIds = user.companyIds ?? [user.companyId]
+      if (companyIds.includes(preferredId)) {
+        const companyData = await this._getCompanyData(preferredId)
+        if (companyData) {
+          logger.info({ uid: user.uid, preferredId, defaultId: user.companyId }, 'Switching to preferred company on login')
+          user.companyId = preferredId
+          user.companyName = companyData.name
+          user.companyRut = companyData.rut
+        }
+      }
     }
 
     return this._generateTokens(user)
@@ -174,6 +192,16 @@ export class AuthService {
     }
 
     return this._generateTokens(user)
+  }
+
+  /** Get user's preferred company ID from Redis, or null */
+  private async _getPreferredCompany(uid: number): Promise<number | null> {
+    try {
+      const val = await redis.get(`${PREF_PREFIX}${uid}:company`)
+      return val ? Number(val) : null
+    } catch {
+      return null
+    }
   }
 
   private async _getCompanyData(companyId: number): Promise<{ name: string; rut: string } | null> {
