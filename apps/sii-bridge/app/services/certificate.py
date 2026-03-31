@@ -34,6 +34,13 @@ XMLDSIG_NS = "http://www.w3.org/2000/09/xmldsig#"
 C14N_METHOD = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 
 
+def _wrap_b64(b64_str: str, width: int = 76) -> str:
+    """Wrap a base64 string into lines of `width` characters.
+    SII enforces a max XML line length of ~4090 chars; wrapping base64
+    values at 76 chars (the RFC 2045 standard) keeps lines short."""
+    return "\n".join(b64_str[i:i + width] for i in range(0, len(b64_str), width))
+
+
 def _normalize_rut(rut: str) -> str:
     """Normalize a RUT for comparison: remove dots, dashes, uppercase."""
     return clean_rut(rut)
@@ -344,7 +351,7 @@ class CertificateService:
             padding.PKCS1v15(),
             hashes.SHA1(),
         )
-        signature_b64 = base64.b64encode(signature_bytes).decode()
+        signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
 
         # 6. Build RSAKeyValue from the public key
         pub_key = certificate.public_key()
@@ -355,27 +362,27 @@ class CertificateService:
         exponent_bytes = pub_numbers.e.to_bytes(
             (pub_numbers.e.bit_length() + 7) // 8, byteorder="big"
         )
-        modulus_b64 = base64.b64encode(modulus_bytes).decode()
+        modulus_b64 = _wrap_b64(base64.b64encode(modulus_bytes).decode())
         exponent_b64 = base64.b64encode(exponent_bytes).decode()
 
         # 7. Get X509 certificate as base64
         cert_der = certificate.public_bytes(serialization.Encoding.DER)
-        cert_b64 = base64.b64encode(cert_der).decode()
+        cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
         # 8. Build the complete Signature element
         sig_xml = (
             f'<Signature xmlns="{XMLDSIG_NS}">'
             f'{signed_info_xml}'
-            f'<SignatureValue>{signature_b64}</SignatureValue>'
+            f'<SignatureValue>\n{signature_b64}\n</SignatureValue>'
             f'<KeyInfo>'
             f'<KeyValue>'
             f'<RSAKeyValue>'
-            f'<Modulus>{modulus_b64}</Modulus>'
+            f'<Modulus>\n{modulus_b64}\n</Modulus>'
             f'<Exponent>{exponent_b64}</Exponent>'
             f'</RSAKeyValue>'
             f'</KeyValue>'
             f'<X509Data>'
-            f'<X509Certificate>{cert_b64}</X509Certificate>'
+            f'<X509Certificate>\n{cert_b64}\n</X509Certificate>'
             f'</X509Data>'
             f'</KeyInfo>'
             f'</Signature>'
