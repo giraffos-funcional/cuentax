@@ -138,6 +138,22 @@ export async function certificationRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // ── POST /generate-libros ────────────────────────────────────
+  fastify.post('/generate-libros', async (request, reply) => {
+    const rut = getRut(request)
+    if (!rut) return reply.status(400).send({ error: 'Empresa sin RUT configurado' })
+    const { periodo, fecha_emision } = (request.body as any) ?? {}
+
+    try {
+      const data = await siiBridgeAdapter.certGenerateLibros(rut, periodo, fecha_emision)
+      return reply.send(data)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ') : 'Error generando libros')
+      return reply.status(500).send({ error: 'libros_error', message: msg })
+    }
+  })
+
   // ── POST /reset ────────────────────────────────────────────
   fastify.post('/reset', async (request, reply) => {
     const rut = getRut(request)

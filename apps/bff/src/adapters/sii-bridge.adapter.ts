@@ -354,6 +354,20 @@ export class SIIBridgeAdapter {
     return data
   }
 
+  /** Generate and send Libro de Ventas + Libro de Compras */
+  async certGenerateLibros(rutEmisor: string, periodo?: string, fechaEmision?: string): Promise<any> {
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/certification/wizard/libros/generate', {
+          rut_emisor: rutEmisor,
+          periodo: periodo || undefined,
+          fecha_emision: fechaEmision || undefined,
+        }),
+      ),
+    )
+    return data
+  }
+
   /** Reset wizard */
   async certReset(rutEmisor: string): Promise<any> {
     const { data } = await this._requestWithFallback(() =>
