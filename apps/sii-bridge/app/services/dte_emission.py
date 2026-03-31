@@ -116,7 +116,7 @@ class DTEEmissionService:
             xml_element = self._add_ted(xml_element, doc, rut_emisor)
             # Sign the DTE — Reference URI must point to Documento's ID
             signed_xml = certificate_service.sign_xml(
-                xml_element, rut_emisor=rut_emisor, target_id=f"DTE-{folio}"
+                xml_element, rut_emisor=rut_emisor, target_id=f"DTE-T{tipo_dte}F{folio}"
             )
             xml_bytes = _serialize_xml_iso8859(signed_xml)
         except Exception as e:
@@ -360,7 +360,7 @@ class DTEEmissionService:
         xml_element = self._add_ted(xml_element, doc, rut_emisor)
 
         # Sign DTE — Reference URI must point to Documento's ID, not empty string
-        doc_id = f"DTE-{folio}"
+        doc_id = f"DTE-T{tipo_dte}F{folio}"
         signed_xml = certificate_service.sign_xml(
             xml_element, rut_emisor=rut_emisor, target_id=doc_id
         )

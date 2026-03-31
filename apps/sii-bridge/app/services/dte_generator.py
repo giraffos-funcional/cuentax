@@ -115,7 +115,7 @@ class DTEXMLGenerator:
 
         # Root DTE
         dte_root = etree.Element("DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
-        documento = etree.SubElement(dte_root, "Documento", attrib={"ID": f"DTE-{doc.folio}"})
+        documento = etree.SubElement(dte_root, "Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
 
         # Encabezado
         encabezado = etree.SubElement(documento, "Encabezado")
