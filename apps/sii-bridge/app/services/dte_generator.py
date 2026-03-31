@@ -151,18 +151,24 @@ class DTEXMLGenerator:
         self._elem(e, "RznSoc", emisor.razon_social[:100])
         self._elem(e, "GiroEmis", emisor.giro[:80])
         self._elem(e, "Acteco", str(emisor.actividad_economica))
-        self._elem(e, "DirOrigen", emisor.direccion[:70])
-        self._elem(e, "CmnaOrigen", emisor.comuna[:20])
-        self._elem(e, "CiudadOrigen", emisor.ciudad[:20])
+        if emisor.direccion:
+            self._elem(e, "DirOrigen", emisor.direccion[:70])
+        if emisor.comuna:
+            self._elem(e, "CmnaOrigen", emisor.comuna[:20])
+        if emisor.ciudad:
+            self._elem(e, "CiudadOrigen", emisor.ciudad[:20])
 
     def _build_receptor(self, encabezado, receptor: DTEReceptor):
         r = etree.SubElement(encabezado, "Receptor")
         self._elem(r, "RUTRecep", receptor.rut)
         self._elem(r, "RznSocRecep", receptor.razon_social[:100])
         self._elem(r, "GiroRecep", receptor.giro[:40])
-        self._elem(r, "DirRecep", receptor.direccion[:70])
-        self._elem(r, "CmnaRecep", receptor.comuna[:20])
-        self._elem(r, "CiudadRecep", receptor.ciudad[:20])
+        if receptor.direccion:
+            self._elem(r, "DirRecep", receptor.direccion[:70])
+        if receptor.comuna:
+            self._elem(r, "CmnaRecep", receptor.comuna[:20])
+        if receptor.ciudad:
+            self._elem(r, "CiudadRecep", receptor.ciudad[:20])
         if receptor.email:
             self._elem(r, "CorreoRecep", receptor.email)
 

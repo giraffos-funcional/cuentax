@@ -7,6 +7,16 @@ para el proceso de certificación.
 El SII genera un archivo único por empresa con casos de prueba
 que incluyen datos de emisor, receptor, items y montos.
 
+Formato SII (SET BASICO):
+  CASO XXXXXXX-N   (N = sub-número 1..8)
+  ==============
+  DOCUMENTO    FACTURA ELECTRONICA | NOTA DE CREDITO ELECTRONICA | etc
+  REFERENCIA   <tipo doc> CORRESPONDIENTE A CASO XXXXXXX-M
+  RAZON REFERENCIA   <texto>
+  ITEM         CANTIDAD    PRECIO UNITARIO    [DESCUENTO ITEM]
+  <nombre>     <qty>       <precio>           [<pct>%]
+  DESCUENTO GLOBAL ITEMES AFECTOS   <pct>%
+
 Referencia: https://maullin.sii.cl/cvc_cgi/dte/pe_generar
 """
 
@@ -35,7 +45,7 @@ class SetPruebasItem:
 class SetPruebasReferencia:
     """Reference to another document (for NC/ND)."""
     tipo_doc_ref: int
-    folio_ref: int
+    folio_ref: int  # 0 = unresolved (to be set during emission)
     fecha_ref: str
     razon_ref: str
 
@@ -43,18 +53,23 @@ class SetPruebasReferencia:
 @dataclass
 class SetPruebasCase:
     """A single test case (one DTE to generate)."""
-    caso: int
+    caso: int              # Full case number (e.g. 4756304)
+    caso_sub: int          # Sub-number (e.g. 1 in "4756304-1")
     tipo_dte: int
     rut_receptor: str
     razon_social_receptor: str
     giro_receptor: str
-    direccion_receptor: str = ""
-    comuna_receptor: str = ""
-    ciudad_receptor: str = ""
+    direccion_receptor: str = "Santiago"
+    comuna_receptor: str = "Santiago"
+    ciudad_receptor: str = "Santiago"
     items: list[SetPruebasItem] = field(default_factory=list)
     forma_pago: int = 1
     referencia: Optional[SetPruebasReferencia] = None
     observaciones: Optional[str] = None
+    # Reference to another case (sub-number) for folio resolution
+    _ref_caso_sub: Optional[int] = None
+    # Global discount on afectos (percentage)
+    descuento_global_pct: Decimal = Decimal("0")
 
 
 @dataclass
@@ -67,19 +82,42 @@ class SetPruebasData:
     comuna_emisor: str
     ciudad_emisor: str
     actividad_economica: int
+    atencion: str = ""  # SET BASICO numero de atencion
     casos: list[SetPruebasCase] = field(default_factory=list)
+
+
+# Maps SII document names to tipo_dte codes
+_DOC_TYPES = {
+    "FACTURA ELECTRONICA": 33,
+    "FACTURA": 33,
+    "NOTA DE CREDITO ELECTRONICA": 61,
+    "NOTA DE CREDITO": 61,
+    "NOTA DE DEBITO ELECTRONICA": 56,
+    "NOTA DE DEBITO": 56,
+    "BOLETA ELECTRONICA": 39,
+    "FACTURA NO AFECTA O EXENTA ELECTRONICA": 34,
+    "FACTURA DE COMPRA ELECTRONICA": 46,
+    "GUIA DE DESPACHO ELECTRONICA": 52,
+    "GUIA DE DESPACHO": 52,
+}
+
+# Maps reference document names to tipo_dte codes
+_REF_DOC_TYPES = {
+    "FACTURA ELECTRONICA": 33,
+    "FACTURA": 33,
+    "NOTA DE CREDITO ELECTRONICA": 61,
+    "NOTA DE CREDITO": 61,
+    "NOTA DE DEBITO ELECTRONICA": 56,
+    "NOTA DE DEBITO": 56,
+}
 
 
 class SetPruebasParser:
     """
     Parsea el archivo del set de pruebas del SII.
 
-    El formato es un archivo de texto plano con secciones separadas
-    por líneas de guiones. Cada caso de prueba define un DTE con
-    receptor, items y opcionalmente referencias.
-
-    El parser es flexible para manejar variaciones en el formato
-    que el SII puede generar.
+    The SII test set uses a specific format with CASO sections,
+    tab-separated item tables, and references between cases.
     """
 
     def parse(self, content: str, emisor_data: dict) -> SetPruebasData:
@@ -99,25 +137,38 @@ class SetPruebasParser:
             rut_emisor=emisor_data["rut_emisor"],
             razon_social_emisor=emisor_data["razon_social"],
             giro_emisor=emisor_data["giro"],
-            direccion_emisor=emisor_data.get("direccion", ""),
-            comuna_emisor=emisor_data.get("comuna", ""),
+            direccion_emisor=emisor_data.get("direccion", "Santiago"),
+            comuna_emisor=emisor_data.get("comuna", "Santiago"),
             ciudad_emisor=emisor_data.get("ciudad", "Santiago"),
             actividad_economica=emisor_data.get("actividad_economica", 620200),
         )
 
-        # Normalize line endings
         content = content.replace("\r\n", "\n").replace("\r", "\n")
 
-        # Split into sections by case markers
-        cases = self._split_cases(content)
+        # Extract SET BASICO atencion number
+        atencion_match = re.search(
+            r"SET BASICO\s*-\s*NUMERO DE ATENCION:\s*(\d+)", content, re.IGNORECASE
+        )
+        if atencion_match:
+            result.atencion = atencion_match.group(1)
 
-        for case_text in cases:
+        # Extract only the SET BASICO section (stop at SET LIBRO DE VENTAS)
+        basico_end = re.search(r"\n-{3,}\n.*?SET LIBRO DE VENTAS", content, re.IGNORECASE)
+        basico_content = content[:basico_end.start()] if basico_end else content
+
+        # Split into individual case blocks
+        cases_raw = self._split_cases(basico_content)
+
+        for case_text in cases_raw:
             try:
                 case = self._parse_case(case_text)
                 if case:
                     result.casos.append(case)
             except Exception as e:
                 logger.warning(f"Error parsing case: {e}. Text: {case_text[:200]}")
+
+        # Resolve NC/ND items from referenced cases
+        self._resolve_references(result.casos)
 
         logger.info(
             f"Set de pruebas parsed: {len(result.casos)} cases "
@@ -126,30 +177,16 @@ class SetPruebasParser:
         return result
 
     def _split_cases(self, content: str) -> list[str]:
-        """Split content into individual test case blocks."""
-        # Common patterns: "CASO N", "Caso N", "CASO: N", numbered sections
-        # Try splitting by "CASO" pattern first
-        pattern = r'(?=(?:CASO|Caso)\s*:?\s*\d+)'
-        parts = re.split(pattern, content, flags=re.IGNORECASE)
-        cases = [p.strip() for p in parts if p.strip()]
-
-        if len(cases) > 1:
-            return cases
-
-        # Fallback: split by separator lines (----, ====, etc.)
-        pattern2 = r'\n-{3,}\n|\n={3,}\n|\n\*{3,}\n'
-        parts = re.split(pattern2, content)
-        cases = [p.strip() for p in parts if p.strip()]
-
-        if len(cases) > 1:
-            return cases
-
-        # Last resort: try splitting by "DOCUMENTO" or "DTE" headers
-        pattern3 = r'(?=DOCUMENTO\s+\d+|DTE\s+(?:TIPO\s+)?\d+)'
-        parts = re.split(pattern3, content, flags=re.IGNORECASE)
-        cases = [p.strip() for p in parts if p.strip()]
-
-        return cases if len(cases) > 1 else [content]
+        """Split content into individual test case blocks by CASO headers."""
+        # Split at each line starting with "CASO <number>-<sub>"
+        # Use \n to anchor — avoids splitting on "CASO" inside reference text
+        parts = re.split(r'\n(?=CASO\s+\d+-\d+)', content)
+        cases = []
+        for p in parts:
+            p = p.strip()
+            if p and re.match(r'CASO\s+\d+-\d+', p):
+                cases.append(p)
+        return cases
 
     def _parse_case(self, text: str) -> Optional[SetPruebasCase]:
         """Parse a single test case block."""
@@ -157,191 +194,298 @@ class SetPruebasParser:
         if not lines:
             return None
 
-        caso_num = self._extract_number(lines[0], r'(?:CASO|Caso)\s*:?\s*(\d+)')
-        tipo_dte = self._extract_field_int(text, r'(?:TIPO\s*DTE|TipoDTE|Tipo\s*Documento)\s*:?\s*(\d+)')
-
-        if not tipo_dte:
-            # Try to infer from keywords
-            text_upper = text.upper()
-            if "FACTURA" in text_upper and "CREDITO" not in text_upper and "DEBITO" not in text_upper:
-                tipo_dte = 33
-            elif "NOTA DE CREDITO" in text_upper or "NOTA CREDITO" in text_upper:
-                tipo_dte = 61
-            elif "NOTA DE DEBITO" in text_upper or "NOTA DEBITO" in text_upper:
-                tipo_dte = 56
-            elif "BOLETA" in text_upper:
-                tipo_dte = 39
-
-        if not tipo_dte:
-            logger.debug(f"Could not determine tipo_dte for case: {text[:100]}")
+        # Extract case number: "CASO 4756304-1"
+        header_match = re.match(r'CASO\s+(\d+)-(\d+)', lines[0])
+        if not header_match:
             return None
 
-        rut_receptor = self._extract_field(text, r'(?:RUT\s*(?:RECEPTOR|CLIENTE)|RUTRecep)\s*:?\s*([\d.]+-[\dkK])')
-        razon_social = self._extract_field(text, r'(?:RAZON\s*SOCIAL|RznSocRecep|Nombre)\s*:?\s*(.+?)(?:\n|$)')
-        giro = self._extract_field(text, r'(?:GIRO|GiroRecep)\s*:?\s*(.+?)(?:\n|$)')
-        direccion = self._extract_field(text, r'(?:DIRECCION|DirRecep)\s*:?\s*(.+?)(?:\n|$)')
-        comuna = self._extract_field(text, r'(?:COMUNA|CmnaRecep)\s*:?\s*(.+?)(?:\n|$)')
-        ciudad = self._extract_field(text, r'(?:CIUDAD|CiudadRecep)\s*:?\s*(.+?)(?:\n|$)')
+        caso_num = int(header_match.group(1))
+        caso_sub = int(header_match.group(2))
 
-        items = self._parse_items(text)
+        # Extract DOCUMENTO type
+        tipo_dte = self._extract_documento_type(text)
+        if not tipo_dte:
+            logger.debug(f"Could not determine tipo_dte for CASO {caso_num}-{caso_sub}")
+            return None
 
+        # Extract REFERENCIA info (for NC/ND)
+        ref_caso_sub = None
+        ref_tipo_doc = None
+        ref_razon = None
+        ref_match = re.search(
+            r'REFERENCIA\s+(.+?)\s+CORRESPONDIENTE\s+A\s+CASO\s+\d+-(\d+)',
+            text, re.IGNORECASE
+        )
+        if ref_match:
+            ref_doc_text = ref_match.group(1).strip()
+            ref_caso_sub = int(ref_match.group(2))
+            ref_tipo_doc = self._doc_name_to_tipo(ref_doc_text, _REF_DOC_TYPES)
+
+        razon_match = re.search(r'RAZON\s+REFERENCIA\s+(.+?)(?:\n|$)', text, re.IGNORECASE)
+        if razon_match:
+            ref_razon = razon_match.group(1).strip()
+
+        # Build referencia (folio=0 means unresolved)
         referencia = None
-        ref_tipo = self._extract_field_int(text, r'(?:TIPO\s*DOC\s*REF|TpoDocRef)\s*:?\s*(\d+)')
-        ref_folio = self._extract_field_int(text, r'(?:FOLIO\s*REF|FolioRef)\s*:?\s*(\d+)')
-        ref_fecha = self._extract_field(text, r'(?:FECHA\s*REF|FchRef)\s*:?\s*(\d{4}-\d{2}-\d{2})')
-        ref_razon = self._extract_field(text, r'(?:RAZON\s*REF|RazonRef)\s*:?\s*(.+?)(?:\n|$)')
-        if ref_tipo and ref_folio:
+        if ref_tipo_doc and ref_caso_sub is not None:
             referencia = SetPruebasReferencia(
-                tipo_doc_ref=ref_tipo,
-                folio_ref=ref_folio,
-                fecha_ref=ref_fecha or "",
+                tipo_doc_ref=ref_tipo_doc,
+                folio_ref=0,  # Resolved later during emission
+                fecha_ref="",  # Set during emission
                 razon_ref=ref_razon or "Corrige documento",
             )
 
+        # Parse items
+        items = self._parse_items(text)
+
+        # Parse global discount
+        descuento_global = Decimal("0")
+        desc_match = re.search(
+            r'DESCUENTO\s+GLOBAL\s+ITEMES?\s+AFECTOS?\s+(\d+)%',
+            text, re.IGNORECASE
+        )
+        if desc_match:
+            descuento_global = Decimal(desc_match.group(1))
+
         return SetPruebasCase(
-            caso=caso_num or 0,
+            caso=caso_num,
+            caso_sub=caso_sub,
             tipo_dte=tipo_dte,
-            rut_receptor=rut_receptor or "66666666-6",
-            razon_social_receptor=razon_social or "Receptor Prueba",
-            giro_receptor=(giro[:40] if giro else "Servicios"),
-            direccion_receptor=direccion or "",
-            comuna_receptor=comuna or "",
-            ciudad_receptor=ciudad or "Santiago",
+            rut_receptor="66666666-6",
+            razon_social_receptor="Receptor Prueba SII",
+            giro_receptor="Servicios Informaticos",
+            direccion_receptor="Santiago",
+            comuna_receptor="Santiago",
+            ciudad_receptor="Santiago",
             items=items,
             referencia=referencia,
+            _ref_caso_sub=ref_caso_sub,
+            descuento_global_pct=descuento_global,
         )
+
+    def _extract_documento_type(self, text: str) -> Optional[int]:
+        """Extract tipo_dte from the DOCUMENTO line."""
+        doc_match = re.search(r'DOCUMENTO\s+(.+?)(?:\n|$)', text)
+        if not doc_match:
+            return None
+        doc_text = doc_match.group(1).strip()
+        return self._doc_name_to_tipo(doc_text, _DOC_TYPES)
+
+    @staticmethod
+    def _doc_name_to_tipo(text: str, mapping: dict) -> Optional[int]:
+        """Convert a SII document name to its tipo code."""
+        text_upper = text.upper().strip()
+        # Try longest match first
+        for name in sorted(mapping.keys(), key=len, reverse=True):
+            if name in text_upper:
+                return mapping[name]
+        return None
 
     def _parse_items(self, text: str) -> list[SetPruebasItem]:
-        """Extract items from a case block."""
+        """Extract items from a case block. Handles SII tab-separated format."""
         items = []
+        lines = text.split("\n")
 
-        # Pattern 1: Tabular format (Nombre | Cantidad | Precio | ...)
-        table_pattern = r'(?:DETALLE|ITEMS?|Detalle).*?\n((?:.*?\n)*?)(?:\n\s*\n|TOTAL|REFERENCIA|$)'
-        table_match = re.search(table_pattern, text, re.IGNORECASE)
+        # Find the item header line (ITEM ... CANTIDAD ... PRECIO UNITARIO)
+        header_idx = None
+        has_precio = False
+        has_descuento = False
+        for i, line in enumerate(lines):
+            if re.match(r'\s*ITEM\s', line, re.IGNORECASE) and \
+               re.search(r'CANTIDAD', line, re.IGNORECASE):
+                header_idx = i
+                has_precio = bool(re.search(r'PRECIO', line, re.IGNORECASE))
+                has_descuento = bool(re.search(r'DESCUENTO', line, re.IGNORECASE))
+                break
 
-        if table_match:
-            table_text = table_match.group(1)
-            for line in table_text.split("\n"):
-                line = line.strip()
-                if not line or line.startswith("-") or line.startswith("="):
-                    continue
-                item = self._parse_item_line(line)
-                if item:
-                    items.append(item)
-
-        if items:
+        if header_idx is None:
             return items
 
-        # Pattern 2: Key-value item blocks
-        item_blocks = re.findall(
-            r'(?:ITEM|Item|Línea)\s*\d+\s*:?\s*(.*?)(?=(?:ITEM|Item|Línea)\s*\d+|TOTAL|REFERENCIA|$)',
-            text, re.IGNORECASE | re.DOTALL,
-        )
-        for block in item_blocks:
-            nombre = self._extract_field(block, r'(?:Nombre|NmbItem|Descripcion)\s*:?\s*(.+?)(?:\n|$)')
-            cantidad = self._extract_field(block, r'(?:Cantidad|QtyItem|Cant)\s*:?\s*([\d.]+)')
-            precio = self._extract_field(block, r'(?:Precio|PrcItem|P\.\s*Unit)\s*:?\s*([\d.]+)')
-            exento_str = self._extract_field(block, r'(?:Exento|IndExe)\s*:?\s*(SI|1|True)', flags=re.IGNORECASE)
+        # Parse item lines after the header
+        for line in lines[header_idx + 1:]:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Stop at known section markers
+            if re.match(r'(DESCUENTO GLOBAL|REFERENCIA|RAZON|CASO\s+\d)', stripped, re.IGNORECASE):
+                break
+            if stripped.startswith("=") or stripped.startswith("-"):
+                break
 
-            if nombre and precio:
-                items.append(SetPruebasItem(
-                    nombre=nombre.strip(),
-                    cantidad=Decimal(cantidad) if cantidad else Decimal("1"),
-                    precio_unitario=Decimal(precio),
-                    exento=bool(exento_str),
-                ))
-
-        if items:
-            return items
-
-        # Pattern 3: Simple lines with numbers (fallback)
-        number_lines = re.findall(r'^(.+?)\s+(\d+)\s+([\d.]+)\s*$', text, re.MULTILINE)
-        for desc, qty, price in number_lines:
-            desc = desc.strip()
-            if len(desc) > 2 and not desc.startswith(("CASO", "TIPO", "RUT", "RAZON", "GIRO")):
-                items.append(SetPruebasItem(
-                    nombre=desc,
-                    cantidad=Decimal(qty),
-                    precio_unitario=Decimal(price),
-                ))
-
-        # If nothing worked, create a default item
-        if not items:
-            logger.debug("No items found, creating default item")
-            items.append(SetPruebasItem(
-                nombre="Servicio de prueba",
-                cantidad=Decimal("1"),
-                precio_unitario=Decimal("100000"),
-            ))
+            item = self._parse_item_line(line, has_precio, has_descuento)
+            if item:
+                items.append(item)
 
         return items
 
-    def _parse_item_line(self, line: str) -> Optional[SetPruebasItem]:
-        """Parse a single tabular item line."""
-        # Try pipe-separated
-        if "|" in line:
-            parts = [p.strip() for p in line.split("|") if p.strip()]
-            if len(parts) >= 3:
-                return SetPruebasItem(
-                    nombre=parts[0],
-                    cantidad=Decimal(parts[1]) if self._is_number(parts[1]) else Decimal("1"),
-                    precio_unitario=Decimal(parts[2]) if self._is_number(parts[2]) else Decimal("0"),
-                    exento="exento" in line.lower() or "exe" in line.lower(),
+    def _parse_item_line(
+        self, line: str, has_precio: bool, has_descuento: bool
+    ) -> Optional[SetPruebasItem]:
+        """Parse a single tab-separated item line from SII test set."""
+        # Split by tabs, filter empty
+        if "\t" not in line:
+            return None
+
+        parts = [p.strip() for p in line.split("\t") if p.strip()]
+        if len(parts) < 2:
+            return None
+
+        nombre = parts[0]
+        if not nombre or nombre.upper().startswith(("CASO", "DOCUMENTO", "REFERENCIA")):
+            return None
+
+        # Detect exento from item name
+        exento = "EXENTO" in nombre.upper()
+
+        # Parse cantidad (always the second field)
+        cantidad = self._safe_decimal(parts[1])
+        if cantidad is None:
+            return None
+
+        # Parse precio unitario (third field if present)
+        precio = Decimal("0")
+        if has_precio and len(parts) >= 3:
+            precio = self._safe_decimal(parts[2]) or Decimal("0")
+
+        # Parse descuento (fourth field if present)
+        descuento = Decimal("0")
+        if has_descuento and len(parts) >= 4:
+            desc_str = parts[3].replace("%", "").strip()
+            descuento = self._safe_decimal(desc_str) or Decimal("0")
+
+        return SetPruebasItem(
+            nombre=nombre,
+            cantidad=cantidad,
+            precio_unitario=precio,
+            descuento_pct=descuento,
+            exento=exento,
+        )
+
+    def _resolve_references(self, cases: list[SetPruebasCase]):
+        """
+        Resolve NC/ND references: copy items from referenced cases
+        when the NC/ND case has no items or only quantities.
+        """
+        # Index cases by sub-number
+        by_sub: dict[int, SetPruebasCase] = {}
+        for case in cases:
+            by_sub[case.caso_sub] = case
+
+        for case in cases:
+            if case._ref_caso_sub is None:
+                continue
+
+            ref_case = by_sub.get(case._ref_caso_sub)
+            if not ref_case:
+                logger.warning(
+                    f"CASO {case.caso}-{case.caso_sub} references sub {case._ref_caso_sub} "
+                    f"but it was not found"
                 )
+                continue
 
-        # Try tab-separated
-        if "\t" in line:
-            parts = [p.strip() for p in line.split("\t") if p.strip()]
-            if len(parts) >= 3:
-                return SetPruebasItem(
-                    nombre=parts[0],
-                    cantidad=Decimal(parts[1]) if self._is_number(parts[1]) else Decimal("1"),
-                    precio_unitario=Decimal(parts[2]) if self._is_number(parts[2]) else Decimal("0"),
-                )
+            razon_upper = (case.referencia.razon_ref if case.referencia else "").upper()
 
-        # Try space-separated with description at start
-        match = re.match(r'^(.+?)\s{2,}(\d+)\s+([\d.]+)', line)
-        if match:
-            return SetPruebasItem(
-                nombre=match.group(1).strip(),
-                cantidad=Decimal(match.group(2)),
-                precio_unitario=Decimal(match.group(3)),
-            )
+            if "ANULA" in razon_upper:
+                # Full void: copy ALL items from referenced case at same prices
+                if not case.items:
+                    case.items = [
+                        SetPruebasItem(
+                            nombre=it.nombre,
+                            cantidad=it.cantidad,
+                            precio_unitario=it.precio_unitario,
+                            descuento_pct=it.descuento_pct,
+                            exento=it.exento,
+                        )
+                        for it in ref_case.items
+                    ]
 
-        return None
+            elif "DEVOLUCION" in razon_upper:
+                # Partial return: case has quantities, prices come from original
+                if case.items:
+                    for item in case.items:
+                        if item.precio_unitario == 0:
+                            # Find matching item in original by name
+                            for orig in ref_case.items:
+                                if self._items_match(item.nombre, orig.nombre):
+                                    item.precio_unitario = orig.precio_unitario
+                                    item.exento = orig.exento
+                                    break
+
+            elif "CORRIGE" in razon_upper:
+                # Correction (e.g. "CORRIGE GIRO"): copy items from original
+                if not case.items:
+                    case.items = [
+                        SetPruebasItem(
+                            nombre=it.nombre,
+                            cantidad=it.cantidad,
+                            precio_unitario=it.precio_unitario,
+                            descuento_pct=it.descuento_pct,
+                            exento=it.exento,
+                        )
+                        for it in ref_case.items
+                    ]
+
+            else:
+                # Unknown reference type: copy items if missing
+                if not case.items:
+                    case.items = [
+                        SetPruebasItem(
+                            nombre=it.nombre,
+                            cantidad=it.cantidad,
+                            precio_unitario=it.precio_unitario,
+                            descuento_pct=it.descuento_pct,
+                            exento=it.exento,
+                        )
+                        for it in ref_case.items
+                    ]
 
     @staticmethod
-    def _extract_number(text: str, pattern: str) -> Optional[int]:
-        match = re.search(pattern, text, re.IGNORECASE)
-        return int(match.group(1)) if match else None
+    def _items_match(name1: str, name2: str) -> bool:
+        """Check if two item names refer to the same product."""
+        # Normalize: strip, uppercase, remove accents
+        n1 = re.sub(r'\s+', ' ', name1.upper().strip())
+        n2 = re.sub(r'\s+', ' ', name2.upper().strip())
+        # Exact match or one contains the other
+        return n1 == n2 or n1 in n2 or n2 in n1
 
     @staticmethod
-    def _extract_field(text: str, pattern: str, flags: int = 0) -> Optional[str]:
-        match = re.search(pattern, text, re.IGNORECASE | flags)
-        return match.group(1).strip() if match else None
-
-    @staticmethod
-    def _extract_field_int(text: str, pattern: str) -> Optional[int]:
-        match = re.search(pattern, text, re.IGNORECASE)
-        return int(match.group(1)) if match else None
-
-    @staticmethod
-    def _is_number(s: str) -> bool:
+    def _safe_decimal(s: str) -> Optional[Decimal]:
+        """Convert string to Decimal, return None on failure."""
         try:
-            Decimal(s.replace(",", "."))
-            return True
+            return Decimal(s.replace(",", "."))
         except Exception:
-            return False
+            return None
 
     def to_payloads(self, data: SetPruebasData) -> list[dict]:
         """
         Convert parsed test set to emission payloads ready for DTEEmissionService.
+
+        NC/ND payloads include _ref_caso_sub for folio resolution during batch emission.
+        The emit_batch method must resolve ref_folio from previously emitted cases.
 
         Returns a list of dicts matching the emit() payload format.
         """
         payloads = []
 
         for case in data.casos:
+            items_data = []
+            for item in case.items:
+                items_data.append({
+                    "nombre": item.nombre,
+                    "cantidad": str(item.cantidad),
+                    "precio_unitario": str(item.precio_unitario),
+                    "descuento_pct": str(item.descuento_pct),
+                    "exento": item.exento,
+                    "codigo": item.codigo,
+                    "unidad": item.unidad,
+                })
+
+            # Apply global discount to non-exento items
+            if case.descuento_global_pct > 0:
+                for item_data in items_data:
+                    if not item_data["exento"]:
+                        item_data["descuento_pct"] = str(case.descuento_global_pct)
+
             payload: dict = {
                 "tipo_dte": case.tipo_dte,
                 "rut_emisor": data.rut_emisor,
@@ -358,28 +502,17 @@ class SetPruebasParser:
                 "comuna_receptor": case.comuna_receptor,
                 "ciudad_receptor": case.ciudad_receptor,
                 "forma_pago": case.forma_pago,
-                "items": [
-                    {
-                        "nombre": item.nombre,
-                        "cantidad": str(item.cantidad),
-                        "precio_unitario": str(item.precio_unitario),
-                        "descuento_pct": str(item.descuento_pct),
-                        "exento": item.exento,
-                        "codigo": item.codigo,
-                        "unidad": item.unidad,
-                    }
-                    for item in case.items
-                ],
+                "items": items_data,
+                # Internal: case sub-number for tracking
+                "_caso_sub": case.caso_sub,
             }
 
             if case.referencia:
                 payload["ref_tipo_doc"] = case.referencia.tipo_doc_ref
-                payload["ref_folio"] = case.referencia.folio_ref
-                payload["ref_fecha"] = case.referencia.fecha_ref
+                payload["ref_folio"] = 0  # Resolved during batch emission
+                payload["ref_fecha"] = ""  # Set to fecha_emision during emission
                 payload["ref_motivo"] = case.referencia.razon_ref
-
-            if case.observaciones:
-                payload["observaciones"] = case.observaciones
+                payload["_ref_caso_sub"] = case._ref_caso_sub
 
             payloads.append(payload)
 
@@ -460,7 +593,6 @@ class SetPruebasParser:
         )
         if start_match:
             section_start = start_match.end()
-            # Find the end: next section (SET GUIA, SET LIBRO DE GUIAS, etc.) or EOF
             end_match = re.search(
                 r"\n-{3,}\n(?:SET (?:GUIA|LIBRO DE GUIAS))",
                 content[section_start:],
@@ -498,27 +630,21 @@ class SetPruebasParser:
         - Line 3: MONTO_EXENTO (left) + MONTO_AFECTO (right)
 
         Lines are separated by blank lines between entries.
-        Header/footer lines with === are ignored.
         """
         lines = section.split("\n")
         entries = []
 
-        # Remove header/footer separator lines and empty lines at boundaries
         clean_lines = []
         for line in lines:
             stripped = line.strip()
-            # Skip separator lines (=== or ---)
             if re.match(r'^[=\-]{3,}$', stripped):
                 continue
-            # Skip header line "TIPO DOCUMENTO..."
             if "TIPO DOCUMENTO" in stripped and "FOLIO" in stripped:
                 continue
-            # Skip sub-headers
             if stripped == "OBSERVACIONES" or stripped == "MONTO EXENTO\tMONTO AFECTO":
                 continue
             if "MONTO EXENTO" in stripped and "MONTO AFECTO" in stripped:
                 continue
-            # Skip "OBSERVACIONES GENERALES" and everything after
             if "OBSERVACIONES GENERALES" in stripped:
                 break
             clean_lines.append(line)
@@ -536,7 +662,6 @@ class SetPruebasParser:
         if current_block:
             blocks.append(current_block)
 
-        # Known document type names (order matters: longer matches first)
         doc_types = [
             "FACTURA DE COMPRA ELECTRONICA",
             "NOTA DE CREDITO ELECTRONICA",
@@ -550,21 +675,18 @@ class SetPruebasParser:
 
         for block in blocks:
             if len(block) < 3:
-                # Need at least 3 lines per entry
                 continue
 
             line1 = block[0]
             line2 = block[1]
             line3 = block[2] if len(block) > 2 else ""
 
-            # Parse line 1: TIPO_DOC + FOLIO
             tipo_doc_nombre = None
             folio = None
 
             for dt in doc_types:
                 if dt in line1.upper():
                     tipo_doc_nombre = dt
-                    # Extract folio: number after the document type name
                     remainder = line1.upper().replace(dt, "", 1)
                     folio_match = re.search(r'(\d+)', remainder)
                     if folio_match:
@@ -575,30 +697,21 @@ class SetPruebasParser:
                 logger.debug(f"Could not parse compra entry line: '{line1}'")
                 continue
 
-            # Parse line 2: OBSERVACIONES
             observaciones = line2.strip()
 
-            # Parse line 3: MONTO_EXENTO and MONTO_AFECTO
-            # Format: spaces + exento (optional) + spaces + afecto (optional)
             amounts = re.findall(r'(\d+)', line3)
             mnt_exe = 0
             mnt_afecto = 0
 
             if len(amounts) == 2:
-                # Both exento and afecto present
                 mnt_exe = int(amounts[0])
                 mnt_afecto = int(amounts[1])
             elif len(amounts) == 1:
-                # Only one amount: determine position
-                # If the number is preceded by significant whitespace, it's afecto
-                # If positioned at start (or small indent), check column position
                 stripped = line3.lstrip()
                 leading_spaces = len(line3) - len(stripped)
                 if leading_spaces > 5:
-                    # Number is indented: it's in the afecto column
                     mnt_afecto = int(amounts[0])
                 else:
-                    # Number at start: it's exento
                     mnt_exe = int(amounts[0])
 
             entries.append({

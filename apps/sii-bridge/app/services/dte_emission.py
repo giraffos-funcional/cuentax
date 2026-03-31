@@ -190,11 +190,37 @@ class DTEEmissionService:
         resultados: list[dict] = []
         errores: list[dict] = []
 
+        # Track caso_sub -> folio mapping for NC/ND reference resolution
+        caso_sub_to_folio: dict[int, int] = {}
+
         for i, payload in enumerate(payloads):
             try:
+                # Resolve NC/ND references: set ref_folio from previously emitted case
+                if payload.get("_ref_caso_sub") is not None:
+                    ref_sub = payload["_ref_caso_sub"]
+                    if ref_sub in caso_sub_to_folio:
+                        payload["ref_folio"] = caso_sub_to_folio[ref_sub]
+                        logger.info(
+                            f"Resolved ref_folio for caso sub {payload.get('_caso_sub')}: "
+                            f"ref to sub {ref_sub} → folio {payload['ref_folio']}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Cannot resolve ref_folio: sub {ref_sub} not yet emitted"
+                        )
+                # Set ref_fecha to fecha_emision if not provided
+                if payload.get("ref_tipo_doc") and not payload.get("ref_fecha"):
+                    payload["ref_fecha"] = payload.get(
+                        "fecha_emision", date.today().strftime("%Y-%m-%d")
+                    )
+
                 result = self._build_and_sign_single_dte(payload)
                 if result["success"]:
                     signed_dtes.append(result["signed_element"])
+                    # Track folio by caso_sub for reference resolution
+                    caso_sub = payload.get("_caso_sub")
+                    if caso_sub is not None:
+                        caso_sub_to_folio[caso_sub] = result["folio"]
                     resultados.append({
                         "caso": i + 1,
                         "tipo_dte": payload["tipo_dte"],
