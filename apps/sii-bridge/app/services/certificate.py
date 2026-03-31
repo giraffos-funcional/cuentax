@@ -283,12 +283,12 @@ class CertificateService:
         target_id: Optional[str] = None,
     ) -> etree._Element:
         """
-        Sign XML with RSA-SHA1 per SII Chile standard.
+        Sign XML with RSA-SHA1 per SII Chile standard using signxml library.
 
-        IMPORTANT: The Signature is built, appended to the parent, then
-        SignedInfo is canonicalized IN THE TREE CONTEXT. This ensures
-        inclusive C14N produces consistent bytes at signing and verification
-        time — ancestor namespaces (e.g. xmlns:xsi on EnvioDTE) are captured.
+        Uses the signxml library for standards-compliant XMLDSig signing.
+        This ensures that C14N computation at signing time matches what
+        any standard XMLDSig verifier (including SII's Java verifier)
+        will compute at verification time.
 
         Args:
             element: Parent element where Signature will be appended.
@@ -298,164 +298,60 @@ class CertificateService:
                 points to it. If not provided, the element itself is
                 digested using its own ID attribute.
         """
+        from signxml import XMLSigner, methods
+        from signxml.algorithms import (
+            SignatureMethod as SigMethod,
+            DigestAlgorithm,
+            CanonicalizationMethod as C14NMethod,
+        )
+
         private_key, certificate = self._resolve_cert(rut_emisor)
 
-        # Determine what to digest and what URI to reference
+        # Determine Reference URI
         if target_id:
-            target_el = None
-            for el in element.iter():
-                if el.get("ID") == target_id:
-                    target_el = el
-                    break
-            if target_el is None:
-                raise ValueError(f"No element with ID='{target_id}' found")
             ref_uri = f"#{target_id}"
-            digest_element = target_el
         else:
             element_id = element.get("ID", "")
             ref_uri = f"#{element_id}" if element_id else ""
-            digest_element = element
 
-        # 1. Canonicalize the element to digest using inclusive C14N.
-        #    Workaround for lxml bug: subtree C14N adds spurious xmlns=""
-        #    on descendant elements.  Serialize → reparse → C14N.
-        #
-        #    CRITICAL: The SII extracts each DTE from the EnvioDTE envelope
-        #    and verifies signatures on the STANDALONE DTE. Namespaces
-        #    declared only on EnvioDTE (like xmlns:xsi) are NOT in scope
-        #    when the SII verifies. For DTE signatures, we must compute
-        #    the digest from the DTE-level context (not the EnvioDTE tree).
-        _is_dte_sig = target_id and target_id.startswith("DTE-")
-        if _is_dte_sig:
-            # For DTE signatures: serialize the DTE element (parent of
-            # digest_element/Documento) to get only DTE-level namespaces.
-            # This strips ancestor namespaces like xmlns:xsi from EnvioDTE.
-            dte_parent = digest_element.getparent()  # DTE element
-            if dte_parent is not None and dte_parent.tag.endswith("}DTE"):
-                dte_serialized = etree.tostring(dte_parent, encoding="unicode")
-                dte_standalone = etree.fromstring(dte_serialized.encode())
-                # Find Documento inside standalone DTE
-                doc_id = digest_element.get("ID", "")
-                _standalone = None
-                for el in dte_standalone.iter():
-                    if el.get("ID") == doc_id:
-                        _standalone_ser = etree.tostring(el, encoding="unicode")
-                        _standalone = etree.fromstring(_standalone_ser.encode())
-                        break
-                if _standalone is None:
-                    _standalone = etree.fromstring(
-                        etree.tostring(digest_element, encoding="unicode").encode()
-                    )
-            else:
-                _standalone = etree.fromstring(
-                    etree.tostring(digest_element, encoding="unicode").encode()
-                )
-        else:
-            _standalone = etree.fromstring(
-                etree.tostring(digest_element, encoding="unicode").encode()
-            )
-        c14n_bytes = etree.tostring(_standalone, method="c14n")
-
-        # 2. Compute SHA1 digest
-        digest = hashlib.sha1(c14n_bytes).digest()
-        digest_b64 = base64.b64encode(digest).decode()
-
-        # 3. Build RSAKeyValue from the public key
-        pub_key = certificate.public_key()
-        pub_numbers = pub_key.public_numbers()
-        modulus_bytes = pub_numbers.n.to_bytes(
-            (pub_numbers.n.bit_length() + 7) // 8, byteorder="big"
+        # Get certificate and key in PEM format for signxml
+        key_pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
         )
-        exponent_bytes = pub_numbers.e.to_bytes(
-            (pub_numbers.e.bit_length() + 7) // 8, byteorder="big"
+        cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
+
+        # Configure signer for SII requirements:
+        # - RSA-SHA1 signature
+        # - SHA1 digest
+        # - Inclusive C14N
+        # - Enveloped signature transform
+        signer = XMLSigner(
+            method=methods.enveloped,
+            signature_algorithm="rsa-sha1",
+            digest_algorithm="sha1",
+            c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
         )
-        modulus_b64 = _wrap_b64(base64.b64encode(modulus_bytes).decode())
-        exponent_b64 = base64.b64encode(exponent_bytes).decode()
+        # signxml rejects SHA1 by default for security — override for SII
+        signer.excise_empty_xmlns_declarations = True
 
-        # 4. Get X509 certificate as base64
-        cert_der = certificate.public_bytes(serialization.Encoding.DER)
-        cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
-
-        # 5. Collect ancestor prefixed namespace declarations for SignedInfo.
-        #    For DTE signatures: SII extracts the DTE standalone from EnvioDTE,
-        #    so ancestor namespaces (xmlns:xsi from EnvioDTE) are NOT in scope.
-        #    SignedInfo must match what SII sees — no xmlns:xsi.
-        #    For envelope signatures (SetDTE): include all ancestor namespaces.
-        ancestor_ns: dict[str, str] = {}
-        if not _is_dte_sig:
-            for anc in list(element.iterancestors()) + [element]:
-                for prefix, uri in anc.nsmap.items():
-                    if prefix is not None and prefix not in ancestor_ns:
-                        ancestor_ns[prefix] = uri
-
-        ns_attrs = [f'xmlns="{XMLDSIG_NS}"']
-        for prefix in sorted(ancestor_ns.keys()):
-            ns_attrs.append(f'xmlns:{prefix}="{ancestor_ns[prefix]}"')
-        ns_str = " ".join(ns_attrs)
-
-        # 6. Build canonical SignedInfo manually (avoids lxml's subtree
-        #    C14N bug that adds spurious xmlns="" on descendant elements).
-        #    Self-closing tags are expanded per C14N canonical form.
-        signed_info_c14n = (
-            f'<SignedInfo {ns_str}>'
-            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}">'
-            f'</CanonicalizationMethod>'
-            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1">'
-            f'</SignatureMethod>'
-            f'<Reference URI="{ref_uri}">'
-            f'<Transforms>'
-            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature">'
-            f'</Transform>'
-            f'</Transforms>'
-            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1">'
-            f'</DigestMethod>'
-            f'<DigestValue>{digest_b64}</DigestValue>'
-            f'</Reference>'
-            f'</SignedInfo>'
-        ).encode("utf-8")
-
-        # 7. Sign canonical SignedInfo with RSA-SHA1
-        signature_bytes = private_key.sign(
-            signed_info_c14n,
-            padding.PKCS1v15(),
-            hashes.SHA1(),
+        # Sign the element. signxml handles:
+        # - Proper C14N of the digest target
+        # - Building the Signature element in-tree
+        # - C14N of SignedInfo for signing
+        # - Correct namespace handling
+        signed = signer.sign(
+            element,
+            key=key_pem,
+            cert=[cert_pem],
+            reference_uri=ref_uri,
+            always_add_key_value=True,
         )
-        signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
-
-        # 8. Build the complete Signature element and append to parent
-        sig_xml = (
-            f'<Signature xmlns="{XMLDSIG_NS}">'
-            f'<SignedInfo>'
-            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}"/>'
-            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
-            f'<Reference URI="{ref_uri}">'
-            f'<Transforms>'
-            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature"/>'
-            f'</Transforms>'
-            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
-            f'<DigestValue>{digest_b64}</DigestValue>'
-            f'</Reference>'
-            f'</SignedInfo>'
-            f'<SignatureValue>\n{signature_b64}\n</SignatureValue>'
-            f'<KeyInfo>'
-            f'<KeyValue>'
-            f'<RSAKeyValue>'
-            f'<Modulus>\n{modulus_b64}\n</Modulus>'
-            f'<Exponent>{exponent_b64}</Exponent>'
-            f'</RSAKeyValue>'
-            f'</KeyValue>'
-            f'<X509Data>'
-            f'<X509Certificate>\n{cert_b64}\n</X509Certificate>'
-            f'</X509Data>'
-            f'</KeyInfo>'
-            f'</Signature>'
-        )
-        sig_element = etree.fromstring(sig_xml.encode())
-        element.append(sig_element)
 
         rut_label = rut_emisor or "default"
-        logger.debug(f"XML signed (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}")
-        return element
+        logger.debug(f"XML signed (RSA-SHA1 via signxml). Emisor: {rut_label}, URI: {ref_uri}")
+        return signed
 
     def get_status(self, rut_empresa: Optional[str] = None) -> dict:
         """
