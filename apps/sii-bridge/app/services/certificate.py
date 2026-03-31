@@ -355,17 +355,33 @@ class CertificateService:
         # match that C14N output, so we always include xmlns:xsi.
         si_ns_attrs = f'xmlns="{ns}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
+        # DTE signatures: no Transforms (SII rejects enveloped-signature
+        # transform on individual DTEs — confirmed by Chilkat examples and
+        # signxml issue #64). Envelope signatures: enveloped-signature
+        # transform required since Signature is inside the signed element.
+        if is_envelope:
+            ref_xml = (
+                f'<Reference URI="{ref_uri}">'
+                f'<Transforms>'
+                f'<Transform Algorithm="{ns}enveloped-signature"></Transform>'
+                f'</Transforms>'
+                f'<DigestMethod Algorithm="{ns}sha1"></DigestMethod>'
+                f'<DigestValue>{digest_b64}</DigestValue>'
+                f'</Reference>'
+            )
+        else:
+            ref_xml = (
+                f'<Reference URI="{ref_uri}">'
+                f'<DigestMethod Algorithm="{ns}sha1"></DigestMethod>'
+                f'<DigestValue>{digest_b64}</DigestValue>'
+                f'</Reference>'
+            )
+
         signed_info_xml = (
             f'<SignedInfo {si_ns_attrs}>'
             f'<CanonicalizationMethod Algorithm="{C14N_METHOD}"></CanonicalizationMethod>'
             f'<SignatureMethod Algorithm="{ns}rsa-sha1"></SignatureMethod>'
-            f'<Reference URI="{ref_uri}">'
-            f'<Transforms>'
-            f'<Transform Algorithm="{ns}enveloped-signature"></Transform>'
-            f'</Transforms>'
-            f'<DigestMethod Algorithm="{ns}sha1"></DigestMethod>'
-            f'<DigestValue>{digest_b64}</DigestValue>'
-            f'</Reference>'
+            f'{ref_xml}'
             f'</SignedInfo>'
         )
 
