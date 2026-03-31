@@ -347,11 +347,12 @@ class CertificateService:
         ).decode()
 
         # Step 2: Build Signature XML as canonical string.
-        # This approach (used by facturacion_electronica and Boletax)
-        # gives precise control over namespace declarations in SignedInfo.
+        # Gives precise control over namespace declarations in SignedInfo.
         ns = XMLDSIG_NS
 
-        # Build SignedInfo with explicit namespace control
+        # Build SignedInfo with explicit namespace control.
+        # DTE sigs: only xmlns="xmldsig#" (no xsi)
+        # Envelope sigs: xmlns="xmldsig#" + xmlns:xsi (matches SII verifier)
         si_ns_attrs = f'xmlns="{ns}"'
         if parent_has_xsi:
             si_ns_attrs += ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
@@ -362,7 +363,7 @@ class CertificateService:
             f'<SignatureMethod Algorithm="{ns}rsa-sha1"></SignatureMethod>'
             f'<Reference URI="{ref_uri}">'
             f'<Transforms>'
-            f'<Transform Algorithm="{C14N_METHOD}"></Transform>'
+            f'<Transform Algorithm="{ns}enveloped-signature"></Transform>'
             f'</Transforms>'
             f'<DigestMethod Algorithm="{ns}sha1"></DigestMethod>'
             f'<DigestValue>{digest_b64}</DigestValue>'
