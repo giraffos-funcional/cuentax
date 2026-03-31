@@ -79,11 +79,15 @@ class LibroXMLGenerator:
             LibroCompraVenta XML element with EnvioLibro inside,
             ready for signing the EnvioLibro element.
         """
-        nsmap = {None: SII_DTE_NS}
+        xsi_ns = "http://www.w3.org/2001/XMLSchema-instance"
+        nsmap = {None: SII_DTE_NS, "xsi": xsi_ns}
 
         root = etree.Element(
             "LibroCompraVenta",
-            attrib={"version": "1.0"},
+            attrib={
+                "version": "1.0",
+                f"{{{xsi_ns}}}schemaLocation": f"{SII_DTE_NS} LibroCV_v10.xsd",
+            },
             nsmap=nsmap,
         )
         envio_libro = etree.SubElement(
