@@ -461,23 +461,44 @@ class DTEEmissionService:
             raise Exception(f"SII uploadDTE HTTP {resp.status_code}: {resp.text[:300]}")
 
         response_text = resp.text
-        logger.info(f"SII uploadDTE response: {response_text[:500]}")
+        logger.info(f"SII uploadDTE response ({len(response_text)} bytes): {response_text[:2000]}")
 
-        # Parse track ID from HTML/XML response
+        # Parse track ID from HTML response.
+        # DTEUpload returns HTML with TRACKID in multiple possible formats:
+        #   <TRACKID>12345</TRACKID>   (XML-style)
+        #   TRACKID : 12345            (text-style)
+        #   Número de Envío: 12345     (Spanish label)
         track_id = None
         track_match = re.search(r'<TRACKID>(\d+)</TRACKID>', response_text, re.IGNORECASE)
         if track_match:
             track_id = track_match.group(1)
 
+        if not track_id:
+            # Try text format: "TRACKID : 12345" or "Track ID: 12345"
+            track_match = re.search(r'TRACKID\s*:\s*(\d+)', response_text, re.IGNORECASE)
+            if track_match:
+                track_id = track_match.group(1)
+
+        if not track_id:
+            # Try "Número de Envío" or "N&uacute;mero" format
+            track_match = re.search(r'(?:mero de Env|NUMERO ENVIO|envio)\D*(\d{5,})', response_text, re.IGNORECASE)
+            if track_match:
+                track_id = track_match.group(1)
+
         # Also check for STATUS
         status_match = re.search(r'<STATUS>(\d+)</STATUS>', response_text, re.IGNORECASE)
         status = status_match.group(1) if status_match else None
+
+        if not status:
+            # Try HTML format
+            status_match = re.search(r'STATUS\s*:\s*(\d+)', response_text, re.IGNORECASE)
+            status = status_match.group(1) if status_match else None
 
         return {
             "track_id": track_id,
             "status": status,
             "mensaje": f"Track ID: {track_id}" if track_id else "Sin Track ID en respuesta",
-            "response_raw": response_text[:500],
+            "response_raw": response_text[:2000],
         }
 
 
