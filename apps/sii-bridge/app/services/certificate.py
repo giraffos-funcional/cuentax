@@ -317,14 +317,24 @@ class CertificateService:
             digest_element = element
 
         # 1. Canonicalize the element to digest using inclusive C14N.
-        #    Workaround for lxml bug: subtree C14N produces spurious xmlns=""
-        #    on descendant elements even when they are properly namespace-
-        #    qualified.  Serialize the element first (captures ancestor
-        #    namespace declarations), reparse as standalone root, then C14N.
-        #    This matches what the SII verifier does: parse the XML, find the
-        #    element, compute C14N — producing identical bytes.
-        _serialized = etree.tostring(digest_element)
-        _standalone = etree.fromstring(_serialized)
+        #    Workaround for lxml bug: subtree C14N adds spurious xmlns=""
+        #    on descendant elements.  Serialize → reparse → C14N.
+        #
+        #    Critical: The SII verifier extracts each DTE independently for
+        #    validation, so inherited namespace declarations (e.g. xmlns:xsi
+        #    from EnvioDTE ancestor) are NOT present during verification.
+        #    We must strip unused inherited namespaces before C14N to match.
+        _serialized = etree.tostring(digest_element, encoding="unicode")
+        # The SII verifier extracts each DTE independently for validation,
+        # so inherited xmlns:xsi from EnvioDTE is NOT in scope. Strip it
+        # for DTE-level signatures. Keep it for envelope signatures (SetDTE)
+        # where the verifier processes in-context.
+        _is_dte_sig = target_id and target_id.startswith("DTE-")
+        if _is_dte_sig:
+            _serialized = _serialized.replace(
+                ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', ''
+            )
+        _standalone = etree.fromstring(_serialized.encode())
         c14n_bytes = etree.tostring(_standalone, method="c14n")
 
         # 2. Compute SHA1 digest
@@ -347,15 +357,18 @@ class CertificateService:
         cert_der = certificate.public_bytes(serialization.Encoding.DER)
         cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
-        # 5. Collect ancestor prefixed namespace declarations.
-        #    Inclusive C14N of SignedInfo (as the SII verifier does) includes
-        #    ALL in-scope namespace declarations from ancestors. We must
-        #    replicate this when building the canonical SignedInfo manually.
+        # 5. Collect ancestor prefixed namespace declarations for SignedInfo.
+        #    For DTE-level signatures (target_id is set), the SII verifier
+        #    extracts the DTE independently — so inherited xmlns:xsi from
+        #    EnvioDTE is NOT in scope. Omit it from SignedInfo.
+        #    For envelope signatures (SetDTE, target_id is None), xmlns:xsi
+        #    IS in scope and must be included.
         ancestor_ns: dict[str, str] = {}
-        for anc in list(element.iterancestors()) + [element]:
-            for prefix, uri in anc.nsmap.items():
-                if prefix is not None and prefix not in ancestor_ns:
-                    ancestor_ns[prefix] = uri
+        if not _is_dte_sig:
+            for anc in list(element.iterancestors()) + [element]:
+                for prefix, uri in anc.nsmap.items():
+                    if prefix is not None and prefix not in ancestor_ns:
+                        ancestor_ns[prefix] = uri
 
         ns_attrs = [f'xmlns="{XMLDSIG_NS}"']
         for prefix in sorted(ancestor_ns.keys()):
