@@ -358,17 +358,17 @@ class CertificateService:
         cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
         # 5. Collect ancestor prefixed namespace declarations for SignedInfo.
-        #    For DTE-level signatures (target_id is set), the SII verifier
-        #    extracts the DTE independently — so inherited xmlns:xsi from
-        #    EnvioDTE is NOT in scope. Omit it from SignedInfo.
-        #    For envelope signatures (SetDTE, target_id is None), xmlns:xsi
-        #    IS in scope and must be included.
+        #    SignedInfo is verified in-tree where ancestor namespaces (xmlns:xsi)
+        #    are visible via inclusive C14N. Collect them for ALL signatures
+        #    (both DTE-level and envelope-level).
+        #    Note: the DIGEST is computed without xmlns:xsi for DTE signatures
+        #    (step 1 above strips it), but SignedInfo must include it because
+        #    the verifier canonicalizes SignedInfo in its tree context.
         ancestor_ns: dict[str, str] = {}
-        if not _is_dte_sig:
-            for anc in list(element.iterancestors()) + [element]:
-                for prefix, uri in anc.nsmap.items():
-                    if prefix is not None and prefix not in ancestor_ns:
-                        ancestor_ns[prefix] = uri
+        for anc in list(element.iterancestors()) + [element]:
+            for prefix, uri in anc.nsmap.items():
+                if prefix is not None and prefix not in ancestor_ns:
+                    ancestor_ns[prefix] = uri
 
         ns_attrs = [f'xmlns="{XMLDSIG_NS}"']
         for prefix in sorted(ancestor_ns.keys()):
