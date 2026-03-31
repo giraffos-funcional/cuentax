@@ -335,14 +335,10 @@ class CertificateService:
         target_reparsed = etree.fromstring(target_xml)
         target_c14n = etree.tostring(target_reparsed, method="c14n")
 
-        # For DTE signatures, strip xmlns:xsi from digest — the SII
-        # verifier resolves DTE URI references in isolation without
-        # ancestor prefixed NS. For envelope signatures, keep xmlns:xsi
-        # as the SII includes it when verifying SetDTE/LibroCV.
-        if not is_envelope:
-            target_c14n = target_c14n.replace(
-                b' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', b''
-            )
+        # Keep xmlns:xsi in ALL digests — both DTE and envelope.
+        # When serialized via serialize-reparse, Documento inherits
+        # xmlns:xsi from its DTE parent. The SII's Java C14N verifier
+        # includes it in the digest computation for both cases.
 
         digest_b64 = base64.b64encode(
             hashlib.sha1(target_c14n).digest()
