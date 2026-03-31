@@ -97,7 +97,7 @@ class DTEEmissionService:
             xml_element = self._add_ted(xml_element, doc, rut_emisor)
             # Sign the DTE (Documento level)
             signed_xml = certificate_service.sign_xml(xml_element, rut_emisor=rut_emisor)
-            xml_bytes   = etree.tostring(signed_xml, encoding="UTF-8", xml_declaration=True)
+            xml_bytes   = etree.tostring(signed_xml, encoding="ISO-8859-1", xml_declaration=True)
         except Exception as e:
             logger.error(f"Error generando/firmando XML: {e}")
             return {"success": False, "estado": "error_firma", "mensaje": f"Error de firma: {e}"}
@@ -229,7 +229,7 @@ class DTEEmissionService:
             if set_dte is not None:
                 certificate_service.sign_xml(set_dte, rut_emisor=rut_emisor)
 
-            envio_bytes = etree.tostring(envio_xml, encoding="UTF-8", xml_declaration=True)
+            envio_bytes = etree.tostring(envio_xml, encoding="ISO-8859-1", xml_declaration=True)
         except Exception as e:
             logger.error(f"Error building EnvioDTE: {e}")
             return {

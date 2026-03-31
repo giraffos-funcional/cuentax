@@ -273,7 +273,7 @@ class LibroEmissionService:
 
             certificate_service.sign_xml(envio_libro, rut_emisor=rut_emisor)
             xml_bytes = etree.tostring(
-                libro_xml, encoding="UTF-8", xml_declaration=True
+                libro_xml, encoding="ISO-8859-1", xml_declaration=True
             )
         except Exception as e:
             logger.error(f"Error signing Libro {tipo}: {e}")
