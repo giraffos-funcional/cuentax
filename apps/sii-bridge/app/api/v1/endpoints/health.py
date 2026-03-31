@@ -20,7 +20,7 @@ async def health():
     return {
         "status": "ok",
         "service": "cuentax-sii-bridge",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "components": {
             "certificate_loaded": cert_loaded,
             "sii_ambiente": settings.SII_AMBIENTE,
