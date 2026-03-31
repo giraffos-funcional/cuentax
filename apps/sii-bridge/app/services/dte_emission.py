@@ -246,12 +246,16 @@ class DTEEmissionService:
             logger.info("Token not available, retrying with force_refresh...")
             token = sii_soap_client.get_token(force_refresh=True, rut_emisor=rut_emisor)
 
+        send_response_raw = None
         if token:
             try:
                 send_result = self._send_to_sii(envio_bytes, rut_emisor, token)
                 track_id = send_result.get("track_id")
+                send_response_raw = send_result.get("response_raw")
                 estado = "enviado" if track_id else "error_envio"
                 mensaje = send_result.get("mensaje", "")
+                if not track_id:
+                    mensaje += f" | SII status: {send_result.get('status')} | response: {send_response_raw}"
             except Exception as e:
                 logger.error(f"Error sending EnvioDTE to SII: {e}")
                 estado = "error_envio"
