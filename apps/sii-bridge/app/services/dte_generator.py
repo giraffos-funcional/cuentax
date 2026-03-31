@@ -277,15 +277,11 @@ class DTEXMLGenerator:
         Returns:
             EnvioDTE XML element (SetDTE NOT yet signed — caller must sign it)
         """
-        xsi_ns = "http://www.w3.org/2001/XMLSchema-instance"
-        nsmap = {None: SII_DTE_NS, "xsi": xsi_ns}
+        nsmap = {None: SII_DTE_NS}
 
         envio = etree.Element(
             f"{_NS}EnvioDTE",
-            attrib={
-                "version": "1.0",
-                f"{{{xsi_ns}}}schemaLocation": f"{SII_DTE_NS} EnvioDTE_v10.xsd",
-            },
+            attrib={"version": "1.0"},
             nsmap=nsmap,
         )
         set_dte = etree.SubElement(envio, f"{_NS}SetDTE", attrib={"ID": "SetDoc"})
