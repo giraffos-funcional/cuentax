@@ -142,11 +142,10 @@ class TimbreElectronicoService:
             if "version" not in caf_copy.attrib:
                 caf_copy.set("version", "1.0")
 
-            # Serialize, strip ALL xmlns declarations, and flatten whitespace
+            # Serialize, strip ALL xmlns declarations, flatten whitespace, strip trailing
             caf_bytes = etree.tostring(caf_copy, encoding="unicode")
             caf_clean = re.sub(r'\s+xmlns(:[a-zA-Z0-9]+)?="[^"]*"', '', caf_bytes)
-            # Flatten: remove whitespace between tags so DD is flat
-            caf_flat = re.sub(r'>\s+<', '><', caf_clean)
+            caf_flat = re.sub(r'>\s+<', '><', caf_clean).strip()
             return caf_flat
 
         except Exception as e:
