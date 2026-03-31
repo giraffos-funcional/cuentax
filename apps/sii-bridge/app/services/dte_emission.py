@@ -37,11 +37,16 @@ def _serialize_xml_iso8859(element: etree._Element) -> bytes:
     lxml's etree.tostring uses single quotes (encoding='ISO-8859-1') which
     the SII's XML parser rejects with CHR-00001. This function produces the
     standard double-quote format: <?xml version="1.0" encoding="ISO-8859-1"?>
+
+    Characters outside ISO-8859-1 range (like U+FFFD replacement chars from
+    cert data) are converted to XML character references (&#NNN;).
     """
     xml_str = etree.tostring(element, encoding="unicode")
+    # Replace known problematic characters before encoding
+    xml_str = xml_str.replace("\ufffd", "")  # Remove replacement chars
     return (
         '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + xml_str
-    ).encode("iso-8859-1")
+    ).encode("iso-8859-1", errors="xmlcharrefreplace")
 
 
 class DTEEmissionService:
