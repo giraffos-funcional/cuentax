@@ -707,9 +707,12 @@ class SetPruebasParser:
                 mnt_exe = int(amounts[0])
                 mnt_afecto = int(amounts[1])
             elif len(amounts) == 1:
-                stripped = line3.lstrip()
-                leading_spaces = len(line3) - len(stripped)
-                if leading_spaces > 5:
+                # Expand tabs (8 spaces each) to detect column position.
+                # MONTO EXENTO is in the left column, MONTO AFECTO in the right.
+                line3_expanded = line3.replace('\t', '        ')
+                stripped = line3_expanded.lstrip()
+                leading_spaces = len(line3_expanded) - len(stripped)
+                if leading_spaces > 10:
                     mnt_afecto = int(amounts[0])
                 else:
                     mnt_exe = int(amounts[0])

@@ -114,8 +114,10 @@ class DTEEmissionService:
             xml_element = self.generator.generate(doc)
             # Add TED (Timbre Electrónico Digital) before signing
             xml_element = self._add_ted(xml_element, doc, rut_emisor)
-            # Sign the DTE (Documento level)
-            signed_xml = certificate_service.sign_xml(xml_element, rut_emisor=rut_emisor)
+            # Sign the DTE — Reference URI must point to Documento's ID
+            signed_xml = certificate_service.sign_xml(
+                xml_element, rut_emisor=rut_emisor, target_id=f"DTE-{folio}"
+            )
             xml_bytes = _serialize_xml_iso8859(signed_xml)
         except Exception as e:
             logger.error(f"Error generando/firmando XML: {e}")
@@ -357,8 +359,11 @@ class DTEEmissionService:
         # Add TED
         xml_element = self._add_ted(xml_element, doc, rut_emisor)
 
-        # Sign DTE
-        signed_xml = certificate_service.sign_xml(xml_element, rut_emisor=rut_emisor)
+        # Sign DTE — Reference URI must point to Documento's ID, not empty string
+        doc_id = f"DTE-{folio}"
+        signed_xml = certificate_service.sign_xml(
+            xml_element, rut_emisor=rut_emisor, target_id=doc_id
+        )
 
         return {
             "success": True,
