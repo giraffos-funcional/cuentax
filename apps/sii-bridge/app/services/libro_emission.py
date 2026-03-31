@@ -261,17 +261,12 @@ class LibroEmissionService:
                 "mensaje": f"Error generating XML: {e}",
             }
 
-        # 2. Sign the EnvioLibro element (inner element with ID="SetDoc")
+        # 2. Sign LibroCompraVenta — Signature appended as child,
+        #    with Reference URI pointing to EnvioLibro's ID ("SetDoc")
         try:
-            envio_libro = libro_xml.find(
-                ".//{%s}EnvioLibro" % SII_DTE_NS
+            certificate_service.sign_xml(
+                libro_xml, rut_emisor=rut_emisor, target_id="SetDoc"
             )
-            if envio_libro is None:
-                envio_libro = libro_xml.find(".//EnvioLibro")
-            if envio_libro is None:
-                raise ValueError("EnvioLibro element not found in generated XML")
-
-            certificate_service.sign_xml(envio_libro, rut_emisor=rut_emisor)
             from app.services.dte_emission import _serialize_xml_iso8859
             xml_bytes = _serialize_xml_iso8859(libro_xml)
         except Exception as e:

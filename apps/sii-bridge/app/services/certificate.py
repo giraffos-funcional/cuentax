@@ -270,7 +270,10 @@ class CertificateService:
         }
 
     def sign_xml(
-        self, element: etree._Element, rut_emisor: Optional[str] = None
+        self,
+        element: etree._Element,
+        rut_emisor: Optional[str] = None,
+        target_id: Optional[str] = None,
     ) -> etree._Element:
         """
         Sign XML with RSA-SHA1 per SII Chile standard.
@@ -283,17 +286,34 @@ class CertificateService:
         - Signature elements use default namespace (no ds: prefix)
 
         Args:
-            element: XML element to sign (must have an ID attribute)
-            rut_emisor: RUT of the issuing company
+            element: Parent element where Signature will be appended.
+            rut_emisor: RUT of the issuing company.
+            target_id: ID of the element to digest. If provided, the child
+                element with this ID is digested and the Reference URI
+                points to it. If not provided, the element itself is
+                digested using its own ID attribute.
         """
         private_key, certificate = self._resolve_cert(rut_emisor)
 
-        # Find the element's ID for the Reference URI
-        element_id = element.get("ID", "")
-        ref_uri = f"#{element_id}" if element_id else ""
+        # Determine what to digest and what URI to reference
+        if target_id:
+            # Find the child element with the given ID
+            target_el = None
+            for el in element.iter():
+                if el.get("ID") == target_id:
+                    target_el = el
+                    break
+            if target_el is None:
+                raise ValueError(f"No element with ID='{target_id}' found")
+            ref_uri = f"#{target_id}"
+            digest_element = target_el
+        else:
+            element_id = element.get("ID", "")
+            ref_uri = f"#{element_id}" if element_id else ""
+            digest_element = element
 
-        # 1. Canonicalize the element to sign
-        c14n_bytes = etree.tostring(element, method="c14n")
+        # 1. Canonicalize the element to digest
+        c14n_bytes = etree.tostring(digest_element, method="c14n")
 
         # 2. Compute SHA1 digest
         digest = hashlib.sha1(c14n_bytes).digest()
@@ -361,12 +381,12 @@ class CertificateService:
             f'</Signature>'
         )
 
-        # 9. Append Signature to the element
+        # 9. Append Signature to the parent element
         sig_element = etree.fromstring(sig_xml.encode())
         element.append(sig_element)
 
         rut_label = rut_emisor or "default"
-        logger.debug(f"XML signed manually (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}")
+        logger.debug(f"XML signed (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}")
         return element
 
     def get_status(self, rut_empresa: Optional[str] = None) -> dict:

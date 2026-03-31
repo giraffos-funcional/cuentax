@@ -241,12 +241,11 @@ class DTEEmissionService:
                 rut_envia=rut_envia,
                 ambiente=settings.SII_AMBIENTE,
             )
-            # Sign the SetDTE element
-            set_dte = envio_xml.find(".//{http://www.sii.cl/SiiDte}SetDTE")
-            if set_dte is None:
-                set_dte = envio_xml.find(".//SetDTE")
-            if set_dte is not None:
-                certificate_service.sign_xml(set_dte, rut_emisor=rut_emisor)
+            # Sign the EnvioDTE — Signature appended as child of EnvioDTE,
+            # with Reference URI pointing to SetDTE's ID ("SetDoc")
+            certificate_service.sign_xml(
+                envio_xml, rut_emisor=rut_emisor, target_id="SetDoc"
+            )
 
             envio_bytes = _serialize_xml_iso8859(envio_xml)
         except Exception as e:
