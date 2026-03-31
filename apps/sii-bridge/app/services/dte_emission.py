@@ -30,6 +30,20 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _serialize_xml_iso8859(element: etree._Element) -> bytes:
+    """
+    Serialize lxml element to ISO-8859-1 bytes with double-quote XML declaration.
+
+    lxml's etree.tostring uses single quotes (encoding='ISO-8859-1') which
+    the SII's XML parser rejects with CHR-00001. This function produces the
+    standard double-quote format: <?xml version="1.0" encoding="ISO-8859-1"?>
+    """
+    xml_str = etree.tostring(element, encoding="unicode")
+    return (
+        '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + xml_str
+    ).encode("iso-8859-1")
+
+
 class DTEEmissionService:
     """
     Servicio de alto nivel para emisión de DTEs.
@@ -97,7 +111,7 @@ class DTEEmissionService:
             xml_element = self._add_ted(xml_element, doc, rut_emisor)
             # Sign the DTE (Documento level)
             signed_xml = certificate_service.sign_xml(xml_element, rut_emisor=rut_emisor)
-            xml_bytes   = etree.tostring(signed_xml, encoding="ISO-8859-1", xml_declaration=True)
+            xml_bytes = _serialize_xml_iso8859(signed_xml)
         except Exception as e:
             logger.error(f"Error generando/firmando XML: {e}")
             return {"success": False, "estado": "error_firma", "mensaje": f"Error de firma: {e}"}
@@ -229,7 +243,7 @@ class DTEEmissionService:
             if set_dte is not None:
                 certificate_service.sign_xml(set_dte, rut_emisor=rut_emisor)
 
-            envio_bytes = etree.tostring(envio_xml, encoding="ISO-8859-1", xml_declaration=True)
+            envio_bytes = _serialize_xml_iso8859(envio_xml)
         except Exception as e:
             logger.error(f"Error building EnvioDTE: {e}")
             return {

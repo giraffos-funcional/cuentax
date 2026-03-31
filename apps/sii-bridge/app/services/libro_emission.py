@@ -272,9 +272,8 @@ class LibroEmissionService:
                 raise ValueError("EnvioLibro element not found in generated XML")
 
             certificate_service.sign_xml(envio_libro, rut_emisor=rut_emisor)
-            xml_bytes = etree.tostring(
-                libro_xml, encoding="ISO-8859-1", xml_declaration=True
-            )
+            from app.services.dte_emission import _serialize_xml_iso8859
+            xml_bytes = _serialize_xml_iso8859(libro_xml)
         except Exception as e:
             logger.error(f"Error signing Libro {tipo}: {e}")
             return {
