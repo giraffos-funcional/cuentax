@@ -439,8 +439,9 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            # Build unsigned TED
-            ted, caf_for_sign = timbre_electronico_service.build_ted_unsigned(
+            # Build and sign TED (uses exclusive C14N for DD, so tree
+            # position doesn't affect the signature — sign before placement)
+            ted = timbre_electronico_service.generate_ted(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,
                 folio=doc.folio,
@@ -451,12 +452,7 @@ class DTEEmissionService:
                 item1_nombre=doc.items[0].nombre if doc.items else "Item",
                 caf_data=caf_data,
             )
-
-            # Append to tree FIRST, then sign (inclusive C14N consistency)
             documento.append(ted)
-
-            # Sign DD in-tree
-            timbre_electronico_service.sign_ted(ted, caf_for_sign)
 
             # Add TmstFirma (timestamp of DTE signature)
             tmst = etree.SubElement(documento, "TmstFirma")

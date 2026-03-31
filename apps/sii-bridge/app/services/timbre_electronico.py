@@ -193,10 +193,14 @@ class TimbreElectronicoService:
         """
         Sign the DD element with the CAF's RSA private key using SHA1.
 
+        Uses exclusive C14N so the signature is stable regardless of
+        where the TED is placed in the XML tree (ancestor namespaces
+        like xmlns="http://www.sii.cl/SiiDte" are excluded).
+
         Returns base64-encoded signature.
         """
-        # Canonicalize DD
-        dd_c14n = etree.tostring(dd_element, method="c14n", exclusive=False, with_comments=False)
+        # Exclusive C14N — strips ancestor namespace declarations
+        dd_c14n = etree.tostring(dd_element, method="c14n", exclusive=True, with_comments=False)
 
         # Load CAF private key
         # The CAF private key is stored as raw PEM content (just the base64 key material)
