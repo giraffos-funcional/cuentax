@@ -318,13 +318,15 @@ class CertificateService:
             ref_uri = f"#{element_id}" if element_id else ""
             target = element
 
-        # Determine if this is an envelope signature (parent has xmlns:xsi).
-        # DTE signatures: Signature is child of DTE (no xmlns:xsi in own nsmap)
-        # Envelope signatures: Signature is child of EnvioDTE (has xmlns:xsi)
-        parent_has_xsi = any(
-            prefix == "xsi"
-            for prefix in (element.nsmap or {})
-        )
+        # Determine if this is an envelope signature.
+        # lxml's .nsmap includes INHERITED namespaces from ancestors, so
+        # when DTE is inside EnvioDTE, DTE.nsmap also shows xmlns:xsi.
+        # Use the element's local tag name instead — reliable regardless
+        # of tree position.
+        # Envelope sigs: element is EnvioDTE, LibroCompraVenta, etc.
+        # DTE sigs: element is DTE
+        local_tag = etree.QName(element).localname
+        is_envelope = local_tag != "DTE"
 
         # Step 1: Compute digest of target element.
         # Serialize and reparse as standalone — this strips ancestor
@@ -337,7 +339,7 @@ class CertificateService:
         # verifier resolves DTE URI references in isolation without
         # ancestor prefixed NS. For envelope signatures, keep xmlns:xsi
         # as the SII includes it when verifying SetDTE/LibroCV.
-        if not parent_has_xsi:
+        if not is_envelope:
             target_c14n = target_c14n.replace(
                 b' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', b''
             )
@@ -354,7 +356,7 @@ class CertificateService:
         # DTE sigs: only xmlns="xmldsig#" (no xsi)
         # Envelope sigs: xmlns="xmldsig#" + xmlns:xsi (matches SII verifier)
         si_ns_attrs = f'xmlns="{ns}"'
-        if parent_has_xsi:
+        if is_envelope:
             si_ns_attrs += ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
         signed_info_xml = (
@@ -419,7 +421,7 @@ class CertificateService:
         logger.debug(
             f"XML signed (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}, "
             f"digest_c14n={len(target_c14n)}B, si_c14n={len(si_c14n)}B, "
-            f"envelope={parent_has_xsi}"
+            f"envelope={is_envelope}"
         )
         return element
 
