@@ -203,7 +203,7 @@ class SetPruebasParser:
             tipo_dte=tipo_dte,
             rut_receptor=rut_receptor or "66666666-6",
             razon_social_receptor=razon_social or "Receptor Prueba",
-            giro_receptor=giro or "Servicios",
+            giro_receptor=(giro[:40] if giro else "Servicios"),
             direccion_receptor=direccion or "",
             comuna_receptor=comuna or "",
             ciudad_receptor=ciudad or "Santiago",

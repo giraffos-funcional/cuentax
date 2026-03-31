@@ -164,7 +164,7 @@ class DTEXMLGenerator:
         r = etree.SubElement(encabezado, "Receptor")
         self._elem(r, "RUTRecep", receptor.rut)
         self._elem(r, "RznSocRecep", receptor.razon_social[:100])
-        self._elem(r, "GiroRecep", receptor.giro[:80])
+        self._elem(r, "GiroRecep", receptor.giro[:40])
         self._elem(r, "DirRecep", receptor.direccion[:70])
         self._elem(r, "CmnaRecep", receptor.comuna[:20])
         self._elem(r, "CiudadRecep", receptor.ciudad[:20])

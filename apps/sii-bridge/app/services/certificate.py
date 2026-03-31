@@ -274,52 +274,100 @@ class CertificateService:
     ) -> etree._Element:
         """
         Sign XML with RSA-SHA1 per SII Chile standard.
-        Uses signxml library for proper C14N and namespace handling.
+
+        Builds the XMLDSig Signature manually to comply with SII's specific
+        schema requirements:
+        - Only enveloped-signature Transform (no extra C14N transform)
+        - KeyInfo must contain RSAKeyValue before X509Data
+        - Reference URI must point to the signed element's ID attribute
+        - Signature elements use default namespace (no ds: prefix)
 
         Args:
-            element: XML element to sign
-            rut_emisor: RUT of the issuing company. Used to look up
-                which titular certificate to use. If not provided,
-                falls back to the first (or only) loaded cert.
+            element: XML element to sign (must have an ID attribute)
+            rut_emisor: RUT of the issuing company
         """
-        from signxml import XMLSigner, SignatureConstructionMethod
-        from signxml.algorithms import SignatureMethod, DigestAlgorithm, CanonicalizationMethod
-
         private_key, certificate = self._resolve_cert(rut_emisor)
 
-        # Get PEM-encoded key and certificate for signxml
-        key_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
+        # Find the element's ID for the Reference URI
+        element_id = element.get("ID", "")
+        ref_uri = f"#{element_id}" if element_id else ""
 
-        # SII Chile mandates RSA-SHA1 for all DTE XML signatures.
-        # signxml 4.x unconditionally blocks SHA1 in check_deprecated_methods()
-        # during __init__, even when using URI strings or enum values.
-        # We subclass XMLSigner to bypass this check for SII compliance.
-        class _SIIXMLSigner(XMLSigner):
-            """XMLSigner that permits SHA1 algorithms required by SII Chile."""
-            def check_deprecated_methods(self):
-                pass  # SII Chile requires RSA-SHA1 — regulatory override
+        # 1. Canonicalize the element to sign
+        c14n_bytes = etree.tostring(element, method="c14n")
 
-        signer = _SIIXMLSigner(
-            method=SignatureConstructionMethod.enveloped,
-            signature_algorithm=SignatureMethod.RSA_SHA1,
-            digest_algorithm=DigestAlgorithm.SHA1,
-            c14n_algorithm=CanonicalizationMethod.CANONICAL_XML_1_0,
+        # 2. Compute SHA1 digest
+        digest = hashlib.sha1(c14n_bytes).digest()
+        digest_b64 = base64.b64encode(digest).decode()
+
+        # 3. Build SignedInfo XML string
+        signed_info_xml = (
+            f'<SignedInfo xmlns="{XMLDSIG_NS}">'
+            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}"/>'
+            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
+            f'<Reference URI="{ref_uri}">'
+            f'<Transforms>'
+            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature"/>'
+            f'</Transforms>'
+            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
+            f'<DigestValue>{digest_b64}</DigestValue>'
+            f'</Reference>'
+            f'</SignedInfo>'
         )
 
-        signed_root = signer.sign(
-            element,
-            key=key_pem,
-            cert=cert_pem,
+        # 4. Canonicalize SignedInfo
+        signed_info_el = etree.fromstring(signed_info_xml.encode())
+        signed_info_c14n = etree.tostring(signed_info_el, method="c14n")
+
+        # 5. Sign with RSA-SHA1
+        signature_bytes = private_key.sign(
+            signed_info_c14n,
+            padding.PKCS1v15(),
+            hashes.SHA1(),
         )
+        signature_b64 = base64.b64encode(signature_bytes).decode()
+
+        # 6. Build RSAKeyValue from the public key
+        pub_key = certificate.public_key()
+        pub_numbers = pub_key.public_numbers()
+        modulus_bytes = pub_numbers.n.to_bytes(
+            (pub_numbers.n.bit_length() + 7) // 8, byteorder="big"
+        )
+        exponent_bytes = pub_numbers.e.to_bytes(
+            (pub_numbers.e.bit_length() + 7) // 8, byteorder="big"
+        )
+        modulus_b64 = base64.b64encode(modulus_bytes).decode()
+        exponent_b64 = base64.b64encode(exponent_bytes).decode()
+
+        # 7. Get X509 certificate as base64
+        cert_der = certificate.public_bytes(serialization.Encoding.DER)
+        cert_b64 = base64.b64encode(cert_der).decode()
+
+        # 8. Build the complete Signature element
+        sig_xml = (
+            f'<Signature xmlns="{XMLDSIG_NS}">'
+            f'{signed_info_xml}'
+            f'<SignatureValue>{signature_b64}</SignatureValue>'
+            f'<KeyInfo>'
+            f'<KeyValue>'
+            f'<RSAKeyValue>'
+            f'<Modulus>{modulus_b64}</Modulus>'
+            f'<Exponent>{exponent_b64}</Exponent>'
+            f'</RSAKeyValue>'
+            f'</KeyValue>'
+            f'<X509Data>'
+            f'<X509Certificate>{cert_b64}</X509Certificate>'
+            f'</X509Data>'
+            f'</KeyInfo>'
+            f'</Signature>'
+        )
+
+        # 9. Append Signature to the element
+        sig_element = etree.fromstring(sig_xml.encode())
+        element.append(sig_element)
 
         rut_label = rut_emisor or "default"
-        logger.debug(f"XML signed with signxml. Emisor: {rut_label}")
-        return signed_root
+        logger.debug(f"XML signed manually (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}")
+        return element
 
     def get_status(self, rut_empresa: Optional[str] = None) -> dict:
         """
