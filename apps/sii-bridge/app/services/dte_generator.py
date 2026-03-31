@@ -241,7 +241,7 @@ class DTEXMLGenerator:
         self._elem(dr, "GlosaDR", dsc.glosa[:45])
         self._elem(dr, "TpoValor", dsc.tipo_valor)
         self._elem(dr, "ValorDR", f"{dsc.valor:.2f}")
-        if dsc.ind_exe is not None:
+        if dsc.ind_exe and dsc.ind_exe in (1, 2):
             self._elem(dr, "IndExeDR", str(dsc.ind_exe))
 
     def _calculate_totals(self, doc: DTEDocumento) -> dict:
