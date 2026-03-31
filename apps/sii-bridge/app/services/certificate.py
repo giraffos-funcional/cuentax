@@ -352,12 +352,12 @@ class CertificateService:
         # Gives precise control over namespace declarations in SignedInfo.
         ns = XMLDSIG_NS
 
-        # Build SignedInfo with explicit namespace control.
-        # DTE sigs: only xmlns="xmldsig#" (no xsi)
-        # Envelope sigs: xmlns="xmldsig#" + xmlns:xsi (matches SII verifier)
-        si_ns_attrs = f'xmlns="{ns}"'
-        if is_envelope:
-            si_ns_attrs += ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        # Build SignedInfo with xmlns:xsi ALWAYS included.
+        # All signatures end up inside EnvioDTE which declares xmlns:xsi.
+        # When SII does inclusive C14N of SignedInfo in-tree, xmlns:xsi
+        # is inherited from the EnvioDTE ancestor. Our signed bytes must
+        # match that C14N output, so we always include xmlns:xsi.
+        si_ns_attrs = f'xmlns="{ns}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
         signed_info_xml = (
             f'<SignedInfo {si_ns_attrs}>'
