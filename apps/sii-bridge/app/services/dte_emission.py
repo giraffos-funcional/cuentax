@@ -550,8 +550,13 @@ class DTEEmissionService:
 
         # Check for error keywords in response
         if re.search(r'(?:ERROR|RECHAZADO|INVALIDO|INVALID)', response_text, re.IGNORECASE):
-            # Only flag as error if there's no TRACKID tag (some success responses have warnings)
-            if not re.search(r'<TRACKID>\d+</TRACKID>', response_text, re.IGNORECASE):
+            # Only flag as error if there's no TRACKID/Identificador (some success responses have warnings)
+            has_id = (
+                re.search(r'<TRACKID>\d+</TRACKID>', response_text, re.IGNORECASE)
+                or re.search(r'Identificador de env[^:]*:\s*<strong>\d+</strong>', response_text, re.IGNORECASE)
+                or re.search(r'RECIBIDO', response_text, re.IGNORECASE)
+            )
+            if not has_id:
                 is_error = True
 
         # Parse track ID only if no error detected
@@ -569,9 +574,9 @@ class DTEEmissionService:
                     track_id = track_match.group(1)
 
             if not track_id:
-                # "Número de Envío: 12345" — require at least 5 digits to avoid matching error codes
+                # "Número de Envío: 12345" or "Identificador de envío : <strong>12345</strong>"
                 track_match = re.search(
-                    r'(?:mero de Env|NUMERO ENVIO)\D*(\d{5,})',
+                    r'(?:mero de Env|NUMERO ENVIO|Identificador de env)\D*?(\d{5,})',
                     response_text, re.IGNORECASE,
                 )
                 if track_match:
