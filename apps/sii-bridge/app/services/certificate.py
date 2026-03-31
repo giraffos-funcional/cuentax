@@ -348,17 +348,17 @@ class CertificateService:
         # Gives precise control over namespace declarations in SignedInfo.
         ns = XMLDSIG_NS
 
-        # Build SignedInfo with xmlns:xsi ALWAYS included.
-        # All signatures end up inside EnvioDTE which declares xmlns:xsi.
-        # When SII does inclusive C14N of SignedInfo in-tree, xmlns:xsi
-        # is inherited from the EnvioDTE ancestor. Our signed bytes must
-        # match that C14N output, so we always include xmlns:xsi.
-        si_ns_attrs = f'xmlns="{ns}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        # DTE signatures: xmlns only (no xmlns:xsi per cryptosys.net ref).
+        # Envelope signatures: include xmlns:xsi (inherited from EnvioDTE
+        # ancestor, so Java's inclusive C14N of SignedInfo includes it).
+        if is_envelope:
+            si_ns_attrs = f'xmlns="{ns}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        else:
+            si_ns_attrs = f'xmlns="{ns}"'
 
-        # DTE signatures: no Transforms (SII rejects enveloped-signature
-        # transform on individual DTEs — confirmed by Chilkat examples and
-        # signxml issue #64). Envelope signatures: enveloped-signature
-        # transform required since Signature is inside the signed element.
+        # DTE signatures: C14N Transform (per cryptosys.net SII reference).
+        # Envelope signatures: enveloped-signature Transform (Signature is
+        # inside the signed element).
         if is_envelope:
             ref_xml = (
                 f'<Reference URI="{ref_uri}">'
@@ -372,6 +372,9 @@ class CertificateService:
         else:
             ref_xml = (
                 f'<Reference URI="{ref_uri}">'
+                f'<Transforms>'
+                f'<Transform Algorithm="{C14N_METHOD}"></Transform>'
+                f'</Transforms>'
                 f'<DigestMethod Algorithm="{ns}sha1"></DigestMethod>'
                 f'<DigestValue>{digest_b64}</DigestValue>'
                 f'</Reference>'

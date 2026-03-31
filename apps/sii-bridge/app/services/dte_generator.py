@@ -133,9 +133,10 @@ class DTEXMLGenerator:
         # Calcular montos
         totales = self._calculate_totals(doc)
 
-        # Root DTE — all elements use {SiiDte} namespace to avoid
-        # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest)
-        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS, "xsi": "http://www.w3.org/2001/XMLSchema-instance"})
+        # Root DTE — SiiDte default namespace only. Do NOT include
+        # xmlns:xsi here; SII expects DTE Documento digest computed
+        # without xmlns:xsi (per cryptosys.net SII reference).
+        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
         documento = etree.SubElement(dte_root, f"{_NS}Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
 
         # Encabezado
