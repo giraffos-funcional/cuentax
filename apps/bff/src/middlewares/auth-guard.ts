@@ -35,6 +35,23 @@ export async function authGuard(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  // Internal service auth — bypass JWT for service-to-service or CLI calls
+  const internalToken = request.headers['x-internal-token'] as string | undefined
+  if (internalToken && internalToken === config.INTERNAL_SECRET) {
+    const rut = (request.headers['x-company-rut'] as string) || ''
+    request.user = {
+      uid: 0,
+      email: 'internal@cuentax.cl',
+      name: 'Internal Service',
+      company_id: 0,
+      company_name: 'Internal',
+      company_rut: rut,
+      company_ids: [],
+      jti: 'internal',
+    }
+    return
+  }
+
   const authHeader = request.headers.authorization
 
   if (!authHeader?.startsWith('Bearer ')) {
