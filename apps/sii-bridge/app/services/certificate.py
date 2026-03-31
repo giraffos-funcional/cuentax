@@ -286,9 +286,9 @@ class CertificateService:
         Sign XML with RSA-SHA1 per SII Chile standard (XMLDSig enveloped).
 
         Builds the Signature element in-tree using lxml SubElements, then
-        computes C14N of SignedInfo from the tree context. This ensures the
-        signed bytes match what the SII Java verifier computes (inclusive
-        C14N with ancestor namespace declarations in scope).
+        serializes and reparses both the target and SignedInfo for standalone
+        C14N. The SII Java verifier extracts elements by ID and canonicalizes
+        them independently — ancestor namespace context must be stripped.
 
         Args:
             element: Parent element where Signature will be appended.
@@ -315,10 +315,16 @@ class CertificateService:
             ref_uri = f"#{element_id}" if element_id else ""
             target = element
 
-        # Step 1: Compute digest of target element using in-tree C14N.
+        # Step 1: Compute digest of target element.
+        # Serialize and reparse to get standalone C14N — strips ancestor
+        # namespace context (e.g. xmlns:xsi from EnvioDTE). The SII Java
+        # verifier extracts the referenced element by ID and canonicalizes
+        # it independently, matching this standalone approach.
         # Must be done BEFORE appending Signature (enveloped-signature
         # transform = digest without Signature present).
-        target_c14n = etree.tostring(target, method="c14n")
+        target_xml = etree.tostring(target)
+        target_reparsed = etree.fromstring(target_xml)
+        target_c14n = etree.tostring(target_reparsed, method="c14n")
         digest_bytes = hashlib.sha1(target_c14n).digest()
         digest_b64 = base64.b64encode(digest_bytes).decode()
 
@@ -379,11 +385,13 @@ class CertificateService:
             base64.b64encode(cert_der).decode()
         ) + "\n"
 
-        # Step 3: C14N the SignedInfo IN THE TREE.
-        # Inclusive C14N includes ancestor namespace declarations (e.g.
-        # xmlns:xsi from EnvioDTE), matching what the SII Java verifier
-        # computes at verification time.
-        si_c14n = etree.tostring(signed_info, method="c14n")
+        # Step 3: C14N the SignedInfo as standalone element.
+        # Serialize and reparse to strip ancestor namespace context —
+        # the SII verifier processes SignedInfo independently, so the
+        # C14N must not include xmlns:xsi or other ancestor declarations.
+        si_xml = etree.tostring(signed_info)
+        si_reparsed = etree.fromstring(si_xml)
+        si_c14n = etree.tostring(si_reparsed, method="c14n")
 
         # Step 4: Sign with RSA-SHA1
         sig_bytes = private_key.sign(
@@ -395,7 +403,7 @@ class CertificateService:
 
         rut_label = rut_emisor or "default"
         logger.debug(
-            f"XML signed (RSA-SHA1, in-tree C14N). "
+            f"XML signed (RSA-SHA1, standalone C14N). "
             f"Emisor: {rut_label}, URI: {ref_uri}, "
             f"digest_c14n={len(target_c14n)}B, si_c14n={len(si_c14n)}B"
         )
