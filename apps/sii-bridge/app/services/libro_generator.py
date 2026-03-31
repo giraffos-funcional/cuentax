@@ -168,9 +168,10 @@ class LibroXMLGenerator:
             self._elem(totales, "TotMntNeto", str(tot_neto))
             self._elem(totales, "TotMntIVA", str(tot_iva))
 
-            # Libro de Compras: optional fields in XSD sequence order
-            # TotIVAUsoComun → FctProp → TotCredIVAUsoComun → ... →
-            # TotIVAPropio → ... → TotMntTotal → TotIVARetTotal → TotIVANoRetenido
+            # Libro de Compras: XSD sequence order per LibroCV_v10.xsd:
+            # TotIVAUsoComun → FctProp → TotCredIVAUsoComun →
+            # TotIVAPropio → TotIVARetTotal → TotMntTotal →
+            # TotIVANoRetenido
             if data.tipo_operacion == "COMPRA":
                 if tot_iva_uso_comun:
                     self._elem(totales, "TotIVAUsoComun", str(tot_iva_uso_comun))
@@ -185,13 +186,12 @@ class LibroXMLGenerator:
                     self._elem(totales, "TotCredIVAUsoComun", str(cred_iva))
                 if tot_iva_propio:
                     self._elem(totales, "TotIVAPropio", str(tot_iva_propio))
+                if tot_iva_ret_total:
+                    self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
 
             self._elem(totales, "TotMntTotal", str(tot_total))
 
-            # After TotMntTotal in XSD sequence
             if data.tipo_operacion == "COMPRA":
-                if tot_iva_ret_total:
-                    self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
                 if tot_iva_no_retenido:
                     self._elem(totales, "TotIVANoRetenido", str(tot_iva_no_retenido))
 
@@ -220,18 +220,21 @@ class LibroXMLGenerator:
         if det.mnt_iva:
             self._elem(detalle, "MntIVA", str(det.mnt_iva))
 
-        # Libro de Compras specific fields
+        # Libro de Compras: XSD Detalle sequence per LibroCV_v10.xsd:
+        # IVAUsoComun → IVAPropio → IVARetTotal → MntTotal → IVANoRetenido
         if tipo_operacion == "COMPRA":
-            if det.iva_propio:
-                self._elem(detalle, "IVAPropio", str(det.iva_propio))
             if det.iva_uso_comun:
                 self._elem(detalle, "IVAUsoComun", str(det.iva_uso_comun))
+            if det.iva_propio:
+                self._elem(detalle, "IVAPropio", str(det.iva_propio))
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
-            if det.iva_no_retenido:
-                self._elem(detalle, "IVANoRetenido", str(det.iva_no_retenido))
 
         self._elem(detalle, "MntTotal", str(det.mnt_total))
+
+        if tipo_operacion == "COMPRA":
+            if det.iva_no_retenido:
+                self._elem(detalle, "IVANoRetenido", str(det.iva_no_retenido))
 
     @staticmethod
     def _elem(parent: etree._Element, tag: str, text: str) -> etree._Element:
