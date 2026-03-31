@@ -439,9 +439,11 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            # Build and sign TED (uses exclusive C14N for DD, so tree
-            # position doesn't affect the signature — sign before placement)
-            ted = timbre_electronico_service.generate_ted(
+            # Build TED unsigned, append to tree, THEN sign DD in-tree.
+            # Exclusive C14N includes the inherited default namespace
+            # (SiiDte) from Documento, so DD must be signed AFTER placement
+            # to match what the SII verifier computes.
+            ted, caf_data = timbre_electronico_service.build_ted_unsigned(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,
                 folio=doc.folio,
@@ -453,6 +455,7 @@ class DTEEmissionService:
                 caf_data=caf_data,
             )
             documento.append(ted)
+            timbre_electronico_service.sign_ted(ted, caf_data)
 
             # Add TmstFirma (timestamp of DTE signature)
             SII_DTE_NS = "http://www.sii.cl/SiiDte"
