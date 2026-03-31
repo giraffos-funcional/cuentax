@@ -62,7 +62,8 @@ export async function siiRoutes(fastify: FastifyInstance) {
       return reply.status(result.success ? 200 : 422).send(result)
     } catch (err: any) {
       const status = err.response?.status ?? 502
-      return reply.status(status).send({ error: 'cert_error', message: extractError(err, 'Error cargando certificado') })
+      const bridgeDetail = err.response?.data?.detail ?? err.response?.data?.message ?? err.message
+      return reply.status(status).send({ error: 'cert_error', message: extractError(err, 'Error cargando certificado'), bridge_detail: bridgeDetail })
     }
   })
 
