@@ -439,13 +439,13 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            # Build TED unsigned, sign DD while standalone, then append.
-            # Per SII Instructivo Tecnico A.2.4: FRMT is computed over DD
-            # bytes with namespace references STRIPPED, whitespace flattened,
-            # encoded as ISO-8859-1. Signing standalone ensures DD has no
-            # xmlns declarations. Once appended, TED inherits SiiDte
-            # namespace — the SII verifier strips namespaces before
-            # re-computing the digest, so the FRMT still matches.
+            # Build TED unsigned, append to tree, THEN sign DD.
+            # The SII verifier serializes DD from the parsed tree, which
+            # includes xmlns="http://www.sii.cl/SiiDte" inherited from
+            # Documento. Signing DD after it's in the tree ensures the
+            # FRMT is computed over the same bytes the SII will verify.
+            # NOTE: sign BEFORE placing DTE in EnvioDTE to avoid
+            # including xmlns:xsi from EnvioDTE ancestor.
             ted, caf_data = timbre_electronico_service.build_ted_unsigned(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,
@@ -457,8 +457,8 @@ class DTEEmissionService:
                 item1_nombre=doc.items[0].nombre if doc.items else "Item",
                 caf_data=caf_data,
             )
-            timbre_electronico_service.sign_ted(ted, caf_data)
             documento.append(ted)
+            timbre_electronico_service.sign_ted(ted, caf_data)
 
             # Add TmstFirma (timestamp of DTE signature)
             SII_DTE_NS = "http://www.sii.cl/SiiDte"
