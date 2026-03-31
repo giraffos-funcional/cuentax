@@ -342,9 +342,7 @@ class CertificateService:
         cert_der = certificate.public_bytes(serialization.Encoding.DER)
         cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
-        # 5. Build full Signature element with placeholder SignatureValue.
-        #    This ensures SignedInfo c14n matches what a verifier computes
-        #    (namespace context from parent Signature is included).
+        # 5. Build Signature template with placeholder SignatureValue
         sig_xml = (
             f'<Signature xmlns="{XMLDSIG_NS}">'
             f'<SignedInfo>'
@@ -374,11 +372,21 @@ class CertificateService:
         )
         sig_element = etree.fromstring(sig_xml.encode())
 
-        # 6. Canonicalize SignedInfo within the Signature tree context
-        signed_info_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignedInfo")
-        signed_info_c14n = etree.tostring(signed_info_el, method="c14n")
+        # 6. Append Signature to parent BEFORE c14n so that namespace
+        #    context from the full document tree is included.
+        #    Per CryptoSys/SII spec: "Need to include entire document with
+        #    all parent namespaces to propagate down to SignedInfo".
+        element.append(sig_element)
 
-        # 7. Sign with RSA-SHA1
+        # 7. Canonicalize SignedInfo within the full document tree context.
+        #    Use exclusive c14n to avoid lxml's inclusive c14n subtree bug
+        #    that adds spurious xmlns="" on descendant elements.
+        signed_info_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignedInfo")
+        signed_info_c14n = etree.tostring(
+            signed_info_el, method="c14n", exclusive=True
+        )
+
+        # 8. Sign with RSA-SHA1
         signature_bytes = private_key.sign(
             signed_info_c14n,
             padding.PKCS1v15(),
@@ -386,12 +394,9 @@ class CertificateService:
         )
         signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
 
-        # 8. Set the real SignatureValue
+        # 9. Set the real SignatureValue
         sig_value_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignatureValue")
         sig_value_el.text = f"\n{signature_b64}\n"
-
-        # 9. Append Signature to the parent element
-        element.append(sig_element)
 
         rut_label = rut_emisor or "default"
         logger.debug(f"XML signed (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}")
