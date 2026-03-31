@@ -414,7 +414,7 @@ class DTEEmissionService:
 
     def _build_dte_document(self, p: dict, folio: int) -> DTEDocumento:
         emisor = DTEEmisor(
-            rut=format_rut(p["rut_emisor"]),
+            rut=format_rut(p["rut_emisor"], dots=False),
             razon_social=p["razon_social_emisor"],
             giro=p["giro_emisor"],
             direccion=p.get("direccion_emisor", ""),
@@ -423,7 +423,7 @@ class DTEEmissionService:
             actividad_economica=p.get("actividad_economica", 620200),
         )
         receptor = DTEReceptor(
-            rut=format_rut(p["rut_receptor"]),
+            rut=format_rut(p["rut_receptor"], dots=False),
             razon_social=p["razon_social_receptor"],
             giro=p["giro_receptor"],
             direccion=p.get("direccion_receptor", ""),
