@@ -320,13 +320,40 @@ class CertificateService:
         #    Workaround for lxml bug: subtree C14N adds spurious xmlns=""
         #    on descendant elements.  Serialize → reparse → C14N.
         #
-        #    When the SII verifier extracts a DTE from EnvioDTE, lxml-style
-        #    serialization propagates ancestor namespace declarations
-        #    (xmlns:xsi) to the extracted subtree. So the verifier's C14N
-        #    of Documento INCLUDES xmlns:xsi. Our digest must match.
-        _serialized = etree.tostring(digest_element, encoding="unicode")
+        #    CRITICAL: The SII extracts each DTE from the EnvioDTE envelope
+        #    and verifies signatures on the STANDALONE DTE. Namespaces
+        #    declared only on EnvioDTE (like xmlns:xsi) are NOT in scope
+        #    when the SII verifies. For DTE signatures, we must compute
+        #    the digest from the DTE-level context (not the EnvioDTE tree).
         _is_dte_sig = target_id and target_id.startswith("DTE-")
-        _standalone = etree.fromstring(_serialized.encode())
+        if _is_dte_sig:
+            # For DTE signatures: serialize the DTE element (parent of
+            # digest_element/Documento) to get only DTE-level namespaces.
+            # This strips ancestor namespaces like xmlns:xsi from EnvioDTE.
+            dte_parent = digest_element.getparent()  # DTE element
+            if dte_parent is not None and dte_parent.tag.endswith("}DTE"):
+                dte_serialized = etree.tostring(dte_parent, encoding="unicode")
+                dte_standalone = etree.fromstring(dte_serialized.encode())
+                # Find Documento inside standalone DTE
+                doc_id = digest_element.get("ID", "")
+                _standalone = None
+                for el in dte_standalone.iter():
+                    if el.get("ID") == doc_id:
+                        _standalone_ser = etree.tostring(el, encoding="unicode")
+                        _standalone = etree.fromstring(_standalone_ser.encode())
+                        break
+                if _standalone is None:
+                    _standalone = etree.fromstring(
+                        etree.tostring(digest_element, encoding="unicode").encode()
+                    )
+            else:
+                _standalone = etree.fromstring(
+                    etree.tostring(digest_element, encoding="unicode").encode()
+                )
+        else:
+            _standalone = etree.fromstring(
+                etree.tostring(digest_element, encoding="unicode").encode()
+            )
         c14n_bytes = etree.tostring(_standalone, method="c14n")
 
         # 2. Compute SHA1 digest
@@ -350,17 +377,16 @@ class CertificateService:
         cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
         # 5. Collect ancestor prefixed namespace declarations for SignedInfo.
-        #    SignedInfo is verified in-tree where ancestor namespaces (xmlns:xsi)
-        #    are visible via inclusive C14N. Collect them for ALL signatures
-        #    (both DTE-level and envelope-level).
-        #    Note: the DIGEST is computed without xmlns:xsi for DTE signatures
-        #    (step 1 above strips it), but SignedInfo must include it because
-        #    the verifier canonicalizes SignedInfo in its tree context.
+        #    For DTE signatures: SII extracts the DTE standalone from EnvioDTE,
+        #    so ancestor namespaces (xmlns:xsi from EnvioDTE) are NOT in scope.
+        #    SignedInfo must match what SII sees — no xmlns:xsi.
+        #    For envelope signatures (SetDTE): include all ancestor namespaces.
         ancestor_ns: dict[str, str] = {}
-        for anc in list(element.iterancestors()) + [element]:
-            for prefix, uri in anc.nsmap.items():
-                if prefix is not None and prefix not in ancestor_ns:
-                    ancestor_ns[prefix] = uri
+        if not _is_dte_sig:
+            for anc in list(element.iterancestors()) + [element]:
+                for prefix, uri in anc.nsmap.items():
+                    if prefix is not None and prefix not in ancestor_ns:
+                        ancestor_ns[prefix] = uri
 
         ns_attrs = [f'xmlns="{XMLDSIG_NS}"']
         for prefix in sorted(ancestor_ns.keys()):
