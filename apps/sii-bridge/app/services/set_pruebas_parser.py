@@ -386,6 +386,231 @@ class SetPruebasParser:
         logger.info(f"Generated {len(payloads)} emission payloads from test set")
         return payloads
 
+    def parse_libro_compras(self, content: str) -> dict:
+        """
+        Parse the SET LIBRO DE COMPRAS section from the test set file.
+
+        The format is a table with entries like:
+            TIPO DOCUMENTO              FOLIO
+            OBSERVACIONES
+            MONTO EXENTO    MONTO AFECTO
+
+        Also extracts:
+        - folio_notificacion from the section header
+        - fct_prop (factor de proporcionalidad) from OBSERVACIONES GENERALES
+
+        Args:
+            content: Full text content of the test set file
+
+        Returns:
+            {
+                "folio_notificacion_ventas": str,
+                "folio_notificacion_compras": str,
+                "fct_prop": Decimal or None,
+                "entries": [
+                    {
+                        "tipo_doc_nombre": str,
+                        "folio": int,
+                        "observaciones": str,
+                        "mnt_exe": int,
+                        "mnt_afecto": int,
+                    },
+                    ...
+                ],
+            }
+        """
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Extract folio notificacion for ventas
+        folio_ventas = ""
+        match_ventas = re.search(
+            r"SET LIBRO DE VENTAS\s*-\s*NUMERO DE ATENCION:\s*(\d+)",
+            content,
+            re.IGNORECASE,
+        )
+        if match_ventas:
+            folio_ventas = match_ventas.group(1)
+
+        # Extract folio notificacion for compras
+        folio_compras = ""
+        match_compras = re.search(
+            r"SET LIBRO DE COMPRAS\s*-\s*NUMERO DE ATENCION:\s*(\d+)",
+            content,
+            re.IGNORECASE,
+        )
+        if match_compras:
+            folio_compras = match_compras.group(1)
+
+        # Extract factor de proporcionalidad
+        fct_prop = None
+        fct_match = re.search(
+            r"FACTOR DE PROPORCIONALIDAD\s*(?:DEL IVA\s*)?(?:ES DE\s*)?([\d.]+)",
+            content,
+            re.IGNORECASE,
+        )
+        if fct_match:
+            fct_prop = Decimal(fct_match.group(1))
+
+        # Extract the LIBRO DE COMPRAS section
+        compras_section = ""
+        start_match = re.search(
+            r"SET LIBRO DE COMPRAS\s*-\s*NUMERO DE ATENCION:\s*\d+",
+            content,
+            re.IGNORECASE,
+        )
+        if start_match:
+            section_start = start_match.end()
+            # Find the end: next section (SET GUIA, SET LIBRO DE GUIAS, etc.) or EOF
+            end_match = re.search(
+                r"\n-{3,}\n(?:SET (?:GUIA|LIBRO DE GUIAS))",
+                content[section_start:],
+                re.IGNORECASE,
+            )
+            if end_match:
+                compras_section = content[
+                    section_start : section_start + end_match.start()
+                ]
+            else:
+                compras_section = content[section_start:]
+
+        entries = self._parse_compras_entries(compras_section)
+
+        logger.info(
+            f"Libro de Compras parsed: {len(entries)} entries, "
+            f"folio_ventas={folio_ventas}, folio_compras={folio_compras}, "
+            f"fct_prop={fct_prop}"
+        )
+
+        return {
+            "folio_notificacion_ventas": folio_ventas,
+            "folio_notificacion_compras": folio_compras,
+            "fct_prop": fct_prop,
+            "entries": entries,
+        }
+
+    def _parse_compras_entries(self, section: str) -> list[dict]:
+        """
+        Parse individual entries from the compras section.
+
+        Each entry spans 3 lines:
+        - Line 1: TIPO_DOC (left) + FOLIO (right-aligned number)
+        - Line 2: OBSERVACIONES
+        - Line 3: MONTO_EXENTO (left) + MONTO_AFECTO (right)
+
+        Lines are separated by blank lines between entries.
+        Header/footer lines with === are ignored.
+        """
+        lines = section.split("\n")
+        entries = []
+
+        # Remove header/footer separator lines and empty lines at boundaries
+        clean_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Skip separator lines (=== or ---)
+            if re.match(r'^[=\-]{3,}$', stripped):
+                continue
+            # Skip header line "TIPO DOCUMENTO..."
+            if "TIPO DOCUMENTO" in stripped and "FOLIO" in stripped:
+                continue
+            # Skip sub-headers
+            if stripped == "OBSERVACIONES" or stripped == "MONTO EXENTO\tMONTO AFECTO":
+                continue
+            if "MONTO EXENTO" in stripped and "MONTO AFECTO" in stripped:
+                continue
+            # Skip "OBSERVACIONES GENERALES" and everything after
+            if "OBSERVACIONES GENERALES" in stripped:
+                break
+            clean_lines.append(line)
+
+        # Group into blocks separated by blank lines
+        blocks = []
+        current_block = []
+        for line in clean_lines:
+            if line.strip() == "":
+                if current_block:
+                    blocks.append(current_block)
+                    current_block = []
+            else:
+                current_block.append(line)
+        if current_block:
+            blocks.append(current_block)
+
+        # Known document type names (order matters: longer matches first)
+        doc_types = [
+            "FACTURA DE COMPRA ELECTRONICA",
+            "NOTA DE CREDITO ELECTRONICA",
+            "NOTA DE DEBITO ELECTRONICA",
+            "FACTURA ELECTRONICA",
+            "FACTURA EXENTA ELECTRONICA",
+            "NOTA DE CREDITO",
+            "NOTA DE DEBITO",
+            "FACTURA",
+        ]
+
+        for block in blocks:
+            if len(block) < 3:
+                # Need at least 3 lines per entry
+                continue
+
+            line1 = block[0]
+            line2 = block[1]
+            line3 = block[2] if len(block) > 2 else ""
+
+            # Parse line 1: TIPO_DOC + FOLIO
+            tipo_doc_nombre = None
+            folio = None
+
+            for dt in doc_types:
+                if dt in line1.upper():
+                    tipo_doc_nombre = dt
+                    # Extract folio: number after the document type name
+                    remainder = line1.upper().replace(dt, "", 1)
+                    folio_match = re.search(r'(\d+)', remainder)
+                    if folio_match:
+                        folio = int(folio_match.group(1))
+                    break
+
+            if not tipo_doc_nombre or not folio:
+                logger.debug(f"Could not parse compra entry line: '{line1}'")
+                continue
+
+            # Parse line 2: OBSERVACIONES
+            observaciones = line2.strip()
+
+            # Parse line 3: MONTO_EXENTO and MONTO_AFECTO
+            # Format: spaces + exento (optional) + spaces + afecto (optional)
+            amounts = re.findall(r'(\d+)', line3)
+            mnt_exe = 0
+            mnt_afecto = 0
+
+            if len(amounts) == 2:
+                # Both exento and afecto present
+                mnt_exe = int(amounts[0])
+                mnt_afecto = int(amounts[1])
+            elif len(amounts) == 1:
+                # Only one amount: determine position
+                # If the number is preceded by significant whitespace, it's afecto
+                # If positioned at start (or small indent), check column position
+                stripped = line3.lstrip()
+                leading_spaces = len(line3) - len(stripped)
+                if leading_spaces > 5:
+                    # Number is indented: it's in the afecto column
+                    mnt_afecto = int(amounts[0])
+                else:
+                    # Number at start: it's exento
+                    mnt_exe = int(amounts[0])
+
+            entries.append({
+                "tipo_doc_nombre": tipo_doc_nombre,
+                "folio": folio,
+                "observaciones": observaciones,
+                "mnt_exe": mnt_exe,
+                "mnt_afecto": mnt_afecto,
+            })
+
+        return entries
+
 
 # Singleton
 set_pruebas_parser = SetPruebasParser()
