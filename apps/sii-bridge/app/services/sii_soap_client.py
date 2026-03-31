@@ -283,41 +283,85 @@ class SIISoapClient:
 
     def _sign_seed(self, seed: str, rut_emisor: Optional[str] = None) -> str:
         """
-        Paso 2: Construye y firma el XML de la semilla.
-        El SII requiere un XML específico con la semilla y firma digital.
-        El elemento a firmar DEBE tener un atributo ID (requerido por SII).
+        Paso 2: Construye y firma el XML de la semilla manualmente.
+
+        Uses Python's cryptography library directly (NOT signxml) to build
+        the XMLDSig signature. This gives full control over the XML output
+        format, which is critical because SII's Java parser is very strict
+        about namespace handling and element structure.
+
+        Ported from the working scripts/send_to_sii.py implementation.
 
         Args:
             seed: SII seed value
             rut_emisor: Company RUT to select certificate (needed when multiple loaded)
         """
-        # Construir XML de semilla según formato SII
-        seed_xml = etree.fromstring(f"""<getToken>
-<item>
-<Semilla>{seed}</Semilla>
-</item>
-</getToken>""")
+        from cryptography.hazmat.primitives import hashes as crypto_hashes
+        from cryptography.hazmat.primitives import serialization as crypto_serial
+        from cryptography.hazmat.primitives.asymmetric import padding as crypto_padding
 
-        # Firmar con certificado — pass rut_emisor to resolve correct cert
-        signed_xml = certificate_service.sign_xml(seed_xml, rut_emisor=rut_emisor)
+        XMLDSIG_NS = "http://www.w3.org/2000/09/xmldsig#"
+        C14N_ALG = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 
-        # Serializar — lxml puede mover xmlns al root y crear prefijos ns0:
-        # que el parser Java del SII no entiende.
-        # Forzamos serialización raw para preservar namespace inline.
-        import re as _re
-        result = etree.tostring(signed_xml, encoding="unicode", xml_declaration=False)
-        
-        # Strip ALL namespace prefixes (ns0:, ds:, etc.) from XMLDSig elements.
-        # SII Chile expects unprefixed elements with xmlns= default namespace.
-        # This matches the format used by most Chilean SII client libraries.
-        result = _re.sub(r'<(\w+:)', lambda m: '<', result)
-        result = _re.sub(r'</(\w+:)', lambda m: '</', result)
-        result = _re.sub(r' xmlns:\w+="[^"]*"', '', result)
+        # Resolve certificate for this emisor
+        private_key, certificate = certificate_service._resolve_cert(rut_emisor)
 
-        # Ensure Signature has the XMLDSig default namespace
-        if '<Signature' in result and 'xmlns="http://www.w3.org/2000/09/xmldsig#"' not in result:
-            result = result.replace('<Signature>', '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">')
-        
+        # 1. Build seed XML
+        seed_xml = etree.fromstring(
+            f"<getToken><item><Semilla>{seed}</Semilla></item></getToken>".encode()
+        )
+
+        # 2. Canonicalize the seed XML and compute SHA1 digest
+        c14n_bytes = etree.tostring(seed_xml, method="c14n", exclusive=False, with_comments=False)
+        digest_value = base64.b64encode(hashlib.sha1(c14n_bytes).digest()).decode()
+
+        # 3. Build SignedInfo (with xmlns on the element itself — required for C14N)
+        signed_info_xml = (
+            f'<SignedInfo xmlns="{XMLDSIG_NS}">'
+            f'<CanonicalizationMethod Algorithm="{C14N_ALG}"/>'
+            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
+            f'<Reference URI="">'
+            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
+            f'<DigestValue>{digest_value}</DigestValue>'
+            f'</Reference>'
+            f'</SignedInfo>'
+        )
+
+        # 4. Canonicalize SignedInfo and sign with RSA-SHA1
+        signed_info_c14n = etree.tostring(
+            etree.fromstring(signed_info_xml.encode()), method="c14n"
+        )
+        sig_bytes = private_key.sign(
+            signed_info_c14n,
+            crypto_padding.PKCS1v15(),
+            crypto_hashes.SHA1(),
+        )
+        sig_b64 = base64.b64encode(sig_bytes).decode()
+
+        # 5. Get base64-encoded DER certificate
+        cert_b64 = base64.b64encode(
+            certificate.public_bytes(crypto_serial.Encoding.DER)
+        ).decode()
+
+        # 6. Build complete Signature element
+        #    KeyInfo contains only X509Data/X509Certificate (no RSAKeyValue).
+        #    This matches the format accepted by SII and used by all major
+        #    Chilean reference implementations (facturacion_electronica, l10n_cl_edi).
+        signature_xml = (
+            f'<Signature xmlns="{XMLDSIG_NS}">'
+            f'{signed_info_xml}'
+            f'<SignatureValue>{sig_b64}</SignatureValue>'
+            f'<KeyInfo>'
+            f'<X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data>'
+            f'</KeyInfo>'
+            f'</Signature>'
+        )
+
+        # 7. Append Signature to seed XML and serialize
+        seed_xml.append(etree.fromstring(signature_xml.encode()))
+        result = etree.tostring(seed_xml, encoding="unicode", xml_declaration=False)
+
+        logger.info(f"Seed signed manually (bypassing signxml). Length: {len(result)}")
         return result
 
     def _exchange_seed_for_token(self, signed_seed_xml: str) -> Optional[str]:
