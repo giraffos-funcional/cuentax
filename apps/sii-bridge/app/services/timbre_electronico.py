@@ -102,7 +102,11 @@ class TimbreElectronicoService:
         if not timestamp:
             timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-        ted = etree.Element("TED", attrib={"version": "1.0"})
+        # Explicit nsmap={None: ""} prevents lxml from inheriting the
+        # SiiDte default namespace when TED is appended to Documento.
+        # Without this, DD C14N includes xmlns="http://www.sii.cl/SiiDte"
+        # which breaks TED signature verification.
+        ted = etree.Element("TED", attrib={"version": "1.0"}, nsmap={None: ""})
         dd = etree.SubElement(ted, "DD")
 
         self._elem(dd, "RE", rut_emisor)
