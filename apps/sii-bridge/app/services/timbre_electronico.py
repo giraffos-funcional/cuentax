@@ -52,27 +52,56 @@ class TimbreElectronicoService:
         timestamp: Optional[str] = None,
     ) -> etree._Element:
         """
-        Build the TED XML element.
+        Build the TED XML element with DD signed standalone.
 
-        Args:
-            rut_emisor: RUT of the issuing company
-            tipo_dte: Document type (33, 39, 41, 56, 61)
-            folio: Document folio number
-            fecha_emision: Date of emission (YYYY-MM-DD)
-            rut_receptor: RUT of the receiver
-            razon_social_receptor: Name of the receiver (truncated to 40 chars)
-            monto_total: Total amount (integer)
-            item1_nombre: Name of the first item (truncated to 40 chars)
-            caf_data: The loaded CAFData with private key and raw XML
-            timestamp: Signature timestamp (default: now)
+        NOTE: If the TED will be placed inside a namespaced parent (e.g.
+        SiiDte Documento), call build_ted_unsigned() + sign_ted_in_tree()
+        instead, so that inclusive C14N produces consistent bytes at both
+        signing and verification time.
 
         Returns:
-            lxml Element for the TED
+            lxml Element for the TED (signed)
+        """
+        ted, caf_data_for_sign = self.build_ted_unsigned(
+            rut_emisor=rut_emisor,
+            tipo_dte=tipo_dte,
+            folio=folio,
+            fecha_emision=fecha_emision,
+            rut_receptor=rut_receptor,
+            razon_social_receptor=razon_social_receptor,
+            monto_total=monto_total,
+            item1_nombre=item1_nombre,
+            caf_data=caf_data,
+            timestamp=timestamp,
+        )
+        self.sign_ted(ted, caf_data)
+        return ted
+
+    def build_ted_unsigned(
+        self,
+        rut_emisor: str,
+        tipo_dte: int,
+        folio: int,
+        fecha_emision: str,
+        rut_receptor: str,
+        razon_social_receptor: str,
+        monto_total: int,
+        item1_nombre: str,
+        caf_data: CAFData,
+        timestamp: Optional[str] = None,
+    ) -> tuple[etree._Element, CAFData]:
+        """
+        Build the TED XML element WITHOUT the FRMT signature.
+
+        Call sign_ted() or sign_ted_in_tree() after placing the TED
+        in its final tree position.
+
+        Returns:
+            (ted_element, caf_data) tuple
         """
         if not timestamp:
             timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-        # Build DD (Datos del Documento)
         ted = etree.Element("TED", attrib={"version": "1.0"})
         dd = etree.SubElement(ted, "DD")
 
@@ -85,7 +114,6 @@ class TimbreElectronicoService:
         self._elem(dd, "MNT", str(monto_total))
         self._elem(dd, "IT1", item1_nombre[:40])
 
-        # Embed CAF block from the raw CAF XML
         caf_element = self._extract_caf_element(caf_data.caf_xml_raw)
         if caf_element is not None:
             dd.append(caf_element)
@@ -95,16 +123,29 @@ class TimbreElectronicoService:
 
         self._elem(dd, "TSTED", timestamp)
 
-        # Sign DD with CAF private key (RSA-SHA1)
+        logger.debug(f"TED (unsigned) built for tipo={tipo_dte} folio={folio}")
+        return ted, caf_data
+
+    def sign_ted(self, ted_element: etree._Element, caf_data: CAFData):
+        """
+        Sign the DD element inside the TED and append FRMT.
+
+        Call this AFTER the TED is placed in its final tree position
+        so inclusive C14N picks up the correct ancestor namespaces.
+        """
+        dd = ted_element.find("DD")
+        if dd is None:
+            raise ValueError("TED element has no DD child")
+
         pem_key = caf_data.private_key_pem
         if not pem_key:
             pem_key = self._extract_private_key_from_xml(caf_data.caf_xml_raw)
+
         signature_b64 = self._sign_dd(dd, pem_key)
-        frmt = etree.SubElement(ted, "FRMT", attrib={"algoritmo": "SHA1withRSA"})
+        frmt = etree.SubElement(ted_element, "FRMT", attrib={"algoritmo": "SHA1withRSA"})
         frmt.text = signature_b64
 
-        logger.debug(f"TED generated for DTE tipo={tipo_dte} folio={folio}")
-        return ted
+        logger.debug("TED DD signed")
 
     def _extract_caf_element(self, caf_xml_raw: str) -> Optional[etree._Element]:
         """Extract the <CAF> element (with <DA> and <FRMA>) from the raw CAF XML."""

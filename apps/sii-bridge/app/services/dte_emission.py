@@ -414,7 +414,14 @@ class DTEEmissionService:
         }
 
     def _add_ted(self, dte_element: etree._Element, doc: DTEDocumento, rut_emisor: str) -> etree._Element:
-        """Add TED (Timbre Electrónico Digital) to the Documento element."""
+        """
+        Add TED (Timbre Electrónico Digital) to the Documento element.
+
+        The TED is built unsigned, appended to the tree, then signed
+        in-tree so that inclusive C14N produces consistent bytes at
+        both signing and verification time (avoids xmlns="" leakage
+        when TED is inside a SiiDte-namespaced Documento).
+        """
         caf_data = caf_manager.get_caf(rut_emisor, doc.tipo_dte)
         if not caf_data:
             logger.warning(f"No CAF for TED generation (tipo={doc.tipo_dte}), skipping TED")
@@ -432,7 +439,8 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            ted = timbre_electronico_service.generate_ted(
+            # Build unsigned TED
+            ted, caf_for_sign = timbre_electronico_service.build_ted_unsigned(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,
                 folio=doc.folio,
@@ -443,7 +451,12 @@ class DTEEmissionService:
                 item1_nombre=doc.items[0].nombre if doc.items else "Item",
                 caf_data=caf_data,
             )
+
+            # Append to tree FIRST, then sign (inclusive C14N consistency)
             documento.append(ted)
+
+            # Sign DD in-tree
+            timbre_electronico_service.sign_ted(ted, caf_for_sign)
 
             # Add TmstFirma (timestamp of DTE signature)
             tmst = etree.SubElement(documento, "TmstFirma")
