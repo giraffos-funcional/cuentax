@@ -331,12 +331,25 @@ class DTEXMLGenerator:
         self._elem(caratula, "TmstFirmaEnv", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
         # SubTotDTE: count documents by type
-        tipo_counts = Counter[int]()
+        tipo_counts: Counter[int] = Counter()
         for dte in signed_dtes:
-            # Extract TipoDTE from the DTE XML
-            tipo_el = dte.find(".//{%s}TipoDTE" % SII_DTE_NS) or dte.find(".//TipoDTE")
+            # Extract TipoDTE — try with and without namespace (lxml default
+            # namespace handling varies depending on how elements were created)
+            tipo_el = None
+            for tag_variant in [
+                f".//{{{SII_DTE_NS}}}TipoDTE",
+                ".//TipoDTE",
+                f".//{{{SII_DTE_NS}}}IdDoc/{{{SII_DTE_NS}}}TipoDTE",
+                ".//IdDoc/TipoDTE",
+            ]:
+                tipo_el = dte.find(tag_variant)
+                if tipo_el is not None:
+                    break
+
             if tipo_el is not None and tipo_el.text:
                 tipo_counts[int(tipo_el.text)] += 1
+            else:
+                logger.warning(f"Could not find TipoDTE in DTE element: {etree.tostring(dte)[:200]}")
 
         for tipo_dte, count in sorted(tipo_counts.items()):
             sub = etree.SubElement(caratula, "SubTotDTE")
