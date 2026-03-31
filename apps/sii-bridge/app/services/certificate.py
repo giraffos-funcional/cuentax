@@ -318,33 +318,33 @@ class CertificateService:
             ref_uri = f"#{element_id}" if element_id else ""
             target = element
 
-        # Step 1: Compute digest of target element.
-        # Serialize and reparse as standalone — this strips ancestor
-        # namespace declarations (like xmlns:xsi from EnvioDTE) while
-        # keeping the element's own default namespace. This matches
-        # how known-good SII implementations compute the digest.
-        target_xml = etree.tostring(target)
-        target_reparsed = etree.fromstring(target_xml)
-        target_c14n = etree.tostring(target_reparsed, method="c14n")
-
-        # Strip xmlns:xsi from the C14N output if present — the SII
-        # verifier resolves the URI reference to the target element
-        # in isolation and does NOT include ancestor prefixed NS.
-        target_c14n = target_c14n.replace(
-            b' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', b''
-        )
-
-        digest_b64 = base64.b64encode(
-            hashlib.sha1(target_c14n).digest()
-        ).decode()
-
         # Determine if this is an envelope signature (parent has xmlns:xsi).
-        # DTE signatures: Signature is child of DTE (no xmlns:xsi)
+        # DTE signatures: Signature is child of DTE (no xmlns:xsi in own nsmap)
         # Envelope signatures: Signature is child of EnvioDTE (has xmlns:xsi)
         parent_has_xsi = any(
             prefix == "xsi"
             for prefix in (element.nsmap or {})
         )
+
+        # Step 1: Compute digest of target element.
+        # Serialize and reparse as standalone — this strips ancestor
+        # namespace declarations while keeping the element's own NS.
+        target_xml = etree.tostring(target)
+        target_reparsed = etree.fromstring(target_xml)
+        target_c14n = etree.tostring(target_reparsed, method="c14n")
+
+        # For DTE signatures, strip xmlns:xsi from digest — the SII
+        # verifier resolves DTE URI references in isolation without
+        # ancestor prefixed NS. For envelope signatures, keep xmlns:xsi
+        # as the SII includes it when verifying SetDTE/LibroCV.
+        if not parent_has_xsi:
+            target_c14n = target_c14n.replace(
+                b' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', b''
+            )
+
+        digest_b64 = base64.b64encode(
+            hashlib.sha1(target_c14n).digest()
+        ).decode()
 
         # Step 2: Build Signature XML as canonical string.
         # This approach (used by facturacion_electronica and Boletax)
