@@ -283,16 +283,15 @@ class CertificateService:
         target_id: Optional[str] = None,
     ) -> etree._Element:
         """
-        Sign XML with RSA-SHA1 per SII Chile standard (XMLDSig enveloped).
+        Sign XML with RSA-SHA1 per SII Chile standard.
 
-        Uses lxml SubElements for the Signature structure, then
-        serialize-reparse C14N for both digest and SignedInfo. The
-        serialize-reparse of in-tree elements preserves ancestor
-        prefixed namespace declarations (e.g. xmlns:xsi from EnvioDTE)
-        which the SII Java verifier includes in inclusive C14N.
-
-        For the digest, ancestor prefixed NS are injected into the
-        serialized target XML to match what Java inclusive C14N produces.
+        Matches the approach used by known-good SII implementations
+        (facturacion_electronica, Boletax):
+        - Digest: serialize-reparse target as standalone, inclusive C14N
+          (strips ancestor xmlns:xsi, keeps only element's own namespaces)
+        - Transform: C14N (not enveloped-signature)
+        - SignedInfo: xmlns:xsi included only for envelope signatures
+          (where Signature parent is EnvioDTE/LibroCV with xmlns:xsi)
 
         Args:
             element: Parent element where Signature will be appended.
@@ -320,108 +319,106 @@ class CertificateService:
             target = element
 
         # Step 1: Compute digest of target element.
-        # Serialize and reparse for clean C14N (avoids lxml's xmlns=""
-        # bug with in-tree subtree C14N). Inject ancestor prefixed
-        # namespace declarations so the output matches Java's inclusive
-        # C14N (which includes all in-scope NS from ancestors).
-        target_xml_str = etree.tostring(target, encoding="unicode")
-
-        # Collect ancestor prefixed namespace declarations not already
-        # present on the target element (these are in-scope per XML spec
-        # and included by Java's inclusive C14N).
-        import re as _re
-        for anc in list(target.iterancestors()):
-            for prefix, uri in anc.nsmap.items():
-                if prefix is not None:
-                    ns_decl = f'xmlns:{prefix}="{uri}"'
-                    if ns_decl not in target_xml_str:
-                        # Inject after the first tag name
-                        target_xml_str = _re.sub(
-                            r'^(<[^\s/>]+)',
-                            r'\1 ' + ns_decl,
-                            target_xml_str,
-                            count=1,
-                        )
-
-        target_reparsed = etree.fromstring(target_xml_str.encode("utf-8"))
+        # Serialize and reparse as standalone — this strips ancestor
+        # namespace declarations (like xmlns:xsi from EnvioDTE) while
+        # keeping the element's own default namespace. This matches
+        # how known-good SII implementations compute the digest.
+        target_xml = etree.tostring(target)
+        target_reparsed = etree.fromstring(target_xml)
         target_c14n = etree.tostring(target_reparsed, method="c14n")
+
+        # Strip xmlns:xsi from the C14N output if present — the SII
+        # verifier resolves the URI reference to the target element
+        # in isolation and does NOT include ancestor prefixed NS.
+        target_c14n = target_c14n.replace(
+            b' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', b''
+        )
+
         digest_b64 = base64.b64encode(
             hashlib.sha1(target_c14n).digest()
         ).decode()
 
-        # Step 2: Build Signature element structure using SubElements.
+        # Determine if this is an envelope signature (parent has xmlns:xsi).
+        # DTE signatures: Signature is child of DTE (no xmlns:xsi)
+        # Envelope signatures: Signature is child of EnvioDTE (has xmlns:xsi)
+        parent_has_xsi = any(
+            prefix == "xsi"
+            for prefix in (element.nsmap or {})
+        )
+
+        # Step 2: Build Signature XML as canonical string.
+        # This approach (used by facturacion_electronica and Boletax)
+        # gives precise control over namespace declarations in SignedInfo.
         ns = XMLDSIG_NS
-        nsmap = {None: ns}
 
-        sig = etree.SubElement(element, f"{{{ns}}}Signature", nsmap=nsmap)
-        signed_info = etree.SubElement(sig, f"{{{ns}}}SignedInfo")
+        # Build SignedInfo with explicit namespace control
+        si_ns_attrs = f'xmlns="{ns}"'
+        if parent_has_xsi:
+            si_ns_attrs += ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
 
-        c14n_el = etree.SubElement(signed_info, f"{{{ns}}}CanonicalizationMethod")
-        c14n_el.set("Algorithm", C14N_METHOD)
+        signed_info_xml = (
+            f'<SignedInfo {si_ns_attrs}>'
+            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}"></CanonicalizationMethod>'
+            f'<SignatureMethod Algorithm="{ns}rsa-sha1"></SignatureMethod>'
+            f'<Reference URI="{ref_uri}">'
+            f'<Transforms>'
+            f'<Transform Algorithm="{C14N_METHOD}"></Transform>'
+            f'</Transforms>'
+            f'<DigestMethod Algorithm="{ns}sha1"></DigestMethod>'
+            f'<DigestValue>{digest_b64}</DigestValue>'
+            f'</Reference>'
+            f'</SignedInfo>'
+        )
 
-        sig_method_el = etree.SubElement(signed_info, f"{{{ns}}}SignatureMethod")
-        sig_method_el.set("Algorithm", f"{XMLDSIG_NS}rsa-sha1")
+        # The SignedInfo string IS already in canonical form — sign it directly
+        si_c14n = signed_info_xml.encode("utf-8")
 
-        ref = etree.SubElement(signed_info, f"{{{ns}}}Reference")
-        ref.set("URI", ref_uri)
+        # Step 3: Sign with RSA-SHA1
+        sig_bytes = private_key.sign(
+            si_c14n, padding.PKCS1v15(), hashes.SHA1()
+        )
+        sig_b64 = _wrap_b64(base64.b64encode(sig_bytes).decode())
 
-        transforms = etree.SubElement(ref, f"{{{ns}}}Transforms")
-        transform = etree.SubElement(transforms, f"{{{ns}}}Transform")
-        transform.set("Algorithm", f"{XMLDSIG_NS}enveloped-signature")
-
-        digest_method = etree.SubElement(ref, f"{{{ns}}}DigestMethod")
-        digest_method.set("Algorithm", f"{XMLDSIG_NS}sha1")
-
-        digest_value_el = etree.SubElement(ref, f"{{{ns}}}DigestValue")
-        digest_value_el.text = digest_b64
-
-        sig_value_el = etree.SubElement(sig, f"{{{ns}}}SignatureValue")
-
-        # KeyInfo: RSAKeyValue + X509Certificate
-        key_info = etree.SubElement(sig, f"{{{ns}}}KeyInfo")
-
-        key_value = etree.SubElement(key_info, f"{{{ns}}}KeyValue")
-        rsa_kv = etree.SubElement(key_value, f"{{{ns}}}RSAKeyValue")
+        # Step 4: Build KeyInfo
         pub_key = certificate.public_key()
         pub_numbers = pub_key.public_numbers()
         mod_bytes = pub_numbers.n.to_bytes(
             (pub_numbers.n.bit_length() + 7) // 8, "big"
         )
-        mod_el = etree.SubElement(rsa_kv, f"{{{ns}}}Modulus")
-        mod_el.text = "\n" + _wrap_b64(base64.b64encode(mod_bytes).decode()) + "\n"
-        exp_el = etree.SubElement(rsa_kv, f"{{{ns}}}Exponent")
-        exp_el.text = base64.b64encode(
+        mod_b64 = _wrap_b64(base64.b64encode(mod_bytes).decode())
+        exp_b64 = base64.b64encode(
             pub_numbers.e.to_bytes(
                 (pub_numbers.e.bit_length() + 7) // 8, "big"
             )
         ).decode()
 
-        x509_data = etree.SubElement(key_info, f"{{{ns}}}X509Data")
-        x509_cert = etree.SubElement(x509_data, f"{{{ns}}}X509Certificate")
         cert_der = certificate.public_bytes(serialization.Encoding.DER)
-        x509_cert.text = "\n" + _wrap_b64(
-            base64.b64encode(cert_der).decode()
-        ) + "\n"
+        cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
-        # Step 3: C14N the SignedInfo via serialize-reparse.
-        # etree.tostring() of in-tree SignedInfo preserves ancestor
-        # prefixed NS (e.g. xmlns:xsi) matching Java inclusive C14N.
-        si_xml = etree.tostring(signed_info)
-        si_reparsed = etree.fromstring(si_xml)
-        si_c14n = etree.tostring(si_reparsed, method="c14n")
-
-        # Step 4: Sign with RSA-SHA1
-        sig_bytes = private_key.sign(
-            si_c14n, padding.PKCS1v15(), hashes.SHA1()
+        # Step 5: Assemble complete Signature XML string and append.
+        # Using the canonical SignedInfo string directly (same bytes
+        # that were signed) ensures C14N idempotency.
+        signature_xml = (
+            f'<Signature xmlns="{ns}">'
+            f'{signed_info_xml}'
+            f'<SignatureValue>\n{sig_b64}\n</SignatureValue>'
+            f'<KeyInfo>'
+            f'<KeyValue><RSAKeyValue>'
+            f'<Modulus>\n{mod_b64}\n</Modulus>'
+            f'<Exponent>{exp_b64}</Exponent>'
+            f'</RSAKeyValue></KeyValue>'
+            f'<X509Data><X509Certificate>\n{cert_b64}\n</X509Certificate></X509Data>'
+            f'</KeyInfo>'
+            f'</Signature>'
         )
-        sig_value_el.text = "\n" + _wrap_b64(
-            base64.b64encode(sig_bytes).decode()
-        ) + "\n"
+
+        element.append(etree.fromstring(signature_xml.encode()))
 
         rut_label = rut_emisor or "default"
         logger.debug(
             f"XML signed (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}, "
-            f"digest_c14n={len(target_c14n)}B, si_c14n={len(si_c14n)}B"
+            f"digest_c14n={len(target_c14n)}B, si_c14n={len(si_c14n)}B, "
+            f"envelope={parent_has_xsi}"
         )
         return element
 
