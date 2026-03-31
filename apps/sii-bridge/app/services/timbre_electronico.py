@@ -18,6 +18,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Optional
+from xml.sax.saxutils import escape as xml_escape
 from lxml import etree
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -76,15 +77,16 @@ class TimbreElectronicoService:
             raise ValueError("Invalid CAF XML: cannot extract <CAF> block")
 
         # Build DD as plain-text string — NO lxml, NO xmlns
-        rsr = razon_social_receptor[:40]
-        it1 = item1_nombre[:40]
+        # XML-escape text values to handle &, <, > in business data
+        rsr = xml_escape(razon_social_receptor[:40])
+        it1 = xml_escape(item1_nombre[:40])
         dd_str = (
             f"<DD>"
-            f"<RE>{rut_emisor}</RE>"
+            f"<RE>{xml_escape(rut_emisor)}</RE>"
             f"<TD>{tipo_dte}</TD>"
             f"<F>{folio}</F>"
             f"<FE>{fecha_emision}</FE>"
-            f"<RR>{rut_receptor}</RR>"
+            f"<RR>{xml_escape(rut_receptor)}</RR>"
             f"<RSR>{rsr}</RSR>"
             f"<MNT>{monto_total}</MNT>"
             f"<IT1>{it1}</IT1>"
@@ -110,7 +112,9 @@ class TimbreElectronicoService:
         frmt_b64 = self._sign_bytes(dd_flat, pem_key)
 
         # Assemble complete TED as string, then parse to lxml
+        # Prepend XML declaration so lxml knows this is ISO-8859-1
         ted_str = (
+            f'<?xml version="1.0" encoding="ISO-8859-1"?>'
             f'<TED version="1.0">'
             f"{dd_str}"
             f'<FRMT algoritmo="SHA1withRSA">{frmt_b64}</FRMT>'
