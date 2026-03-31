@@ -163,9 +163,12 @@ class LibroXMLGenerator:
                 tot_iva_ret_total += d.iva_ret_total * sign
                 tot_iva_no_retenido += d.iva_no_retenido * sign
 
-            self._elem(totales, "TotMntExe", str(tot_exe))
-            self._elem(totales, "TotMntNeto", str(tot_neto))
-            self._elem(totales, "TotMntIVA", str(tot_iva))
+            if tot_exe:
+                self._elem(totales, "TotMntExe", str(tot_exe))
+            if tot_neto:
+                self._elem(totales, "TotMntNeto", str(tot_neto))
+            if tot_iva:
+                self._elem(totales, "TotMntIVA", str(tot_iva))
 
             # Libro de Compras totals
             if data.tipo_operacion == "COMPRA":
@@ -198,7 +201,7 @@ class LibroXMLGenerator:
         self._elem(detalle, "NroDoc", str(det.nro_doc))
 
         if det.tasa_imp and det.mnt_neto:
-            self._elem(detalle, "TasaImp", str(int(det.tasa_imp)))
+            self._elem(detalle, "TasaImp", f"{det.tasa_imp:.2f}")
 
         self._elem(detalle, "FchDoc", det.fch_doc)
 

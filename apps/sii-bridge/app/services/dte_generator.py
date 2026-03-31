@@ -133,11 +133,6 @@ class DTEXMLGenerator:
         if doc.receptor.ref_tipo_doc and doc.receptor.ref_folio:
             self._build_referencia(documento, doc)
 
-        # Observaciones
-        if doc.observaciones:
-            obs = etree.SubElement(documento, "Observaciones")
-            obs.text = doc.observaciones[:256]
-
         logger.debug(f"XML DTE tipo {doc.tipo_dte} folio {doc.folio} generado")
         return dte_root
 
@@ -183,20 +178,20 @@ class DTEXMLGenerator:
             if totales["exento"] > 0:
                 self._elem(t, "MntExe", str(totales["exento"]))
             if totales["iva"] > 0:
-                self._elem(t, "TasaIVA", "19")
+                self._elem(t, "TasaIVA", "19.00")
                 self._elem(t, "IVA", str(totales["iva"]))
             self._elem(t, "MntTotal", str(totales["total"]))
 
     def _build_item(self, documento, item: DTEItem, idx: int, tipo_dte: int):
         det = etree.SubElement(documento, "Detalle")
         self._elem(det, "NroLinDet", str(idx))
-        # IndExe must appear before NmbItem per SII XSD ordering
-        if item.exento:
-            self._elem(det, "IndExe", "1")
+        # XSD sequence: NroLinDet → CdgItem → IndExe → NmbItem
         if item.codigo:
             cd = etree.SubElement(det, "CdgItem")
             self._elem(cd, "TpoCodigo", "INT1")
             self._elem(cd, "VlrCodigo", item.codigo[:35])
+        if item.exento:
+            self._elem(det, "IndExe", "1")
         self._elem(det, "NmbItem", item.nombre[:80])
         self._elem(det, "QtyItem", str(item.cantidad))
         self._elem(det, "UnmdItem", item.unidad)

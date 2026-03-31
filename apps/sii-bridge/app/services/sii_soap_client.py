@@ -528,7 +528,9 @@ class SIISoapClient:
             estado = ""
             glosa = ""
 
-            est_match = re.search(r'<EST_MEC>([^<]+)</EST_MEC>', inner_xml)
+            est_match = re.search(r'<ESTADO>([^<]+)</ESTADO>', inner_xml)
+            if not est_match:
+                est_match = re.search(r'<EST_MEC>([^<]+)</EST_MEC>', inner_xml)
             if est_match:
                 estado = est_match.group(1).strip()
 
