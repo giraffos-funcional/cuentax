@@ -84,6 +84,15 @@ class DTEReceptor:
 
 
 @dataclass
+class DscRcgGlobal:
+    tipo_mov: str  # "D" = Descuento, "R" = Recargo
+    glosa: str
+    tipo_valor: str  # "%" or "$"
+    valor: Decimal
+    ind_exe: int = 0  # 0 = afecto, 1 = exento
+
+
+@dataclass
 class DTEDocumento:
     tipo_dte: int
     folio: int
@@ -94,6 +103,7 @@ class DTEDocumento:
     forma_pago: int = 1  # 1=Contado, 2=Crédito
     fecha_vencimiento: Optional[str] = None
     observaciones: Optional[str] = None
+    descuentos_globales: list[DscRcgGlobal] = field(default_factory=list)
 
 
 class DTEXMLGenerator:
@@ -116,13 +126,8 @@ class DTEXMLGenerator:
         totales = self._calculate_totals(doc)
 
         # Root DTE — all elements use {SiiDte} namespace to avoid
-        # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest).
-        # Include xmlns:xsi because EnvioDTE declares it; when the SII
-        # extracts a DTE for individual signature verification, lxml-style
-        # serialization propagates ancestor xmlns:xsi to the subtree.
-        # The digest must match what the verifier sees.
-        xsi_ns = "http://www.w3.org/2001/XMLSchema-instance"
-        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS, "xsi": xsi_ns})
+        # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest)
+        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
         documento = etree.SubElement(dte_root, f"{_NS}Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
 
         # Encabezado
@@ -135,6 +140,10 @@ class DTEXMLGenerator:
         # Detalle de items
         for i, item in enumerate(doc.items, start=1):
             self._build_item(documento, item, i, doc.tipo_dte)
+
+        # DscRcgGlobal (after Detalle, before Referencia per XSD)
+        for i, dsc in enumerate(doc.descuentos_globales, start=1):
+            self._build_dsc_rcg_global(documento, dsc, i)
 
         # Referencia (para NC/ND)
         if doc.receptor.ref_tipo_doc and doc.receptor.ref_folio:
@@ -225,6 +234,16 @@ class DTEXMLGenerator:
         if doc.receptor.ref_motivo:
             self._elem(ref, "RazonRef", doc.receptor.ref_motivo[:90])
 
+    def _build_dsc_rcg_global(self, documento, dsc: DscRcgGlobal, idx: int):
+        dr = etree.SubElement(documento, f"{_NS}DscRcgGlobal")
+        self._elem(dr, "NroLinDR", str(idx))
+        self._elem(dr, "TpoMov", dsc.tipo_mov)
+        self._elem(dr, "GlosaDR", dsc.glosa[:45])
+        self._elem(dr, "TpoValor", dsc.tipo_valor)
+        self._elem(dr, "ValorDR", f"{dsc.valor:.2f}")
+        if dsc.ind_exe is not None:
+            self._elem(dr, "IndExeDR", str(dsc.ind_exe))
+
     def _calculate_totals(self, doc: DTEDocumento) -> dict:
         neto = Decimal("0")
         exento = Decimal("0")
@@ -234,6 +253,27 @@ class DTEXMLGenerator:
                 exento += item.monto_item
             else:
                 neto += item.monto_item
+
+        # Apply global discounts/surcharges
+        for dsc in doc.descuentos_globales:
+            if dsc.tipo_valor == "%":
+                if dsc.ind_exe == 0:  # Afecto
+                    amount = (neto * dsc.valor / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                else:  # Exento
+                    amount = (exento * dsc.valor / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            else:  # "$"
+                amount = dsc.valor.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+            if dsc.tipo_mov == "D":
+                if dsc.ind_exe == 0:
+                    neto -= amount
+                else:
+                    exento -= amount
+            else:  # Recargo
+                if dsc.ind_exe == 0:
+                    neto += amount
+                else:
+                    exento += amount
 
         # Boletas (39) el precio ya incluye IVA
         if doc.tipo_dte in (39,):

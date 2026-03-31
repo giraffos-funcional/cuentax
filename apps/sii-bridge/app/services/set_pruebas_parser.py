@@ -494,12 +494,6 @@ class SetPruebasParser:
                     "unidad": item.unidad,
                 })
 
-            # Apply global discount to non-exento items
-            if case.descuento_global_pct > 0:
-                for item_data in items_data:
-                    if not item_data["exento"]:
-                        item_data["descuento_pct"] = str(case.descuento_global_pct)
-
             payload: dict = {
                 "tipo_dte": case.tipo_dte,
                 "rut_emisor": data.rut_emisor,
@@ -520,6 +514,16 @@ class SetPruebasParser:
                 # Internal: case sub-number for tracking
                 "_caso_sub": case.caso_sub,
             }
+
+            # Global discount as DscRcgGlobal (not per-item)
+            if case.descuento_global_pct > 0:
+                payload["descuentos_globales"] = [{
+                    "tipo_mov": "D",
+                    "glosa": "Descuento Global Itemes Afectos",
+                    "tipo_valor": "%",
+                    "valor": str(case.descuento_global_pct),
+                    "ind_exe": 0,  # 0 = afecto items only
+                }]
 
             if case.referencia:
                 payload["ref_tipo_doc"] = case.referencia.tipo_doc_ref

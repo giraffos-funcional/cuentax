@@ -23,6 +23,14 @@ class ItemDTE(BaseModel):
     unidad: str = "UN"
 
 
+class DscRcgGlobalDTE(BaseModel):
+    tipo_mov: str = "D"  # D=Descuento, R=Recargo
+    glosa: str = ""
+    tipo_valor: str = "%"  # "%" or "$"
+    valor: float
+    ind_exe: int = 0  # 0=afecto, 1=exento
+
+
 class EmitirDTERequest(BaseModel):
     tipo_dte: Literal[33, 39, 41, 56, 61, 110, 111, 112, 113]
     rut_emisor: str
@@ -37,6 +45,7 @@ class EmitirDTERequest(BaseModel):
     direccion_receptor: Optional[str] = None
     email_receptor: Optional[str] = None
     items: list[ItemDTE]
+    descuentos_globales: list[DscRcgGlobalDTE] = []
     forma_pago: int = 1
     fecha_emision: Optional[str] = None
     fecha_vencimiento: Optional[str] = None
@@ -65,8 +74,8 @@ class AnularDTERequest(BaseModel):
 async def emit_dte(request: EmitirDTERequest):
     """Emite un DTE completo (genera XML, firma, envía al SII)."""
     payload = request.model_dump()
-    # Convertir items a dicts simples
     payload["items"] = [item.model_dump() for item in request.items]
+    payload["descuentos_globales"] = [d.model_dump() for d in request.descuentos_globales]
 
     result = dte_emission_service.emit(payload)
 

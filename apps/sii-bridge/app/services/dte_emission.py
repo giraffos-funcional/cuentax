@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Optional
 from lxml import etree
 
-from app.services.dte_generator import DTEXMLGenerator, DTEDocumento, DTEEmisor, DTEReceptor, DTEItem
+from app.services.dte_generator import DTEXMLGenerator, DTEDocumento, DTEEmisor, DTEReceptor, DTEItem, DscRcgGlobal
 from app.services.caf_manager import caf_manager
 from app.services.certificate import certificate_service
 from app.services.sii_soap_client import sii_soap_client
@@ -532,6 +532,16 @@ class DTEEmissionService:
             )
             for it in p["items"]
         ]
+        descuentos = [
+            DscRcgGlobal(
+                tipo_mov=d["tipo_mov"],
+                glosa=d.get("glosa", ""),
+                tipo_valor=d.get("tipo_valor", "%"),
+                valor=Decimal(str(d["valor"])),
+                ind_exe=d.get("ind_exe", 0),
+            )
+            for d in p.get("descuentos_globales", [])
+        ]
         return DTEDocumento(
             tipo_dte=p["tipo_dte"],
             folio=folio,
@@ -542,6 +552,7 @@ class DTEEmissionService:
             forma_pago=p.get("forma_pago", 1),
             fecha_vencimiento=p.get("fecha_vencimiento"),
             observaciones=p.get("observaciones"),
+            descuentos_globales=descuentos,
         )
 
     def _send_to_sii(self, xml_bytes: bytes, rut_emisor: str, token: str) -> dict:
