@@ -326,34 +326,7 @@ class CertificateService:
         digest = hashlib.sha1(c14n_bytes).digest()
         digest_b64 = base64.b64encode(digest).decode()
 
-        # 3. Build SignedInfo XML string
-        signed_info_xml = (
-            f'<SignedInfo xmlns="{XMLDSIG_NS}">'
-            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}"/>'
-            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
-            f'<Reference URI="{ref_uri}">'
-            f'<Transforms>'
-            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature"/>'
-            f'</Transforms>'
-            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
-            f'<DigestValue>{digest_b64}</DigestValue>'
-            f'</Reference>'
-            f'</SignedInfo>'
-        )
-
-        # 4. Canonicalize SignedInfo
-        signed_info_el = etree.fromstring(signed_info_xml.encode())
-        signed_info_c14n = etree.tostring(signed_info_el, method="c14n")
-
-        # 5. Sign with RSA-SHA1
-        signature_bytes = private_key.sign(
-            signed_info_c14n,
-            padding.PKCS1v15(),
-            hashes.SHA1(),
-        )
-        signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
-
-        # 6. Build RSAKeyValue from the public key
+        # 3. Build RSAKeyValue from the public key
         pub_key = certificate.public_key()
         pub_numbers = pub_key.public_numbers()
         modulus_bytes = pub_numbers.n.to_bytes(
@@ -365,15 +338,27 @@ class CertificateService:
         modulus_b64 = _wrap_b64(base64.b64encode(modulus_bytes).decode())
         exponent_b64 = base64.b64encode(exponent_bytes).decode()
 
-        # 7. Get X509 certificate as base64
+        # 4. Get X509 certificate as base64
         cert_der = certificate.public_bytes(serialization.Encoding.DER)
         cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
-        # 8. Build the complete Signature element
+        # 5. Build full Signature element with placeholder SignatureValue.
+        #    This ensures SignedInfo c14n matches what a verifier computes
+        #    (namespace context from parent Signature is included).
         sig_xml = (
             f'<Signature xmlns="{XMLDSIG_NS}">'
-            f'{signed_info_xml}'
-            f'<SignatureValue>\n{signature_b64}\n</SignatureValue>'
+            f'<SignedInfo>'
+            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}"/>'
+            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
+            f'<Reference URI="{ref_uri}">'
+            f'<Transforms>'
+            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature"/>'
+            f'</Transforms>'
+            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
+            f'<DigestValue>{digest_b64}</DigestValue>'
+            f'</Reference>'
+            f'</SignedInfo>'
+            f'<SignatureValue/>'
             f'<KeyInfo>'
             f'<KeyValue>'
             f'<RSAKeyValue>'
@@ -387,9 +372,25 @@ class CertificateService:
             f'</KeyInfo>'
             f'</Signature>'
         )
+        sig_element = etree.fromstring(sig_xml.encode())
+
+        # 6. Canonicalize SignedInfo within the Signature tree context
+        signed_info_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignedInfo")
+        signed_info_c14n = etree.tostring(signed_info_el, method="c14n")
+
+        # 7. Sign with RSA-SHA1
+        signature_bytes = private_key.sign(
+            signed_info_c14n,
+            padding.PKCS1v15(),
+            hashes.SHA1(),
+        )
+        signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
+
+        # 8. Set the real SignatureValue
+        sig_value_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignatureValue")
+        sig_value_el.text = f"\n{signature_b64}\n"
 
         # 9. Append Signature to the parent element
-        sig_element = etree.fromstring(sig_xml.encode())
         element.append(sig_element)
 
         rut_label = rut_emisor or "default"
