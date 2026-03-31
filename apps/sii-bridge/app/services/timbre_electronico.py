@@ -142,10 +142,12 @@ class TimbreElectronicoService:
             if "version" not in caf_copy.attrib:
                 caf_copy.set("version", "1.0")
 
-            # Serialize and strip ALL xmlns declarations
+            # Serialize, strip ALL xmlns declarations, and flatten whitespace
             caf_bytes = etree.tostring(caf_copy, encoding="unicode")
             caf_clean = re.sub(r'\s+xmlns(:[a-zA-Z0-9]+)?="[^"]*"', '', caf_bytes)
-            return caf_clean
+            # Flatten: remove whitespace between tags so DD is flat
+            caf_flat = re.sub(r'>\s+<', '><', caf_clean)
+            return caf_flat
 
         except Exception as e:
             logger.error(f"Error extracting CAF string: {e}")
