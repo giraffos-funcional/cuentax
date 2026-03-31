@@ -317,11 +317,15 @@ class CertificateService:
             digest_element = element
 
         # 1. Canonicalize the element to digest using inclusive C14N.
-        #    The SII verifier uses inclusive C14N for the Reference data
-        #    (default per XML-DSig spec when no C14N transform is specified).
-        #    DTEs must be signed AFTER assembly into EnvioDTE so ancestor
-        #    namespaces (xmlns:xsi) are in scope — matching verification.
-        c14n_bytes = etree.tostring(digest_element, method="c14n")
+        #    Workaround for lxml bug: subtree C14N produces spurious xmlns=""
+        #    on descendant elements even when they are properly namespace-
+        #    qualified.  Serialize the element first (captures ancestor
+        #    namespace declarations), reparse as standalone root, then C14N.
+        #    This matches what the SII verifier does: parse the XML, find the
+        #    element, compute C14N — producing identical bytes.
+        _serialized = etree.tostring(digest_element)
+        _standalone = etree.fromstring(_serialized)
+        c14n_bytes = etree.tostring(_standalone, method="c14n")
 
         # 2. Compute SHA1 digest
         digest = hashlib.sha1(c14n_bytes).digest()

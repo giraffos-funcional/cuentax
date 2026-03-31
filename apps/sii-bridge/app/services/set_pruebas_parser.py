@@ -449,6 +449,20 @@ class SetPruebasParser:
         return n1 == n2 or n1 in n2 or n2 in n1
 
     @staticmethod
+    def _derive_cod_ref(razon_ref: str) -> int:
+        """Derive CodRef (1=Anula, 2=Corrige texto, 3=Corrige montos) from razon text."""
+        upper = (razon_ref or "").upper()
+        if "ANULA" in upper:
+            return 1
+        if "DEVOLUCION" in upper:
+            return 3  # Partial return = monto correction
+        if "CORRIGE" in upper:
+            if "GIRO" in upper or "TEXTO" in upper or "RAZON" in upper:
+                return 2  # Text correction
+            return 3  # Default corrige = montos
+        return 1  # Default fallback
+
+    @staticmethod
     def _safe_decimal(s: str) -> Optional[Decimal]:
         """Convert string to Decimal, return None on failure."""
         try:
@@ -512,6 +526,7 @@ class SetPruebasParser:
                 payload["ref_folio"] = 0  # Resolved during batch emission
                 payload["ref_fecha"] = ""  # Set to fecha_emision during emission
                 payload["ref_motivo"] = case.referencia.razon_ref
+                payload["ref_cod_ref"] = self._derive_cod_ref(case.referencia.razon_ref)
                 payload["_ref_caso_sub"] = case._ref_caso_sub
 
             payloads.append(payload)

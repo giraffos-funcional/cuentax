@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ── Schemas ───────────────────────────────────────────────────
 SII_DTE_NS    = "http://www.sii.cl/SiiDte"
+_NS           = f"{{{SII_DTE_NS}}}"          # "{http://www.sii.cl/SiiDte}"
 SII_XMLDSIG   = "http://www.w3.org/2000/09/xmldsig#"
 SII_XSD_TYPES = {
     33:  "Factura Electrónica",
@@ -78,6 +79,7 @@ class DTEReceptor:
     ref_tipo_doc: Optional[int] = None
     ref_folio: Optional[int] = None
     ref_fecha: Optional[str] = None
+    ref_cod_ref: Optional[int] = None  # 1=Anula, 2=Corrige texto, 3=Corrige montos
     ref_motivo: Optional[str] = None
 
 
@@ -113,12 +115,13 @@ class DTEXMLGenerator:
         # Calcular montos
         totales = self._calculate_totals(doc)
 
-        # Root DTE
-        dte_root = etree.Element("DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
-        documento = etree.SubElement(dte_root, "Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
+        # Root DTE — all elements use {SiiDte} namespace to avoid
+        # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest)
+        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
+        documento = etree.SubElement(dte_root, f"{_NS}Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
 
         # Encabezado
-        encabezado = etree.SubElement(documento, "Encabezado")
+        encabezado = etree.SubElement(documento, f"{_NS}Encabezado")
         self._build_id_doc(encabezado, doc)
         self._build_emisor(encabezado, doc.emisor)
         self._build_receptor(encabezado, doc.receptor)
@@ -136,7 +139,7 @@ class DTEXMLGenerator:
         return dte_root
 
     def _build_id_doc(self, encabezado, doc: DTEDocumento):
-        id_doc = etree.SubElement(encabezado, "IdDoc")
+        id_doc = etree.SubElement(encabezado, f"{_NS}IdDoc")
         self._elem(id_doc, "TipoDTE", str(doc.tipo_dte))
         self._elem(id_doc, "Folio", str(doc.folio))
         self._elem(id_doc, "FchEmis", doc.fecha_emision)
@@ -145,7 +148,7 @@ class DTEXMLGenerator:
             self._elem(id_doc, "FchVenc", doc.fecha_vencimiento)
 
     def _build_emisor(self, encabezado, emisor: DTEEmisor):
-        e = etree.SubElement(encabezado, "Emisor")
+        e = etree.SubElement(encabezado, f"{_NS}Emisor")
         self._elem(e, "RUTEmisor", emisor.rut)
         self._elem(e, "RznSoc", emisor.razon_social[:100])
         self._elem(e, "GiroEmis", emisor.giro[:80])
@@ -158,7 +161,7 @@ class DTEXMLGenerator:
             self._elem(e, "CiudadOrigen", emisor.ciudad[:20])
 
     def _build_receptor(self, encabezado, receptor: DTEReceptor):
-        r = etree.SubElement(encabezado, "Receptor")
+        r = etree.SubElement(encabezado, f"{_NS}Receptor")
         self._elem(r, "RUTRecep", receptor.rut)
         self._elem(r, "RznSocRecep", receptor.razon_social[:100])
         self._elem(r, "GiroRecep", receptor.giro[:40])
@@ -172,7 +175,7 @@ class DTEXMLGenerator:
             self._elem(r, "CorreoRecep", receptor.email)
 
     def _build_totales(self, encabezado, totales: dict, tipo_dte: int):
-        t = etree.SubElement(encabezado, "Totales")
+        t = etree.SubElement(encabezado, f"{_NS}Totales")
         
         # Boletas (39, 41) incluyen IVA en precio — reportan MntTotal directamente
         if tipo_dte in (39, 41):
@@ -188,11 +191,11 @@ class DTEXMLGenerator:
             self._elem(t, "MntTotal", str(totales["total"]))
 
     def _build_item(self, documento, item: DTEItem, idx: int, tipo_dte: int):
-        det = etree.SubElement(documento, "Detalle")
+        det = etree.SubElement(documento, f"{_NS}Detalle")
         self._elem(det, "NroLinDet", str(idx))
         # XSD sequence: NroLinDet → CdgItem → IndExe → NmbItem
         if item.codigo:
-            cd = etree.SubElement(det, "CdgItem")
+            cd = etree.SubElement(det, f"{_NS}CdgItem")
             self._elem(cd, "TpoCodigo", "INT1")
             self._elem(cd, "VlrCodigo", item.codigo[:35])
         if item.exento:
@@ -206,11 +209,14 @@ class DTEXMLGenerator:
         self._elem(det, "MontoItem", str(item.monto_item))
 
     def _build_referencia(self, documento, doc: DTEDocumento):
-        ref = etree.SubElement(documento, "Referencia")
+        ref = etree.SubElement(documento, f"{_NS}Referencia")
         self._elem(ref, "NroLinRef", "1")
         self._elem(ref, "TpoDocRef", str(doc.receptor.ref_tipo_doc))
         self._elem(ref, "FolioRef", str(doc.receptor.ref_folio))
         self._elem(ref, "FchRef", doc.receptor.ref_fecha or doc.fecha_emision)
+        # XSD sequence: CodRef comes after FchRef, before RazonRef
+        if doc.receptor.ref_cod_ref:
+            self._elem(ref, "CodRef", str(doc.receptor.ref_cod_ref))
         if doc.receptor.ref_motivo:
             self._elem(ref, "RazonRef", doc.receptor.ref_motivo[:90])
 
@@ -241,7 +247,7 @@ class DTEXMLGenerator:
 
     @staticmethod
     def _elem(parent, tag: str, text: str) -> etree._Element:
-        el = etree.SubElement(parent, tag)
+        el = etree.SubElement(parent, f"{_NS}{tag}")
         el.text = text
         return el
 
@@ -275,14 +281,14 @@ class DTEXMLGenerator:
         nsmap = {None: SII_DTE_NS, "xsi": xsi_ns}
 
         envio = etree.Element(
-            "EnvioDTE",
+            f"{_NS}EnvioDTE",
             attrib={
                 "version": "1.0",
                 f"{{{xsi_ns}}}schemaLocation": f"{SII_DTE_NS} EnvioDTE_v10.xsd",
             },
             nsmap=nsmap,
         )
-        set_dte = etree.SubElement(envio, "SetDTE", attrib={"ID": "SetDoc"})
+        set_dte = etree.SubElement(envio, f"{_NS}SetDTE", attrib={"ID": "SetDoc"})
 
         # Build Caratula
         caratula = self._build_caratula(
@@ -308,7 +314,7 @@ class DTEXMLGenerator:
         ambiente: str,
     ) -> etree._Element:
         """Build the Caratula (header) for EnvioDTE."""
-        caratula = etree.SubElement(set_dte, "Caratula", attrib={"version": "1.0"})
+        caratula = etree.SubElement(set_dte, f"{_NS}Caratula", attrib={"version": "1.0"})
 
         self._elem(caratula, "RutEmisor", rut_emisor)
         self._elem(caratula, "RutEnvia", rut_envia)
@@ -353,7 +359,7 @@ class DTEXMLGenerator:
                 logger.warning(f"Could not find TipoDTE in DTE element: {etree.tostring(dte)[:200]}")
 
         for tipo_dte, count in sorted(tipo_counts.items()):
-            sub = etree.SubElement(caratula, "SubTotDTE")
+            sub = etree.SubElement(caratula, f"{_NS}SubTotDTE")
             self._elem(sub, "TpoDTE", str(tipo_dte))
             self._elem(sub, "NroDTE", str(count))
 

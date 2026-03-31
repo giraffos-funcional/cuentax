@@ -455,7 +455,8 @@ class DTEEmissionService:
             documento.append(ted)
 
             # Add TmstFirma (timestamp of DTE signature)
-            tmst = etree.SubElement(documento, "TmstFirma")
+            SII_DTE_NS = "http://www.sii.cl/SiiDte"
+            tmst = etree.SubElement(documento, f"{{{SII_DTE_NS}}}TmstFirma")
             tmst.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
         except Exception as e:
@@ -510,6 +511,7 @@ class DTEEmissionService:
             ref_tipo_doc=p.get("ref_tipo_doc"),
             ref_folio=p.get("ref_folio"),
             ref_fecha=p.get("ref_fecha"),
+            ref_cod_ref=p.get("ref_cod_ref"),
             ref_motivo=p.get("ref_motivo"),
         )
         items = [
