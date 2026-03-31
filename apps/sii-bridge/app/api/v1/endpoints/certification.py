@@ -15,7 +15,8 @@ Each step tracks its own state in a session dict keyed by rut_emisor.
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from enum import IntEnum
 from typing import Optional
 
@@ -25,6 +26,7 @@ from pydantic import BaseModel
 from app.services.set_pruebas_parser import set_pruebas_parser, SetPruebasData
 from app.services.dte_emission import dte_emission_service
 from app.services.dte_reception import dte_reception_service
+from app.services.libro_emission import libro_emission_service
 from app.services.pdf_generator import pdf_generator
 from app.services.sii_soap_client import sii_soap_client
 from app.services.certificate import certificate_service
@@ -145,6 +147,12 @@ class InterceptRequest(BaseModel):
 class PDFRequest(BaseModel):
     dte_data: dict
     ted_string: Optional[str] = None
+
+
+class LibrosRequest(BaseModel):
+    rut_emisor: str
+    periodo: Optional[str] = None  # "YYYY-MM", defaults to current month
+    fecha_emision: Optional[str] = None  # date for compras docs, defaults to today
 
 
 # ── Prerequisites check ───────────────────────────────────────
@@ -364,6 +372,8 @@ async def upload_test_set(
     session = _get_session(rut_emisor)
     session[f"set_pruebas_{set_type}"] = parsed
     session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
+    # Store raw content for libro de compras parsing later
+    session["raw_test_set_content"] = text
 
     # Ensure all payloads have the correct rut_emisor
     for p in session[f"payloads_{set_type}"]:
@@ -626,6 +636,138 @@ async def generate_muestra_pdf(req: PDFRequest):
         "success": True,
         "pdf_b64": base64.b64encode(pdf_bytes).decode(),
         "size_bytes": len(pdf_bytes),
+    }
+
+
+# ── Libros de Compras y Ventas ───────────────────────────────
+
+@router.post("/wizard/libros/generate")
+async def generate_libros(req: LibrosRequest):
+    """
+    Generate and send both Libro de Ventas (IEV) and Libro de Compras (IEC)
+    to the SII for certification.
+
+    Requires:
+    - Test set uploaded and processed (set basico DTEs emitted)
+    - Test set file content available in session (for compras parsing)
+
+    The endpoint:
+    1. Builds Libro de Ventas from the batch_result (EnvioDTE XML)
+    2. Parses Libro de Compras entries from the test set file
+    3. Generates, signs, and sends both to SII
+    4. Returns both track IDs
+    """
+    rut_emisor = req.rut_emisor
+    periodo = req.periodo or date.today().strftime("%Y-%m")
+    fecha_emision = req.fecha_emision or date.today().strftime("%Y-%m-%d")
+
+    # Find session with batch results
+    session = None
+    if rut_emisor and rut_emisor != "auto":
+        candidate = _sessions.get(rut_emisor)
+        if candidate:
+            session = candidate
+
+    # Fallback: search all sessions
+    if not session:
+        for session_rut, sess in _sessions.items():
+            if sess.get("last_batch_result"):
+                rut_emisor = session_rut
+                session = sess
+                logger.info(
+                    f"Found batch results in session for {session_rut} "
+                    f"(requested: {req.rut_emisor})"
+                )
+                break
+
+    if not session:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No certification session found. "
+                "Upload and process a test set first via /wizard/set-prueba/upload"
+            ),
+        )
+
+    batch_result = session.get("last_batch_result")
+    if not batch_result or not batch_result.get("xml_envio_b64"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No EnvioDTE XML found in session. "
+                "Process the test set first via /wizard/set-prueba/process"
+            ),
+        )
+
+    # Parse the original test set file for compras data
+    # The SetPruebasData object stores the raw content; we need the raw file
+    # We'll parse compras from the stored set_pruebas_factura raw text or
+    # from a stored raw_content field
+    raw_content = session.get("raw_test_set_content")
+    if not raw_content:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Original test set file content not found in session. "
+                "Re-upload the test set file via /wizard/set-prueba/upload"
+            ),
+        )
+
+    # Parse libro de compras data from the test set file
+    compras_data = set_pruebas_parser.parse_libro_compras(raw_content)
+
+    folio_ventas = compras_data["folio_notificacion_ventas"]
+    folio_compras = compras_data["folio_notificacion_compras"]
+    fct_prop = compras_data.get("fct_prop")
+    compras_entries = compras_data["entries"]
+
+    if not folio_ventas:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find SET LIBRO DE VENTAS section in test set file",
+        )
+
+    if not compras_entries:
+        raise HTTPException(
+            status_code=400,
+            detail="No compras entries found in SET LIBRO DE COMPRAS section",
+        )
+
+    # 1. Generate and send Libro de Ventas
+    resultado_ventas = libro_emission_service.emit_libro_ventas(
+        envio_dte_xml_b64=batch_result["xml_envio_b64"],
+        rut_emisor=rut_emisor,
+        periodo=periodo,
+        folio_notificacion=folio_ventas,
+    )
+
+    # 2. Generate and send Libro de Compras
+    resultado_compras = libro_emission_service.emit_libro_compras(
+        compras_entries=compras_entries,
+        rut_emisor=rut_emisor,
+        periodo=periodo,
+        folio_notificacion=folio_compras,
+        fct_prop=fct_prop,
+        fecha_doc=fecha_emision,
+    )
+
+    # Store results in session
+    session["libro_ventas_result"] = resultado_ventas
+    session["libro_compras_result"] = resultado_compras
+
+    overall_success = resultado_ventas.get("success") and resultado_compras.get(
+        "success"
+    )
+
+    return {
+        "success": overall_success,
+        "periodo": periodo,
+        "libro_ventas": resultado_ventas,
+        "libro_compras": resultado_compras,
+        "folio_notificacion_ventas": folio_ventas,
+        "folio_notificacion_compras": folio_compras,
+        "fct_prop": str(fct_prop) if fct_prop else None,
+        "compras_entries_count": len(compras_entries),
     }
 
 
