@@ -417,43 +417,38 @@ class DTEEmissionService:
         )
 
     def _send_to_sii(self, xml_bytes: bytes, rut_emisor: str, token: str) -> dict:
-        """Envía el DTE al SII via SOAP raw HTTP (con proxy)."""
+        """Envía el DTE al SII via HTTP multipart upload (cgi_dte/UPL/DTEUpload)."""
         import re
-        import base64
         import requests as req
 
         rut_parts = rut_emisor.replace(".", "").split("-")
         rut_num = rut_parts[0]
         dv = rut_parts[1] if len(rut_parts) > 1 else "0"
 
-        xml_b64 = base64.b64encode(xml_bytes).decode()
-
-        # Build raw SOAP envelope for uploadDTE
-        soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:upl="http://DefaultNamespace">
-  <soapenv:Body>
-    <upl:uploadDTE>
-      <rutSender>{rut_num}</rutSender>
-      <dvSender>{dv}</dvSender>
-      <rutCompany>{rut_num}</rutCompany>
-      <dvCompany>{dv}</dvCompany>
-      <archivo>{xml_b64}</archivo>
-      <token>{token}</token>
-    </upl:uploadDTE>
-  </soapenv:Body>
-</soapenv:Envelope>"""
-
-        endpoint = sii_soap_client._wsdls["upload"].replace("?WSDL", "")
+        endpoint = sii_soap_client._wsdls["upload"]
         proxy_url = sii_soap_client._proxy_url
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
-        logger.info(f"Enviando DTE al SII: endpoint={endpoint}, proxy={proxy_url}")
+        logger.info(f"Enviando DTE al SII: endpoint={endpoint}")
 
+        # SII expects HTTP multipart form upload with these fields:
+        #   rutSender, dvSender, rutCompany, dvCompany, archivo (file)
+        # Cookie: TOKEN=<sii_token>
         resp = req.post(
             endpoint,
-            data=soap_body.encode("utf-8"),
-            headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+            files={
+                "archivo": ("envio_dte.xml", xml_bytes, "text/xml"),
+            },
+            data={
+                "rutSender": rut_num,
+                "dvSender": dv,
+                "rutCompany": rut_num,
+                "dvCompany": dv,
+            },
+            headers={
+                "User-Agent": "CUENTAX/1.0 (DTE SII Chile)",
+                "Cookie": f"TOKEN={token}",
+            },
             proxies=proxies,
             timeout=60,
         )
@@ -461,18 +456,22 @@ class DTEEmissionService:
         if resp.status_code != 200:
             raise Exception(f"SII uploadDTE HTTP {resp.status_code}: {resp.text[:300]}")
 
-        # Extract inner XML from SOAP response
-        inner_xml = sii_soap_client._extract_soap_return(resp.content, "uploadDTEReturn")
-        response_text = inner_xml or resp.text
+        response_text = resp.text
+        logger.info(f"SII uploadDTE response: {response_text[:500]}")
 
-        # Parse track ID
+        # Parse track ID from HTML/XML response
         track_id = None
         track_match = re.search(r'<TRACKID>(\d+)</TRACKID>', response_text, re.IGNORECASE)
         if track_match:
             track_id = track_match.group(1)
 
+        # Also check for STATUS
+        status_match = re.search(r'<STATUS>(\d+)</STATUS>', response_text, re.IGNORECASE)
+        status = status_match.group(1) if status_match else None
+
         return {
             "track_id": track_id,
+            "status": status,
             "mensaje": f"Track ID: {track_id}" if track_id else "Sin Track ID en respuesta",
             "response_raw": response_text[:500],
         }

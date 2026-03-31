@@ -35,14 +35,14 @@ SII_WSDLS = {
     "certificacion": {
         "auth":   "https://maullin.sii.cl/DTEWS/CrSeed.jws?WSDL",
         "token":  "https://maullin.sii.cl/DTEWS/GetTokenFromSeed.jws?WSDL",
-        "upload": "https://maullin.sii.cl/DTEWS/services/MipagoDte?WSDL",
+        "upload": "https://maullin.sii.cl/cgi_dte/UPL/DTEUpload",
         "status": "https://maullin.sii.cl/DTEWS/QueryEstDteAv.jws?WSDL",
         "boleta": "https://maullin.sii.cl/DTEWS/services/WSBoleta?WSDL",
     },
     "produccion": {
         "auth":   "https://palena.sii.cl/DTEWS/CrSeed.jws?WSDL",
         "token":  "https://palena.sii.cl/DTEWS/GetTokenFromSeed.jws?WSDL",
-        "upload": "https://palena.sii.cl/DTEWS/services/MipagoDte?WSDL",
+        "upload": "https://palena.sii.cl/cgi_dte/UPL/DTEUpload",
         "status": "https://palena.sii.cl/DTEWS/QueryEstDteAv.jws?WSDL",
         "boleta": "https://palena.sii.cl/DTEWS/services/WSBoleta?WSDL",
     },
