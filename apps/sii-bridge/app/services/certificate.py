@@ -41,15 +41,19 @@ def _normalize_rut(rut: str) -> str:
 
 def _extract_rut_from_cert(cert: x509.Certificate) -> Optional[str]:
     """
-    Extract the titular RUT from the X.509 certificate subject.
+    Extract the titular RUT from the X.509 certificate.
 
-    Chilean digital certificates typically include:
-    - serialNumber OID with the RUT (e.g., "16122939-3")
-    - CN with the person's name
+    Chilean digital certificates store the RUT in various locations:
+    1. serialNumber OID in subject (e.g., "16122939-3")
+    2. SubjectAlternativeName extension with OID 1.3.6.1.4.1.8321.1
+       (Chilean CA standard for e-CertChile, CertificaFirma, etc.)
+    3. CN with RUT pattern
 
     Returns the normalized RUT or None if not found.
     """
-    # Try serialNumber OID first (standard for Chilean certs)
+    import re
+
+    # Try serialNumber OID first (standard for some Chilean CAs)
     try:
         serial_attrs = cert.subject.get_attributes_for_oid(
             x509.oid.NameOID.SERIAL_NUMBER
@@ -63,6 +67,29 @@ def _extract_rut_from_cert(cert: x509.Certificate) -> Optional[str]:
     except Exception as e:
         logger.debug(f"Could not extract serialNumber from cert: {e}")
 
+    # Try SubjectAlternativeName (SAN) — Chilean CAs store RUT here
+    # OID 1.3.6.1.4.1.8321.1 = RUT del titular (e-CertChile standard)
+    try:
+        san_ext = cert.extensions.get_extension_for_oid(
+            x509.oid.ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
+        for name in san_ext.value:
+            if isinstance(name, x509.OtherName):
+                # OID 1.3.6.1.4.1.8321.1 = titular RUT
+                if name.type_id.dotted_string == "1.3.6.1.4.1.8321.1":
+                    raw_value = name.value
+                    # Value is ASN.1 encoded — extract the RUT string
+                    rut_match = re.search(rb'(\d{7,8}-[\dkK])', raw_value)
+                    if rut_match:
+                        rut_str = rut_match.group(1).decode("ascii")
+                        normalized = _normalize_rut(rut_str)
+                        logger.debug(f"RUT titular extracted from SAN: {rut_str}")
+                        return normalized
+    except x509.ExtensionNotFound:
+        logger.debug("No SAN extension in cert")
+    except Exception as e:
+        logger.debug(f"Could not extract RUT from SAN: {e}")
+
     # Fallback: try to extract from CN (some certs embed RUT in CN)
     try:
         cn_attrs = cert.subject.get_attributes_for_oid(
@@ -70,8 +97,6 @@ def _extract_rut_from_cert(cert: x509.Certificate) -> Optional[str]:
         )
         if cn_attrs:
             cn_value = cn_attrs[0].value
-            # Look for RUT pattern in CN (e.g., "NOMBRE APELLIDO / 16122939-3")
-            import re
             rut_match = re.search(r'(\d{7,8}-[\dkK])', cn_value)
             if rut_match:
                 normalized = _normalize_rut(rut_match.group(1))
