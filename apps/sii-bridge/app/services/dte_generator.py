@@ -50,9 +50,17 @@ class DTEItem:
 
     @property
     def monto_item(self) -> Decimal:
-        bruto = self.cantidad * self.precio_unitario
-        descuento = bruto * (self.descuento_pct / 100)
-        return (bruto - descuento).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        bruto = (self.cantidad * self.precio_unitario).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        if self.descuento_pct > 0:
+            descuento = (bruto * self.descuento_pct / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            return bruto - descuento
+        return bruto
+
+    @property
+    def descuento_monto(self) -> Decimal:
+        """Monto del descuento redondeado (for DescuentoMonto element)."""
+        bruto = (self.cantidad * self.precio_unitario).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return (bruto * self.descuento_pct / 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
 @dataclass
@@ -220,6 +228,7 @@ class DTEXMLGenerator:
         self._elem(det, "PrcItem", str(item.precio_unitario))
         if item.descuento_pct > 0:
             self._elem(det, "DescuentoPct", str(item.descuento_pct))
+            self._elem(det, "DescuentoMonto", str(item.descuento_monto))
         self._elem(det, "MontoItem", str(item.monto_item))
 
     def _build_referencia(self, documento, doc: DTEDocumento):

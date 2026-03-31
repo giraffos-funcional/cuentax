@@ -417,10 +417,9 @@ class DTEEmissionService:
         """
         Add TED (Timbre Electrónico Digital) to the Documento element.
 
-        The TED is built unsigned, appended to the tree, then signed
-        in-tree so that inclusive C14N produces consistent bytes at
-        both signing and verification time (avoids xmlns="" leakage
-        when TED is inside a SiiDte-namespaced Documento).
+        Uses generate_ted_signed() which builds DD as plain-text strings
+        (no lxml, no xmlns) to avoid namespace contamination from ancestor
+        elements. The FRMT is computed over clean DD bytes.
         """
         caf_data = caf_manager.get_caf(rut_emisor, doc.tipo_dte)
         if not caf_data:
@@ -439,14 +438,7 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            # Build TED unsigned, append to tree, THEN sign DD.
-            # The SII verifier serializes DD from the parsed tree, which
-            # includes xmlns="http://www.sii.cl/SiiDte" inherited from
-            # Documento. Signing DD after it's in the tree ensures the
-            # FRMT is computed over the same bytes the SII will verify.
-            # NOTE: sign BEFORE placing DTE in EnvioDTE to avoid
-            # including xmlns:xsi from EnvioDTE ancestor.
-            ted, caf_data = timbre_electronico_service.build_ted_unsigned(
+            ted = timbre_electronico_service.generate_ted_signed(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,
                 folio=doc.folio,
@@ -458,7 +450,6 @@ class DTEEmissionService:
                 caf_data=caf_data,
             )
             documento.append(ted)
-            timbre_electronico_service.sign_ted(ted, caf_data)
 
             # Add TmstFirma (timestamp of DTE signature)
             SII_DTE_NS = "http://www.sii.cl/SiiDte"

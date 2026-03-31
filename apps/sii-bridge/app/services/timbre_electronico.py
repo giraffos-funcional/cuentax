@@ -37,9 +37,13 @@ class TimbreElectronicoService:
     - DD: Document data (emisor RUT, tipo, folio, fecha, receptor, monto, item1)
     - CAF: The complete CAF authorization block (embedded from the CAF XML)
     - FRMT: RSA-SHA1 signature of DD, signed with the CAF private key
+
+    IMPORTANT: DD is built as plain-text string (no lxml, no xmlns) to avoid
+    namespace contamination from ancestor elements. The SII verifier expects
+    DD bytes WITHOUT any xmlns declarations.
     """
 
-    def generate_ted(
+    def generate_ted_signed(
         self,
         rut_emisor: str,
         tipo_dte: int,
@@ -53,130 +57,95 @@ class TimbreElectronicoService:
         timestamp: Optional[str] = None,
     ) -> etree._Element:
         """
-        Build the TED XML element with DD signed standalone.
+        Build and sign the TED as plain-text strings, then parse to lxml element.
 
-        NOTE: If the TED will be placed inside a namespaced parent (e.g.
-        SiiDte Documento), call build_ted_unsigned() + sign_ted_in_tree()
-        instead, so that inclusive C14N produces consistent bytes at both
-        signing and verification time.
-
-        Returns:
-            lxml Element for the TED (signed)
-        """
-        ted, caf_data_for_sign = self.build_ted_unsigned(
-            rut_emisor=rut_emisor,
-            tipo_dte=tipo_dte,
-            folio=folio,
-            fecha_emision=fecha_emision,
-            rut_receptor=rut_receptor,
-            razon_social_receptor=razon_social_receptor,
-            monto_total=monto_total,
-            item1_nombre=item1_nombre,
-            caf_data=caf_data,
-            timestamp=timestamp,
-        )
-        self.sign_ted(ted, caf_data)
-        return ted
-
-    def build_ted_unsigned(
-        self,
-        rut_emisor: str,
-        tipo_dte: int,
-        folio: int,
-        fecha_emision: str,
-        rut_receptor: str,
-        razon_social_receptor: str,
-        monto_total: int,
-        item1_nombre: str,
-        caf_data: CAFData,
-        timestamp: Optional[str] = None,
-    ) -> tuple[etree._Element, CAFData]:
-        """
-        Build the TED XML element WITHOUT the FRMT signature.
-
-        Call sign_ted() or sign_ted_in_tree() after placing the TED
-        in its final tree position.
+        This approach avoids xmlns inheritance from ancestor elements (SiiDte
+        namespace) that would invalidate the FRMT signature. The DD is built
+        as a concatenated string, signed as ISO-8859-1 bytes, and the complete
+        TED is assembled as a string before parsing to lxml.
 
         Returns:
-            (ted_element, caf_data) tuple
+            lxml Element for the signed TED
         """
         if not timestamp:
             timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-        ted = etree.Element("TED", attrib={"version": "1.0"})
-        dd = etree.SubElement(ted, "DD")
-
-        self._elem(dd, "RE", rut_emisor)
-        self._elem(dd, "TD", str(tipo_dte))
-        self._elem(dd, "F", str(folio))
-        self._elem(dd, "FE", fecha_emision)
-        self._elem(dd, "RR", rut_receptor)
-        self._elem(dd, "RSR", razon_social_receptor[:40])
-        self._elem(dd, "MNT", str(monto_total))
-        self._elem(dd, "IT1", item1_nombre[:40])
-
-        caf_element = self._extract_caf_element(caf_data.caf_xml_raw)
-        if caf_element is not None:
-            dd.append(caf_element)
-        else:
-            logger.error("Could not extract CAF element from raw XML")
+        # Extract CAF block as clean string (no xmlns)
+        caf_str = self._get_caf_string(caf_data.caf_xml_raw)
+        if not caf_str:
             raise ValueError("Invalid CAF XML: cannot extract <CAF> block")
 
-        self._elem(dd, "TSTED", timestamp)
+        # Build DD as plain-text string — NO lxml, NO xmlns
+        rsr = razon_social_receptor[:40]
+        it1 = item1_nombre[:40]
+        dd_str = (
+            f"<DD>"
+            f"<RE>{rut_emisor}</RE>"
+            f"<TD>{tipo_dte}</TD>"
+            f"<F>{folio}</F>"
+            f"<FE>{fecha_emision}</FE>"
+            f"<RR>{rut_receptor}</RR>"
+            f"<RSR>{rsr}</RSR>"
+            f"<MNT>{monto_total}</MNT>"
+            f"<IT1>{it1}</IT1>"
+            f"{caf_str}"
+            f"<TSTED>{timestamp}</TSTED>"
+            f"</DD>"
+        )
 
-        logger.debug(f"TED (unsigned) built for tipo={tipo_dte} folio={folio}")
-        return ted, caf_data
+        # Encode to ISO-8859-1 and flatten whitespace
+        dd_bytes = dd_str.encode("iso-8859-1")
+        dd_flat = re.sub(b">\\s+<", b"><", dd_bytes)
 
-    def sign_ted(self, ted_element: etree._Element, caf_data: CAFData):
-        """
-        Sign the DD element inside the TED and append FRMT.
+        logger.debug(f"DD plain-text for signing ({len(dd_flat)} bytes): {dd_flat[:120]}...")
 
-        Call this AFTER the TED is placed in its final tree position
-        so inclusive C14N picks up the correct ancestor namespaces.
-        """
-        dd = ted_element.find("DD")
-        if dd is None:
-            # DD may have inherited SiiDte namespace from parent tree
-            dd = ted_element.find("{http://www.sii.cl/SiiDte}DD")
-        if dd is None:
-            raise ValueError("TED element has no DD child")
-
+        # Get private key from CAF
         pem_key = caf_data.private_key_pem
         if not pem_key:
             pem_key = self._extract_private_key_from_xml(caf_data.caf_xml_raw)
+        if not pem_key:
+            raise ValueError("No private key available in CAF data")
 
-        signature_b64 = self._sign_dd(dd, pem_key)
-        frmt = etree.SubElement(ted_element, "FRMT", attrib={"algoritmo": "SHA1withRSA"})
-        frmt.text = signature_b64
+        # RSA-SHA1 signature
+        frmt_b64 = self._sign_bytes(dd_flat, pem_key)
 
-        logger.debug("TED DD signed")
+        # Assemble complete TED as string, then parse to lxml
+        ted_str = (
+            f'<TED version="1.0">'
+            f"{dd_str}"
+            f'<FRMT algoritmo="SHA1withRSA">{frmt_b64}</FRMT>'
+            f"</TED>"
+        )
 
-    def _extract_caf_element(self, caf_xml_raw: str) -> Optional[etree._Element]:
-        """Extract the <CAF> element (with <DA> and <FRMA>) from the raw CAF XML."""
+        logger.debug(f"TED signed for tipo={tipo_dte} folio={folio}")
+        return etree.fromstring(ted_str.encode("iso-8859-1"))
+
+    def _get_caf_string(self, caf_xml_raw: str) -> Optional[str]:
+        """Extract <CAF> block as a clean string with no xmlns declarations."""
         try:
             root = safe_fromstring(caf_xml_raw)
-            # The CAF element is typically the root or a direct child
-            # Look for <AUTORIZACION><CAF>...</CAF></AUTORIZACION> pattern
             caf_el = root.find(".//CAF")
             if caf_el is None:
-                # Maybe the root IS the CAF
                 if root.tag == "CAF":
                     caf_el = root
                 else:
-                    # Try AUTORIZACION wrapper
                     caf_el = root.find(".//AUTORIZACION/CAF")
 
-            if caf_el is not None:
-                caf_copy = copy.deepcopy(caf_el)
-                # Ensure version attribute
-                if "version" not in caf_copy.attrib:
-                    caf_copy.set("version", "1.0")
-                return caf_copy
+            if caf_el is None:
+                return None
+
+            caf_copy = copy.deepcopy(caf_el)
+            if "version" not in caf_copy.attrib:
+                caf_copy.set("version", "1.0")
+
+            # Serialize and strip ALL xmlns declarations
+            caf_bytes = etree.tostring(caf_copy, encoding="unicode")
+            caf_clean = re.sub(r'\s+xmlns(:[a-zA-Z0-9]+)?="[^"]*"', '', caf_bytes)
+            return caf_clean
 
         except Exception as e:
-            logger.error(f"Error extracting CAF element: {e}")
-
-        return None
+            logger.error(f"Error extracting CAF string: {e}")
+            return None
 
     def _extract_private_key_from_xml(self, caf_xml_raw: str) -> str:
         """Fallback: extract RSA private key directly from the raw CAF XML."""
@@ -193,25 +162,8 @@ class TimbreElectronicoService:
             logger.error(f"Failed to extract private key from caf_xml_raw: {e}")
         return ""
 
-    def _sign_dd(self, dd_element: etree._Element, private_key_pem: str) -> str:
-        """
-        Sign the DD element with the CAF's RSA private key using SHA1.
-
-        The SII expects the FRMT to be computed over DD serialized as
-        ISO-8859-1 with whitespace between tags removed (flattened).
-        This must be done while DD is standalone (not yet in the DTE
-        tree) to avoid inheriting ancestor namespace declarations.
-
-        Returns base64-encoded signature.
-        """
-        # Serialize DD to ISO-8859-1, no XML declaration
-        dd_bytes = etree.tostring(dd_element, encoding="ISO-8859-1", xml_declaration=False)
-        # Flatten: remove all whitespace between tags
-        dd_flat = re.sub(b">\\s+<", b"><", dd_bytes)
-
-        logger.debug(f"DD flattened for signing ({len(dd_flat)} bytes)")
-
-        # Load CAF private key
+    def _sign_bytes(self, data: bytes, private_key_pem: str) -> str:
+        """RSA-SHA1 sign raw bytes. Returns base64-encoded signature."""
         pem_key = private_key_pem.strip()
         if not pem_key.startswith("-----BEGIN"):
             pem_key = f"-----BEGIN RSA PRIVATE KEY-----\n{pem_key}\n-----END RSA PRIVATE KEY-----"
@@ -222,9 +174,8 @@ class TimbreElectronicoService:
             backend=default_backend(),
         )
 
-        # RSA-SHA1 signature over flattened ISO-8859-1 bytes
         sig_bytes = private_key.sign(
-            dd_flat,
+            data,
             padding.PKCS1v15(),
             hashes.SHA1(),
         )
