@@ -528,7 +528,7 @@ class LibroEmissionService:
         resp = req.post(
             endpoint,
             files={
-                "archivo": ("envio_libro.xml", xml_bytes, "text/xml"),
+                "archivo": ("envio_libro.xml", xml_bytes, "text/xml; charset=ISO-8859-1"),
             },
             data={
                 "rutSender": sender_num,

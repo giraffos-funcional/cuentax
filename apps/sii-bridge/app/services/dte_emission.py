@@ -491,7 +491,7 @@ class DTEEmissionService:
         resp = req.post(
             endpoint,
             files={
-                "archivo": ("envio_dte.xml", xml_bytes, "text/xml"),
+                "archivo": ("envio_dte.xml", xml_bytes, "text/xml; charset=ISO-8859-1"),
             },
             data={
                 "rutSender": sender_num,

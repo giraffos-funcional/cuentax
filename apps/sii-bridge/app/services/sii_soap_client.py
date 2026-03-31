@@ -36,6 +36,7 @@ SII_WSDLS = {
         "auth":   "https://maullin.sii.cl/DTEWS/CrSeed.jws?WSDL",
         "token":  "https://maullin.sii.cl/DTEWS/GetTokenFromSeed.jws?WSDL",
         "upload": "https://maullin.sii.cl/cgi_dte/UPL/DTEUpload",
+        "upload_status": "https://maullin.sii.cl/DTEWS/QueryEstUp.jws?WSDL",
         "status": "https://maullin.sii.cl/DTEWS/QueryEstDteAv.jws?WSDL",
         "boleta": "https://maullin.sii.cl/DTEWS/services/WSBoleta?WSDL",
     },
@@ -43,6 +44,7 @@ SII_WSDLS = {
         "auth":   "https://palena.sii.cl/DTEWS/CrSeed.jws?WSDL",
         "token":  "https://palena.sii.cl/DTEWS/GetTokenFromSeed.jws?WSDL",
         "upload": "https://palena.sii.cl/cgi_dte/UPL/DTEUpload",
+        "upload_status": "https://palena.sii.cl/DTEWS/QueryEstUp.jws?WSDL",
         "status": "https://palena.sii.cl/DTEWS/QueryEstDteAv.jws?WSDL",
         "boleta": "https://palena.sii.cl/DTEWS/services/WSBoleta?WSDL",
     },
@@ -455,6 +457,107 @@ class SIISoapClient:
         except Exception as e:
             logger.error(f"Error intercambiando semilla por token SII: {e}")
             return None
+
+    def query_upload_status(self, rut_company: str, track_id: str, token: Optional[str] = None) -> dict:
+        """
+        Query the status of an upload by Track ID via SII QueryEstUp service.
+
+        Args:
+            rut_company: Company RUT (e.g. "76753753-0")
+            track_id: Track ID from DTEUpload response
+            token: SII session token (uses cached if not provided)
+
+        Returns:
+            {"track_id": str, "estado": str, "glosa": str, "raw_xml": str}
+        """
+        import re
+        from app.utils.rut import format_rut
+
+        if not token:
+            token = self.get_token()
+        if not token:
+            return {"track_id": track_id, "estado": "ERROR", "glosa": "Sin token SII"}
+
+        rut_fmt = format_rut(rut_company, dots=False)
+        parts = rut_fmt.split("-")
+        rut_num = parts[0]
+        rut_dv = parts[1] if len(parts) > 1 else "0"
+
+        soap_body = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soapenv:Body>'
+            '<getEstUp xmlns="http://DefaultNamespace">'
+            f'<RutCompany>{rut_num}</RutCompany>'
+            f'<DvCompany>{rut_dv}</DvCompany>'
+            f'<TrackId>{track_id}</TrackId>'
+            f'<Token>{token}</Token>'
+            '</getEstUp>'
+            '</soapenv:Body>'
+            '</soapenv:Envelope>'
+        )
+
+        endpoint = self._wsdls["upload_status"].replace("?WSDL", "")
+        proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
+
+        try:
+            resp = self._request_with_retry(
+                "post",
+                endpoint,
+                data=soap_body.encode("utf-8"),
+                headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+                proxies=proxies,
+                timeout=30,
+            )
+
+            if resp.status_code != 200:
+                return {
+                    "track_id": track_id,
+                    "estado": "HTTP_ERROR",
+                    "glosa": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                }
+
+            inner_xml = self._extract_soap_return(resp.content, "getEstUpReturn")
+            if not inner_xml:
+                # Try raw response parsing
+                inner_xml = resp.text
+
+            logger.info(f"QueryEstUp response for {track_id}: {inner_xml[:500]}")
+
+            # Extract status fields
+            estado = ""
+            glosa = ""
+
+            est_match = re.search(r'<EST_MEC>([^<]+)</EST_MEC>', inner_xml)
+            if est_match:
+                estado = est_match.group(1).strip()
+
+            glosa_match = re.search(r'<GLOSA_ERR>([^<]*)</GLOSA_ERR>', inner_xml)
+            if glosa_match:
+                glosa = glosa_match.group(1).strip()
+
+            if not glosa:
+                glosa_match = re.search(r'<GLOSA>([^<]*)</GLOSA>', inner_xml)
+                if glosa_match:
+                    glosa = glosa_match.group(1).strip()
+
+            # Also extract NUM_ATENCION if present
+            num_atencion = ""
+            na_match = re.search(r'<NUM_ATENCION>([^<]+)</NUM_ATENCION>', inner_xml)
+            if na_match:
+                num_atencion = na_match.group(1).strip()
+
+            return {
+                "track_id": track_id,
+                "estado": estado or "UNKNOWN",
+                "glosa": glosa,
+                "num_atencion": num_atencion,
+                "raw_xml": inner_xml[:1000],
+            }
+
+        except Exception as e:
+            logger.error(f"Error querying upload status for {track_id}: {e}")
+            return {"track_id": track_id, "estado": "ERROR", "glosa": str(e)}
 
     def check_connectivity(self) -> dict:
         """

@@ -83,19 +83,15 @@ async def emit_dte(request: EmitirDTERequest):
 
 @router.get("/status/{track_id}")
 async def get_dte_status(track_id: str, rut_emisor: str):
-    """Consulta el estado de un DTE enviado al SII por su track_id."""
-    token = sii_soap_client.get_token()
-    if not token:
-        raise HTTPException(503, detail={"error": "sin_token", "message": "Sin token SII activo"})
-
-    # TODO: implementar consulta real SOAP de estado
-    # Por ahora retorna estado pendiente
+    """Consulta el estado de un envío al SII por su track_id usando QueryEstUp."""
+    result = sii_soap_client.query_upload_status(rut_company=rut_emisor, track_id=track_id)
     return {
         "track_id": track_id,
         "rut_emisor": rut_emisor,
-        "estado": "EPR",
-        "glosa": "En proceso de revisión",
-        "nota": "Implementación SOAP de consulta estado en progreso",
+        "estado": result.get("estado", "UNKNOWN"),
+        "glosa": result.get("glosa", ""),
+        "num_atencion": result.get("num_atencion", ""),
+        "raw_xml": result.get("raw_xml", ""),
     }
 
 
