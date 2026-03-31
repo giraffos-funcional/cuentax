@@ -163,17 +163,15 @@ class LibroXMLGenerator:
                 tot_iva_ret_total += d.iva_ret_total * sign
                 tot_iva_no_retenido += d.iva_no_retenido * sign
 
-            if tot_exe:
-                self._elem(totales, "TotMntExe", str(tot_exe))
-            if tot_neto:
-                self._elem(totales, "TotMntNeto", str(tot_neto))
-            if tot_iva:
-                self._elem(totales, "TotMntIVA", str(tot_iva))
+            # XSD sequence: TotMntExe, TotMntNeto, TotMntIVA are REQUIRED
+            self._elem(totales, "TotMntExe", str(tot_exe))
+            self._elem(totales, "TotMntNeto", str(tot_neto))
+            self._elem(totales, "TotMntIVA", str(tot_iva))
 
-            # Libro de Compras totals
+            # Libro de Compras: optional fields in XSD sequence order
+            # TotIVAUsoComun → FctProp → TotCredIVAUsoComun → ... →
+            # TotIVAPropio → ... → TotMntTotal → TotIVARetTotal → TotIVANoRetenido
             if data.tipo_operacion == "COMPRA":
-                if tot_iva_propio:
-                    self._elem(totales, "TotIVAPropio", str(tot_iva_propio))
                 if tot_iva_uso_comun:
                     self._elem(totales, "TotIVAUsoComun", str(tot_iva_uso_comun))
                 if data.fct_prop is not None and tot_iva_uso_comun:
@@ -185,12 +183,17 @@ class LibroXMLGenerator:
                         )
                     )
                     self._elem(totales, "TotCredIVAUsoComun", str(cred_iva))
+                if tot_iva_propio:
+                    self._elem(totales, "TotIVAPropio", str(tot_iva_propio))
+
+            self._elem(totales, "TotMntTotal", str(tot_total))
+
+            # After TotMntTotal in XSD sequence
+            if data.tipo_operacion == "COMPRA":
                 if tot_iva_ret_total:
                     self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
                 if tot_iva_no_retenido:
                     self._elem(totales, "TotIVANoRetenido", str(tot_iva_no_retenido))
-
-            self._elem(totales, "TotMntTotal", str(tot_total))
 
     def _build_detalle(
         self, parent: etree._Element, det: LibroDetalle, tipo_operacion: str
