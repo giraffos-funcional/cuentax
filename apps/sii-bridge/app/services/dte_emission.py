@@ -439,10 +439,13 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            # Build TED unsigned, sign DD while standalone (null namespace,
-            # no ancestor namespace inheritance), THEN append to tree.
-            # The FRMT is computed over DD serialized as ISO-8859-1 with
-            # whitespace flattened — must be done before tree insertion.
+            # Build TED unsigned, sign DD while standalone, then append.
+            # Per SII Instructivo Tecnico A.2.4: FRMT is computed over DD
+            # bytes with namespace references STRIPPED, whitespace flattened,
+            # encoded as ISO-8859-1. Signing standalone ensures DD has no
+            # xmlns declarations. Once appended, TED inherits SiiDte
+            # namespace — the SII verifier strips namespaces before
+            # re-computing the digest, so the FRMT still matches.
             ted, caf_data = timbre_electronico_service.build_ted_unsigned(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,

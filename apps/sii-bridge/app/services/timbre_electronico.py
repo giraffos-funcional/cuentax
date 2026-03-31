@@ -136,6 +136,9 @@ class TimbreElectronicoService:
         """
         dd = ted_element.find("DD")
         if dd is None:
+            # DD may have inherited SiiDte namespace from parent tree
+            dd = ted_element.find("{http://www.sii.cl/SiiDte}DD")
+        if dd is None:
             raise ValueError("TED element has no DD child")
 
         pem_key = caf_data.private_key_pem

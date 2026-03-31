@@ -320,20 +320,12 @@ class CertificateService:
         #    Workaround for lxml bug: subtree C14N adds spurious xmlns=""
         #    on descendant elements.  Serialize → reparse → C14N.
         #
-        #    Critical: The SII verifier extracts each DTE independently for
-        #    validation, so inherited namespace declarations (e.g. xmlns:xsi
-        #    from EnvioDTE ancestor) are NOT present during verification.
-        #    We must strip unused inherited namespaces before C14N to match.
+        #    When the SII verifier extracts a DTE from EnvioDTE, lxml-style
+        #    serialization propagates ancestor namespace declarations
+        #    (xmlns:xsi) to the extracted subtree. So the verifier's C14N
+        #    of Documento INCLUDES xmlns:xsi. Our digest must match.
         _serialized = etree.tostring(digest_element, encoding="unicode")
-        # The SII verifier extracts each DTE independently for validation,
-        # so inherited xmlns:xsi from EnvioDTE is NOT in scope. Strip it
-        # for DTE-level signatures. Keep it for envelope signatures (SetDTE)
-        # where the verifier processes in-context.
         _is_dte_sig = target_id and target_id.startswith("DTE-")
-        if _is_dte_sig:
-            _serialized = _serialized.replace(
-                ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"', ''
-            )
         _standalone = etree.fromstring(_serialized.encode())
         c14n_bytes = etree.tostring(_standalone, method="c14n")
 

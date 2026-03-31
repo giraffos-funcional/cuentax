@@ -116,8 +116,13 @@ class DTEXMLGenerator:
         totales = self._calculate_totals(doc)
 
         # Root DTE — all elements use {SiiDte} namespace to avoid
-        # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest)
-        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
+        # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest).
+        # Include xmlns:xsi because EnvioDTE declares it; when the SII
+        # extracts a DTE for individual signature verification, lxml-style
+        # serialization propagates ancestor xmlns:xsi to the subtree.
+        # The digest must match what the verifier sees.
+        xsi_ns = "http://www.w3.org/2001/XMLSchema-instance"
+        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS, "xsi": xsi_ns})
         documento = etree.SubElement(dte_root, f"{_NS}Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
 
         # Encabezado
