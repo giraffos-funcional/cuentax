@@ -346,7 +346,12 @@ async def upload_test_set(
             detail=f"File too large ({len(content)} bytes). Max: {MAX_UPLOAD_BYTES} bytes.",
         )
 
-    text = content.decode("utf-8", errors="replace")
+    # SII test set files are ISO-8859-1 encoded (Latin-1).
+    # Try ISO-8859-1 first; fall back to UTF-8 for user-uploaded files.
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        text = content.decode("iso-8859-1")
     if not text.strip():
         raise HTTPException(status_code=400, detail="Empty file")
 
