@@ -23,6 +23,7 @@ from lxml import etree
 logger = logging.getLogger(__name__)
 
 SII_DTE_NS = "http://www.sii.cl/SiiDte"
+SII_XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 IVA_RATE = Decimal("0.19")
 
 
@@ -79,11 +80,14 @@ class LibroXMLGenerator:
             LibroCompraVenta XML element with EnvioLibro inside,
             ready for signing the EnvioLibro element.
         """
-        nsmap = {None: SII_DTE_NS}
+        nsmap = {None: SII_DTE_NS, "xsi": SII_XSI_NS}
 
         root = etree.Element(
             "LibroCompraVenta",
-            attrib={"version": "1.0"},
+            attrib={
+                "version": "1.0",
+                f"{{{SII_XSI_NS}}}schemaLocation": f"{SII_DTE_NS} LibroCV_v10.xsd",
+            },
             nsmap=nsmap,
         )
         envio_libro = etree.SubElement(

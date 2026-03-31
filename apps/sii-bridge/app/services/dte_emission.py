@@ -445,29 +445,41 @@ class DTEEmissionService:
         import re
         import requests as req
 
-        rut_parts = rut_emisor.replace(".", "").split("-")
-        rut_num = rut_parts[0]
-        dv = rut_parts[1] if len(rut_parts) > 1 else "0"
+        # rutCompany = the company issuing DTEs
+        company_parts = format_rut(rut_emisor, dots=False).split("-")
+        company_num = company_parts[0]
+        company_dv = company_parts[1] if len(company_parts) > 1 else "0"
+
+        # rutSender = the person sending (certificate holder), NOT the company
+        rut_envia = self._get_rut_envia(rut_emisor)
+        sender_parts = rut_envia.split("-")
+        sender_num = sender_parts[0]
+        sender_dv = sender_parts[1] if len(sender_parts) > 1 else "0"
 
         endpoint = sii_soap_client._wsdls["upload"]
         proxy_url = sii_soap_client._proxy_url
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
-        logger.info(f"Enviando DTE al SII: endpoint={endpoint}")
+        logger.info(
+            f"Enviando DTE al SII: endpoint={endpoint}, "
+            f"sender={sender_num}-{sender_dv}, company={company_num}-{company_dv}"
+        )
 
         # SII expects HTTP multipart form upload with these fields:
-        #   rutSender, dvSender, rutCompany, dvCompany, archivo (file)
-        # Cookie: TOKEN=<sii_token>
+        #   rutSender, dvSender = person with certificate (who is sending)
+        #   rutCompany, dvCompany = company that issued the DTEs
+        #   archivo (file) = XML envelope
+        # Cookie: TOKEN=<sii_token> (token obtained with sender's certificate)
         resp = req.post(
             endpoint,
             files={
                 "archivo": ("envio_dte.xml", xml_bytes, "text/xml"),
             },
             data={
-                "rutSender": rut_num,
-                "dvSender": dv,
-                "rutCompany": rut_num,
-                "dvCompany": dv,
+                "rutSender": sender_num,
+                "dvSender": sender_dv,
+                "rutCompany": company_num,
+                "dvCompany": company_dv,
             },
             headers={
                 "User-Agent": "CUENTAX/1.0 (DTE SII Chile)",
@@ -483,41 +495,92 @@ class DTEEmissionService:
         response_text = resp.text
         logger.info(f"SII uploadDTE response ({len(response_text)} bytes): {response_text[:2000]}")
 
-        # Parse track ID from HTML response.
-        # DTEUpload returns HTML with TRACKID in multiple possible formats:
-        #   <TRACKID>12345</TRACKID>   (XML-style)
-        #   TRACKID : 12345            (text-style)
-        #   Número de Envío: 12345     (Spanish label)
-        track_id = None
-        track_match = re.search(r'<TRACKID>(\d+)</TRACKID>', response_text, re.IGNORECASE)
-        if track_match:
-            track_id = track_match.group(1)
+        return self._parse_upload_response(response_text)
 
-        if not track_id:
-            # Try text format: "TRACKID : 12345" or "Track ID: 12345"
-            track_match = re.search(r'TRACKID\s*:\s*(\d+)', response_text, re.IGNORECASE)
-            if track_match:
-                track_id = track_match.group(1)
+    @staticmethod
+    def _parse_upload_response(response_text: str) -> dict:
+        """
+        Parse SII DTEUpload HTML/XML response.
 
-        if not track_id:
-            # Try "Número de Envío" or "N&uacute;mero" format
-            track_match = re.search(r'(?:mero de Env|NUMERO ENVIO|envio)\D*(\d{5,})', response_text, re.IGNORECASE)
-            if track_match:
-                track_id = track_match.group(1)
+        Detects error responses (STATUS != 0, error codes like SCH-*, CHR-*, etc.)
+        to avoid false positive TRACKID matches from error HTML.
+        """
+        import re
 
-        # Also check for STATUS
+        # First, check for error indicators in the response
+        is_error = False
+        error_detail = None
+
+        # Check for STATUS tag — STATUS 0 = success, anything else = error
         status_match = re.search(r'<STATUS>(\d+)</STATUS>', response_text, re.IGNORECASE)
         status = status_match.group(1) if status_match else None
-
         if not status:
-            # Try HTML format
             status_match = re.search(r'STATUS\s*:\s*(\d+)', response_text, re.IGNORECASE)
             status = status_match.group(1) if status_match else None
+
+        if status and status != "0":
+            is_error = True
+
+        # Check for known SII error codes in response
+        error_code_match = re.search(
+            r'(SCH-\d+|CHR-\d+|SRV-\d+|AUT-\d+|FIR-\d+|CRT-\d+|RUT-\d+|DOC-\d+)',
+            response_text, re.IGNORECASE
+        )
+        if error_code_match:
+            is_error = True
+            error_detail = error_code_match.group(1)
+
+        # Check for error keywords in response
+        if re.search(r'(?:ERROR|RECHAZADO|INVALIDO|INVALID)', response_text, re.IGNORECASE):
+            # Only flag as error if there's no TRACKID tag (some success responses have warnings)
+            if not re.search(r'<TRACKID>\d+</TRACKID>', response_text, re.IGNORECASE):
+                is_error = True
+
+        # Parse track ID only if no error detected
+        track_id = None
+        if not is_error:
+            # XML-style: <TRACKID>12345</TRACKID>
+            track_match = re.search(r'<TRACKID>(\d+)</TRACKID>', response_text, re.IGNORECASE)
+            if track_match:
+                track_id = track_match.group(1)
+
+            if not track_id:
+                # Text format: "TRACKID : 12345"
+                track_match = re.search(r'TRACKID\s*:\s*(\d+)', response_text, re.IGNORECASE)
+                if track_match:
+                    track_id = track_match.group(1)
+
+            if not track_id:
+                # "Número de Envío: 12345" — require at least 5 digits to avoid matching error codes
+                track_match = re.search(
+                    r'(?:mero de Env|NUMERO ENVIO)\D*(\d{5,})',
+                    response_text, re.IGNORECASE,
+                )
+                if track_match:
+                    track_id = track_match.group(1)
+        else:
+            # Even in error case, check if there's a genuine TRACKID tag
+            # (STATUS != 0 but TRACKID present = upload accepted with warnings)
+            track_match = re.search(r'<TRACKID>(\d+)</TRACKID>', response_text, re.IGNORECASE)
+            if track_match:
+                candidate = track_match.group(1)
+                # Only accept if it looks like a real track ID (> 5 digits, not an error code)
+                if len(candidate) >= 5:
+                    track_id = candidate
+                    is_error = False  # Override: SII accepted it
+
+        mensaje = f"Track ID: {track_id}" if track_id else "Sin Track ID en respuesta"
+        if is_error and error_detail:
+            mensaje = f"SII error: {error_detail} — {response_text[:200]}"
+        elif is_error:
+            mensaje = f"SII rejected upload — {response_text[:300]}"
 
         return {
             "track_id": track_id,
             "status": status,
-            "mensaje": f"Track ID: {track_id}" if track_id else "Sin Track ID en respuesta",
+            "is_error": is_error,
+            "error_detail": error_detail,
+            "mensaje": mensaje,
             "response_raw": response_text[:2000],
         }
 

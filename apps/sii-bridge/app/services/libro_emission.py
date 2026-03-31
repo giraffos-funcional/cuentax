@@ -509,17 +509,27 @@ class LibroEmissionService:
     ) -> dict:
         """Send the Libro XML to SII via HTTP multipart upload (DTEUpload)."""
         import requests as req
+        from app.services.dte_emission import DTEEmissionService
 
-        formatted = format_rut(rut_emisor, dots=False)  # "76753753-0"
-        rut_parts = formatted.split("-")
-        rut_num = rut_parts[0]
-        dv = rut_parts[1] if len(rut_parts) > 1 else "0"
+        # rutCompany = the company
+        company_parts = format_rut(rut_emisor, dots=False).split("-")
+        company_num = company_parts[0]
+        company_dv = company_parts[1] if len(company_parts) > 1 else "0"
+
+        # rutSender = the certificate holder (person sending), NOT the company
+        rut_envia = self._get_rut_envia(rut_emisor)
+        sender_parts = rut_envia.split("-")
+        sender_num = sender_parts[0]
+        sender_dv = sender_parts[1] if len(sender_parts) > 1 else "0"
 
         endpoint = sii_soap_client._wsdls["upload"]
         proxy_url = sii_soap_client._proxy_url
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
-        logger.info(f"Sending Libro to SII: endpoint={endpoint}")
+        logger.info(
+            f"Sending Libro to SII: endpoint={endpoint}, "
+            f"sender={sender_num}-{sender_dv}, company={company_num}-{company_dv}"
+        )
 
         resp = req.post(
             endpoint,
@@ -527,10 +537,10 @@ class LibroEmissionService:
                 "archivo": ("envio_libro.xml", xml_bytes, "text/xml"),
             },
             data={
-                "rutSender": rut_num,
-                "dvSender": dv,
-                "rutCompany": rut_num,
-                "dvCompany": dv,
+                "rutSender": sender_num,
+                "dvSender": sender_dv,
+                "rutCompany": company_num,
+                "dvCompany": company_dv,
             },
             headers={
                 "User-Agent": "CUENTAX/1.0 (DTE SII Chile)",
@@ -551,49 +561,8 @@ class LibroEmissionService:
             f"{response_text[:2000]}"
         )
 
-        # Parse track ID (same format as DTEUpload response)
-        track_id = None
-        track_match = re.search(
-            r"<TRACKID>(\d+)</TRACKID>", response_text, re.IGNORECASE
-        )
-        if track_match:
-            track_id = track_match.group(1)
-
-        if not track_id:
-            track_match = re.search(
-                r"TRACKID\s*:\s*(\d+)", response_text, re.IGNORECASE
-            )
-            if track_match:
-                track_id = track_match.group(1)
-
-        if not track_id:
-            track_match = re.search(
-                r"(?:mero de Env|NUMERO ENVIO|envio)\D*(\d{5,})",
-                response_text,
-                re.IGNORECASE,
-            )
-            if track_match:
-                track_id = track_match.group(1)
-
-        status_match = re.search(
-            r"<STATUS>(\d+)</STATUS>", response_text, re.IGNORECASE
-        )
-        status = status_match.group(1) if status_match else None
-
-        if not status:
-            status_match = re.search(
-                r"STATUS\s*:\s*(\d+)", response_text, re.IGNORECASE
-            )
-            status = status_match.group(1) if status_match else None
-
-        return {
-            "track_id": track_id,
-            "status": status,
-            "mensaje": (
-                f"Track ID: {track_id}" if track_id else "Sin Track ID en respuesta"
-            ),
-            "response_raw": response_text[:2000],
-        }
+        # Reuse the robust parser from DTEEmissionService
+        return DTEEmissionService._parse_upload_response(response_text)
 
     # ── Internal: RUT helpers ────────────────────────────────────
 

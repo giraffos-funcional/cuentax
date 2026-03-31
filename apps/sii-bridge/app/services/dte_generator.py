@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ── Schemas ───────────────────────────────────────────────────
 SII_DTE_NS    = "http://www.sii.cl/SiiDte"
+SII_XSI_NS    = "http://www.w3.org/2001/XMLSchema-instance"
 SII_XMLDSIG   = "http://www.w3.org/2000/09/xmldsig#"
 SII_XSD_TYPES = {
     33:  "Factura Electrónica",
@@ -270,9 +271,16 @@ class DTEXMLGenerator:
         Returns:
             EnvioDTE XML element (SetDTE NOT yet signed — caller must sign it)
         """
-        nsmap = {None: SII_DTE_NS}
+        nsmap = {None: SII_DTE_NS, "xsi": SII_XSI_NS}
 
-        envio = etree.Element("EnvioDTE", attrib={"version": "1.0"}, nsmap=nsmap)
+        envio = etree.Element(
+            "EnvioDTE",
+            attrib={
+                "version": "1.0",
+                f"{{{SII_XSI_NS}}}schemaLocation": f"{SII_DTE_NS} EnvioDTE_v10.xsd",
+            },
+            nsmap=nsmap,
+        )
         set_dte = etree.SubElement(envio, "SetDTE", attrib={"ID": "SetDoc"})
 
         # Build Caratula
