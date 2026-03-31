@@ -24,9 +24,12 @@ class Settings(BaseSettings):
     SII_WSDL_CERT: str = "https://maullin.sii.cl/DTEWS/"
     SII_WSDL_PROD: str = "https://palena.sii.cl/DTEWS/"
 
-    # Resolución SII (producción — certificación siempre usa 2014-08-22 / 0)
+    # Resolución SII (producción)
     SII_RESOLUCION_FECHA: str = ""  # e.g. "2024-01-15"
     SII_RESOLUCION_NUMERO: int = 0  # e.g. 80
+
+    # Resolución SII (certificación — assigned by SII when company postulates)
+    SII_CERT_RESOLUCION_FECHA: str = "2026-03-28"  # Zyncro SPA postulation date
 
     # Certificado Digital
     SII_CERT_PATH: str = ""

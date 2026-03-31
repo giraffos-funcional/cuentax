@@ -317,7 +317,7 @@ class DTEXMLGenerator:
 
         # Resolution data depends on environment
         if ambiente == "certificacion":
-            self._elem(caratula, "FchResol", "2014-08-22")
+            self._elem(caratula, "FchResol", settings.SII_CERT_RESOLUCION_FECHA or "2014-08-22")
             self._elem(caratula, "NroResol", "0")
         else:
             # Production: company's actual SII resolution from config
