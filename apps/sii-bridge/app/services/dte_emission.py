@@ -187,8 +187,8 @@ class DTEEmissionService:
                 "mensaje": f"No hay certificado para {rut_emisor}",
             }
 
-        # Build and sign each DTE individually
-        signed_dtes: list[etree._Element] = []
+        # Build unsigned DTEs (with TED but no signature yet)
+        unsigned_dtes: list[dict] = []
         resultados: list[dict] = []
         errores: list[dict] = []
 
@@ -216,9 +216,9 @@ class DTEEmissionService:
                         "fecha_emision", date.today().strftime("%Y-%m-%d")
                     )
 
-                result = self._build_and_sign_single_dte(payload)
+                result = self._build_unsigned_dte(payload)
                 if result["success"]:
-                    signed_dtes.append(result["signed_element"])
+                    unsigned_dtes.append(result)
                     # Track folio by caso_sub for reference resolution
                     caso_sub = payload.get("_caso_sub")
                     if caso_sub is not None:
@@ -248,7 +248,7 @@ class DTEEmissionService:
                     "error": str(e),
                 })
 
-        if not signed_dtes:
+        if not unsigned_dtes:
             return {
                 "success": False,
                 "total": len(payloads),
@@ -261,14 +261,27 @@ class DTEEmissionService:
         # Get RUT of the certificate holder (the person sending)
         rut_envia = self._get_rut_envia(rut_emisor)
 
-        # Build EnvioDTE envelope
+        # Build EnvioDTE envelope with UNSIGNED DTEs first, then sign
+        # each DTE in the tree context. This ensures inclusive C14N
+        # produces consistent bytes at both signing and verification
+        # time (ancestor namespaces like xmlns:xsi are in scope).
         try:
+            unsigned_elements = [d["unsigned_element"] for d in unsigned_dtes]
             envio_xml = self.generator.generate_envio_dte(
-                signed_dtes=signed_dtes,
+                signed_dtes=unsigned_elements,
                 rut_emisor=rut_emisor,
                 rut_envia=rut_envia,
                 ambiente=settings.SII_AMBIENTE,
             )
+
+            # Sign each DTE in the tree context (ancestor namespaces match)
+            for dte_info in unsigned_dtes:
+                doc_id = f"DTE-T{dte_info['tipo_dte']}F{dte_info['folio']}"
+                dte_el = dte_info["unsigned_element"]
+                certificate_service.sign_xml(
+                    dte_el, rut_emisor=rut_emisor, target_id=doc_id
+                )
+
             # Sign the EnvioDTE — Signature appended as child of EnvioDTE,
             # with Reference URI pointing to SetDTE's ID ("SetDoc")
             certificate_service.sign_xml(
@@ -281,16 +294,16 @@ class DTEEmissionService:
             return {
                 "success": False,
                 "total": len(payloads),
-                "emitidos": len(signed_dtes),
+                "emitidos": len(unsigned_dtes),
                 "errores": errores,
                 "estado": "error_envio",
-                "mensaje": f"DTEs firmados pero error en EnvioDTE: {e}",
+                "mensaje": f"DTEs generados pero error en EnvioDTE: {e}",
             }
 
         # Send to SII
         track_id = None
         estado = "firmado"
-        mensaje = f"EnvioDTE con {len(signed_dtes)} DTEs generado y firmado"
+        mensaje = f"EnvioDTE con {len(unsigned_dtes)} DTEs generado y firmado"
 
         token = sii_soap_client.get_token(rut_emisor=rut_emisor)
         if not token:
@@ -317,7 +330,7 @@ class DTEEmissionService:
             estado = "firmado_sin_envio"
             mensaje = (
                 f"DTEs firmados pero NO enviados al SII\n\n"
-                f"{len(signed_dtes)}/{len(payloads)} DTEs fueron generados y firmados correctamente, "
+                f"{len(unsigned_dtes)}/{len(payloads)} DTEs fueron generados y firmados correctamente, "
                 f"pero no se pudieron enviar al SII porque no hay token de sesión activo.\n\n"
                 f"Para resolver esto:\n"
                 f"1. Verifica que el certificado digital esté cargado\n"
@@ -328,7 +341,7 @@ class DTEEmissionService:
         return {
             "success": track_id is not None,
             "total": len(payloads),
-            "emitidos": len(signed_dtes),
+            "emitidos": len(unsigned_dtes),
             "errores": errores,
             "track_id": track_id,
             "estado": estado,
@@ -337,8 +350,8 @@ class DTEEmissionService:
             "resultados": resultados,
         }
 
-    def _build_and_sign_single_dte(self, payload: dict) -> dict:
-        """Build, add TED, and sign a single DTE. Returns the signed element."""
+    def _build_unsigned_dte(self, payload: dict) -> dict:
+        """Build DTE with TED but WITHOUT signing. Returns unsigned element."""
         tipo_dte = payload["tipo_dte"]
         rut_emisor = payload["rut_emisor"]
 
@@ -356,10 +369,35 @@ class DTEEmissionService:
         # Calculate totals for result metadata
         totales = self.generator._calculate_totals(doc)
 
-        # Add TED
+        # Add TED (but don't sign yet — signing must happen after
+        # the DTE is placed in the EnvioDTE tree so that inclusive C14N
+        # produces the same bytes at both signing and verification time)
         xml_element = self._add_ted(xml_element, doc, rut_emisor)
 
-        # Sign DTE — Reference URI must point to Documento's ID, not empty string
+        return {
+            "success": True,
+            "folio": folio,
+            "tipo_dte": tipo_dte,
+            "unsigned_element": xml_element,
+            "monto_neto": totales.get("neto", 0),
+            "monto_exe": totales.get("exento", 0),
+            "monto_iva": totales.get("iva", 0),
+            "monto_total": totales.get("total", 0),
+        }
+
+    def _build_and_sign_single_dte(self, payload: dict) -> dict:
+        """Build, add TED, and sign a single DTE. Returns the signed element.
+        Used for single-DTE emission where EnvioDTE context is known."""
+        result = self._build_unsigned_dte(payload)
+        if not result["success"]:
+            return result
+
+        tipo_dte = result["tipo_dte"]
+        folio = result["folio"]
+        xml_element = result["unsigned_element"]
+        rut_emisor = payload["rut_emisor"]
+
+        # Sign DTE — Reference URI must point to Documento's ID
         doc_id = f"DTE-T{tipo_dte}F{folio}"
         signed_xml = certificate_service.sign_xml(
             xml_element, rut_emisor=rut_emisor, target_id=doc_id
@@ -369,10 +407,10 @@ class DTEEmissionService:
             "success": True,
             "folio": folio,
             "signed_element": signed_xml,
-            "monto_neto": totales.get("neto", 0),
-            "monto_exe": totales.get("exento", 0),
-            "monto_iva": totales.get("iva", 0),
-            "monto_total": totales.get("total", 0),
+            "monto_neto": result.get("monto_neto", 0),
+            "monto_exe": result.get("monto_exe", 0),
+            "monto_iva": result.get("monto_iva", 0),
+            "monto_total": result.get("monto_total", 0),
         }
 
     def _add_ted(self, dte_element: etree._Element, doc: DTEDocumento, rut_emisor: str) -> etree._Element:
