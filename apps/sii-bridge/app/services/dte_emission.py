@@ -351,14 +351,17 @@ class DTEEmissionService:
         return dte_element
 
     def _get_rut_envia(self, rut_emisor: str) -> str:
-        """Get the RUT of the certificate holder (the person sending)."""
+        """Get the RUT of the certificate holder (the person sending).
+        Returns formatted RUT with dash (e.g. '76753753-0'), as required by SII.
+        """
         normalized = clean_rut(rut_emisor)
         # Look up the titular RUT from the certificate service
         rut_titular = certificate_service._empresa_to_titular.get(normalized)
         if rut_titular:
-            return rut_titular
-        # Fallback: use emisor RUT
-        return rut_emisor
+            # rut_titular is stored normalized (no dash). Format it properly.
+            return format_rut(rut_titular, dots=False)
+        # Fallback: use emisor RUT, formatted without dots
+        return format_rut(rut_emisor, dots=False)
 
     def _validate_payload(self, p: dict) -> Optional[str]:
         """Valida el payload del DTE. Returns mensaje de error o None."""
