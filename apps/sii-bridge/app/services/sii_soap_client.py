@@ -315,12 +315,16 @@ class SIISoapClient:
         c14n_bytes = etree.tostring(seed_xml, method="c14n", exclusive=False, with_comments=False)
         digest_value = base64.b64encode(hashlib.sha1(c14n_bytes).digest()).decode()
 
-        # 3. Build SignedInfo (with xmlns on the element itself — required for C14N)
+        # 3. Build SignedInfo (with xmlns on the element — required for C14N).
+        #    Must include Transforms/enveloped-signature to match the final output.
         signed_info_xml = (
             f'<SignedInfo xmlns="{XMLDSIG_NS}">'
             f'<CanonicalizationMethod Algorithm="{C14N_ALG}"/>'
             f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
             f'<Reference URI="">'
+            f'<Transforms>'
+            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature"/>'
+            f'</Transforms>'
             f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
             f'<DigestValue>{digest_value}</DigestValue>'
             f'</Reference>'
@@ -343,25 +347,52 @@ class SIISoapClient:
             certificate.public_bytes(crypto_serial.Encoding.DER)
         ).decode()
 
-        # 6. Build complete Signature element
-        #    KeyInfo contains only X509Data/X509Certificate (no RSAKeyValue).
-        #    This matches the format accepted by SII and used by all major
-        #    Chilean reference implementations (facturacion_electronica, l10n_cl_edi).
-        signature_xml = (
+        # 6. Get RSA public key components for RSAKeyValue
+        #    Some SII endpoints require RSAKeyValue in KeyInfo alongside X509Data.
+        pub_key = certificate.public_key()
+        pub_numbers = pub_key.public_numbers()
+        modulus_bytes = pub_numbers.n.to_bytes((pub_numbers.n.bit_length() + 7) // 8, 'big')
+        exponent_bytes = pub_numbers.e.to_bytes((pub_numbers.e.bit_length() + 7) // 8, 'big')
+        modulus_b64 = base64.b64encode(modulus_bytes).decode()
+        exponent_b64 = base64.b64encode(exponent_bytes).decode()
+
+        # 7. Build ENTIRE output as raw string — NO lxml serialization.
+        #    lxml can alter namespace declarations during tree manipulation,
+        #    which confuses SII's rigid Java XML parser.
+        #    Include both RSAKeyValue and X509Data, plus Transforms with
+        #    enveloped-signature — matching the format from SII official docs.
+        result = (
+            f'<getToken>'
+            f'<item><Semilla>{seed}</Semilla></item>'
             f'<Signature xmlns="{XMLDSIG_NS}">'
-            f'{signed_info_xml}'
+            f'<SignedInfo>'
+            f'<CanonicalizationMethod Algorithm="{C14N_ALG}"/>'
+            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1"/>'
+            f'<Reference URI="">'
+            f'<Transforms>'
+            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature"/>'
+            f'</Transforms>'
+            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1"/>'
+            f'<DigestValue>{digest_value}</DigestValue>'
+            f'</Reference>'
+            f'</SignedInfo>'
             f'<SignatureValue>{sig_b64}</SignatureValue>'
             f'<KeyInfo>'
-            f'<X509Data><X509Certificate>{cert_b64}</X509Certificate></X509Data>'
+            f'<KeyValue>'
+            f'<RSAKeyValue>'
+            f'<Modulus>{modulus_b64}</Modulus>'
+            f'<Exponent>{exponent_b64}</Exponent>'
+            f'</RSAKeyValue>'
+            f'</KeyValue>'
+            f'<X509Data>'
+            f'<X509Certificate>{cert_b64}</X509Certificate>'
+            f'</X509Data>'
             f'</KeyInfo>'
             f'</Signature>'
+            f'</getToken>'
         )
 
-        # 7. Append Signature to seed XML and serialize
-        seed_xml.append(etree.fromstring(signature_xml.encode()))
-        result = etree.tostring(seed_xml, encoding="unicode", xml_declaration=False)
-
-        logger.info(f"Seed signed manually (bypassing signxml). Length: {len(result)}")
+        logger.info(f"Seed signed manually (pure string). Length: {len(result)}")
         return result
 
     def _exchange_seed_for_token(self, signed_seed_xml: str) -> Optional[str]:
