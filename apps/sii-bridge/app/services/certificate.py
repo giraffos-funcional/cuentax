@@ -367,8 +367,9 @@ class CertificateService:
         mod_bytes = pub_numbers.n.to_bytes(
             (pub_numbers.n.bit_length() + 7) // 8, "big"
         )
-        if mod_bytes[0] & 0x80:
-            mod_bytes = b"\x00" + mod_bytes
+        # Do NOT add leading zero byte — XMLDSig CryptoBinary uses
+        # unsigned integers. SII compares Modulus bytes with the
+        # certificate's public key and rejects if they differ (ENV-3-7).
         mod_el = etree.SubElement(rsa_kv, f"{{{ns}}}Modulus")
         mod_el.text = "\n" + _wrap_b64(base64.b64encode(mod_bytes).decode()) + "\n"
         exp_el = etree.SubElement(rsa_kv, f"{{{ns}}}Exponent")
