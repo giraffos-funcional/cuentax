@@ -37,6 +37,7 @@ SII_WSDLS = {
         "token":  "https://maullin.sii.cl/DTEWS/GetTokenFromSeed.jws?WSDL",
         "upload": "https://maullin.sii.cl/cgi_dte/UPL/DTEUpload",
         "upload_status": "https://maullin.sii.cl/DTEWS/QueryEstUp.jws?WSDL",
+        "dte_status": "https://maullin.sii.cl/DTEWS/QueryEstDte.jws?WSDL",
         "status": "https://maullin.sii.cl/DTEWS/QueryEstDteAv.jws?WSDL",
         "boleta": "https://maullin.sii.cl/DTEWS/services/WSBoleta?WSDL",
     },
@@ -45,6 +46,7 @@ SII_WSDLS = {
         "token":  "https://palena.sii.cl/DTEWS/GetTokenFromSeed.jws?WSDL",
         "upload": "https://palena.sii.cl/cgi_dte/UPL/DTEUpload",
         "upload_status": "https://palena.sii.cl/DTEWS/QueryEstUp.jws?WSDL",
+        "dte_status": "https://palena.sii.cl/DTEWS/QueryEstDte.jws?WSDL",
         "status": "https://palena.sii.cl/DTEWS/QueryEstDteAv.jws?WSDL",
         "boleta": "https://palena.sii.cl/DTEWS/services/WSBoleta?WSDL",
     },
@@ -560,6 +562,170 @@ class SIISoapClient:
         except Exception as e:
             logger.error(f"Error querying upload status for {track_id}: {e}")
             return {"track_id": track_id, "estado": "ERROR", "glosa": str(e)}
+
+    def query_dte_status(
+        self,
+        rut_consultante: str,
+        rut_company: str,
+        rut_receptor: str,
+        tipo_dte: int,
+        folio: int,
+        fecha_emision: str,
+        monto_total: int,
+        token: Optional[str] = None,
+    ) -> dict:
+        """
+        Query the status of a specific DTE via SII QueryEstDte service.
+
+        This provides per-document rejection reasons (codigo rechazo / glosa)
+        that are not available via QueryEstUp (envelope-level only).
+
+        IMPORTANT: MontoDte must match EXACTLY the MntTotal in the DTE.
+        If the amount is wrong, the SII returns ESTADO=2 "ERROR INTERNO".
+
+        Args:
+            rut_consultante: RUT of who is asking (usually same as rut_company)
+            rut_company: Company RUT (emisor)
+            rut_receptor: Receiver RUT from the DTE
+            tipo_dte: Document type (33, 34, 39, 41, 56, 61)
+            folio: Document folio number
+            fecha_emision: Emission date (YYYY-MM-DD)
+            monto_total: Total amount (integer, must match MntTotal exactly)
+            token: SII session token (uses cached if not provided)
+
+        Returns:
+            {
+                "tipo_dte": int,
+                "folio": int,
+                "estado": str,
+                "glosa": str,
+                "err_code": str,  # SII error code if rejected
+                "raw_xml": str,
+            }
+        """
+        import re
+        from app.utils.rut import format_rut
+
+        if not token:
+            token = self.get_token()
+        if not token:
+            return {
+                "tipo_dte": tipo_dte,
+                "folio": folio,
+                "estado": "ERROR",
+                "glosa": "Sin token SII",
+            }
+
+        def _split_rut(rut_str: str) -> tuple[str, str]:
+            rut_fmt = format_rut(rut_str, dots=False)
+            parts = rut_fmt.split("-")
+            return parts[0], parts[1] if len(parts) > 1 else "0"
+
+        rut_cons_num, rut_cons_dv = _split_rut(rut_consultante)
+        rut_comp_num, rut_comp_dv = _split_rut(rut_company)
+        rut_rec_num, rut_rec_dv = _split_rut(rut_receptor)
+
+        soap_body = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soapenv:Body>'
+            '<getEstDte xmlns="http://DefaultNamespace">'
+            f'<RutConsultante>{rut_cons_num}</RutConsultante>'
+            f'<DvConsultante>{rut_cons_dv}</DvConsultante>'
+            f'<RutCompania>{rut_comp_num}</RutCompania>'
+            f'<DvCompania>{rut_comp_dv}</DvCompania>'
+            f'<RutReceptor>{rut_rec_num}</RutReceptor>'
+            f'<DvReceptor>{rut_rec_dv}</DvReceptor>'
+            f'<TipoDte>{tipo_dte}</TipoDte>'
+            f'<FolioDte>{folio}</FolioDte>'
+            f'<FechaEmisionDte>{fecha_emision}</FechaEmisionDte>'
+            f'<MontoDte>{monto_total}</MontoDte>'
+            f'<Token>{token}</Token>'
+            '</getEstDte>'
+            '</soapenv:Body>'
+            '</soapenv:Envelope>'
+        )
+
+        endpoint = self._wsdls["dte_status"].replace("?WSDL", "")
+        proxies = (
+            {"http": self._proxy_url, "https": self._proxy_url}
+            if self._proxy_url
+            else None
+        )
+
+        try:
+            resp = self._request_with_retry(
+                "post",
+                endpoint,
+                data=soap_body.encode("utf-8"),
+                headers={
+                    "Content-Type": "text/xml; charset=utf-8",
+                    "SOAPAction": '""',
+                },
+                proxies=proxies,
+                timeout=30,
+            )
+
+            if resp.status_code != 200:
+                return {
+                    "tipo_dte": tipo_dte,
+                    "folio": folio,
+                    "estado": "HTTP_ERROR",
+                    "glosa": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                }
+
+            inner_xml = self._extract_soap_return(resp.content, "getEstDteReturn")
+            if not inner_xml:
+                inner_xml = resp.text
+
+            logger.info(
+                f"QueryEstDte response for tipo={tipo_dte} folio={folio}: "
+                f"{inner_xml[:500]}"
+            )
+
+            # Extract status fields from SII response
+            estado = ""
+            glosa = ""
+            err_code = ""
+
+            est_match = re.search(r'<ESTADO>([^<]+)</ESTADO>', inner_xml)
+            if est_match:
+                estado = est_match.group(1).strip()
+
+            glosa_match = re.search(r'<GLOSA>([^<]*)</GLOSA>', inner_xml)
+            if glosa_match:
+                glosa = glosa_match.group(1).strip()
+
+            err_match = re.search(r'<ERR_CODE>([^<]+)</ERR_CODE>', inner_xml)
+            if err_match:
+                err_code = err_match.group(1).strip()
+
+            # Additional detail fields the SII may return
+            num_atencion = ""
+            na_match = re.search(r'<NUM_ATENCION>([^<]+)</NUM_ATENCION>', inner_xml)
+            if na_match:
+                num_atencion = na_match.group(1).strip()
+
+            return {
+                "tipo_dte": tipo_dte,
+                "folio": folio,
+                "estado": estado or "UNKNOWN",
+                "glosa": glosa,
+                "err_code": err_code,
+                "num_atencion": num_atencion,
+                "raw_xml": inner_xml[:2000],
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Error querying DTE status for tipo={tipo_dte} folio={folio}: {e}"
+            )
+            return {
+                "tipo_dte": tipo_dte,
+                "folio": folio,
+                "estado": "ERROR",
+                "glosa": str(e),
+            }
 
     def check_connectivity(self) -> dict:
         """

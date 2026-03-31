@@ -95,6 +95,80 @@ async def get_dte_status(track_id: str, rut_emisor: str):
     }
 
 
+class QueryDteStatusRequest(BaseModel):
+    rut_emisor: str
+    rut_receptor: str
+    tipo_dte: int
+    folio: int
+    fecha_emision: str
+    monto_total: int
+
+
+class QueryDteBatchRequest(BaseModel):
+    rut_emisor: str
+    dtes: list[QueryDteStatusRequest]
+
+
+@router.post("/status/dte")
+async def get_individual_dte_status(request: QueryDteStatusRequest):
+    """
+    Query the status of a specific DTE using SII QueryEstDte service.
+
+    Returns per-document rejection reason (codigo rechazo / glosa).
+    IMPORTANT: monto_total must match the DTE's MntTotal EXACTLY.
+    """
+    result = sii_soap_client.query_dte_status(
+        rut_consultante=request.rut_emisor,
+        rut_company=request.rut_emisor,
+        rut_receptor=request.rut_receptor,
+        tipo_dte=request.tipo_dte,
+        folio=request.folio,
+        fecha_emision=request.fecha_emision,
+        monto_total=request.monto_total,
+    )
+    return {
+        "rut_emisor": request.rut_emisor,
+        "rut_receptor": request.rut_receptor,
+        **result,
+    }
+
+
+@router.post("/status/dte/batch")
+async def get_batch_dte_status(request: QueryDteBatchRequest):
+    """
+    Query the status of multiple DTEs in one call.
+
+    Useful after emit_batch to check per-document rejection reasons.
+    Each DTE requires the exact monto_total from emission.
+    """
+    results = []
+    for dte in request.dtes:
+        result = sii_soap_client.query_dte_status(
+            rut_consultante=request.rut_emisor,
+            rut_company=request.rut_emisor,
+            rut_receptor=dte.rut_receptor,
+            tipo_dte=dte.tipo_dte,
+            folio=dte.folio,
+            fecha_emision=dte.fecha_emision,
+            monto_total=dte.monto_total,
+        )
+        results.append({
+            "rut_receptor": dte.rut_receptor,
+            **result,
+        })
+
+    accepted = sum(1 for r in results if r.get("estado") == "DOK")
+    rejected = sum(1 for r in results if r.get("estado") not in ("DOK", "UNKNOWN", "ERROR"))
+
+    return {
+        "rut_emisor": request.rut_emisor,
+        "total": len(results),
+        "accepted": accepted,
+        "rejected": rejected,
+        "results": results,
+    }
+
+
 @router.post("/anular")
 async def anular_dte(request: AnularDTERequest):
     """

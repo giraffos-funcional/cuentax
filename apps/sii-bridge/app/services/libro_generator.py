@@ -142,7 +142,7 @@ class LibroXMLGenerator:
             self._elem(totales, "TpoDoc", str(tipo_doc))
             self._elem(totales, "TotDoc", str(len(detalles)))
 
-            # Sum amounts — notas de credito subtract
+            # Sum amounts per TpoDoc (straight sum, no sign flip)
             tot_exe = 0
             tot_neto = 0
             tot_iva = 0
@@ -153,15 +153,20 @@ class LibroXMLGenerator:
             tot_iva_no_retenido = 0
 
             for d in detalles:
-                sign = -1 if d.es_nota_credito else 1
-                tot_exe += d.mnt_exe * sign
-                tot_neto += d.mnt_neto * sign
-                tot_iva += d.mnt_iva * sign
-                tot_total += d.mnt_total * sign
-                tot_iva_propio += d.iva_propio * sign
-                tot_iva_uso_comun += d.iva_uso_comun * sign
-                tot_iva_ret_total += d.iva_ret_total * sign
-                tot_iva_no_retenido += d.iva_no_retenido * sign
+                # TotalesPeriodo per TpoDoc must be the straight sum of its
+                # Detalle entries.  The SII validates ResumenPeriodo by summing
+                # all Detalle amounts for a given TpoDoc and comparing.
+                # Sign negation for NCs only applies to a GRAND TOTAL across
+                # all document types (not present in the schema).  Each TpoDoc
+                # group is homogeneous, so no sign flip is needed here.
+                tot_exe += d.mnt_exe
+                tot_neto += d.mnt_neto
+                tot_iva += d.mnt_iva
+                tot_total += d.mnt_total
+                tot_iva_propio += d.iva_propio
+                tot_iva_uso_comun += d.iva_uso_comun
+                tot_iva_ret_total += d.iva_ret_total
+                tot_iva_no_retenido += d.iva_no_retenido
 
             # XSD sequence: TotMntExe, TotMntNeto, TotMntIVA are REQUIRED
             self._elem(totales, "TotMntExe", str(tot_exe))
