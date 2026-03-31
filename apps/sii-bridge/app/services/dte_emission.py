@@ -439,10 +439,10 @@ class DTEEmissionService:
             return dte_element
 
         try:
-            # Build TED unsigned, append to tree, THEN sign DD in-tree.
-            # Exclusive C14N includes the inherited default namespace
-            # (SiiDte) from Documento, so DD must be signed AFTER placement
-            # to match what the SII verifier computes.
+            # Build TED unsigned, sign DD while standalone (null namespace,
+            # no ancestor namespace inheritance), THEN append to tree.
+            # The FRMT is computed over DD serialized as ISO-8859-1 with
+            # whitespace flattened — must be done before tree insertion.
             ted, caf_data = timbre_electronico_service.build_ted_unsigned(
                 rut_emisor=doc.emisor.rut,
                 tipo_dte=doc.tipo_dte,
@@ -454,8 +454,8 @@ class DTEEmissionService:
                 item1_nombre=doc.items[0].nombre if doc.items else "Item",
                 caf_data=caf_data,
             )
-            documento.append(ted)
             timbre_electronico_service.sign_ted(ted, caf_data)
+            documento.append(ted)
 
             # Add TmstFirma (timestamp of DTE signature)
             SII_DTE_NS = "http://www.sii.cl/SiiDte"

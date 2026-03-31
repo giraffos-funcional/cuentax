@@ -15,6 +15,7 @@ Referencia: formato_dte.pdf del SII
 import base64
 import copy
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 from lxml import etree
@@ -193,18 +194,21 @@ class TimbreElectronicoService:
         """
         Sign the DD element with the CAF's RSA private key using SHA1.
 
-        Uses exclusive C14N so the signature is stable regardless of
-        where the TED is placed in the XML tree (ancestor namespaces
-        like xmlns="http://www.sii.cl/SiiDte" are excluded).
+        The SII expects the FRMT to be computed over DD serialized as
+        ISO-8859-1 with whitespace between tags removed (flattened).
+        This must be done while DD is standalone (not yet in the DTE
+        tree) to avoid inheriting ancestor namespace declarations.
 
         Returns base64-encoded signature.
         """
-        # Exclusive C14N — strips ancestor namespace declarations
-        dd_c14n = etree.tostring(dd_element, method="c14n", exclusive=True, with_comments=False)
+        # Serialize DD to ISO-8859-1, no XML declaration
+        dd_bytes = etree.tostring(dd_element, encoding="ISO-8859-1", xml_declaration=False)
+        # Flatten: remove all whitespace between tags
+        dd_flat = re.sub(b">\\s+<", b"><", dd_bytes)
+
+        logger.debug(f"DD flattened for signing ({len(dd_flat)} bytes)")
 
         # Load CAF private key
-        # The CAF private key is stored as raw PEM content (just the base64 key material)
-        # We need to wrap it in PEM headers if not already present
         pem_key = private_key_pem.strip()
         if not pem_key.startswith("-----BEGIN"):
             pem_key = f"-----BEGIN RSA PRIVATE KEY-----\n{pem_key}\n-----END RSA PRIVATE KEY-----"
@@ -215,9 +219,9 @@ class TimbreElectronicoService:
             backend=default_backend(),
         )
 
-        # RSA-SHA1 signature
+        # RSA-SHA1 signature over flattened ISO-8859-1 bytes
         sig_bytes = private_key.sign(
-            dd_c14n,
+            dd_flat,
             padding.PKCS1v15(),
             hashes.SHA1(),
         )
