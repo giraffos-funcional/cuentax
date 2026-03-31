@@ -31,12 +31,7 @@ from app.utils.rut import clean_rut
 logger = logging.getLogger(__name__)
 
 XMLDSIG_NS = "http://www.w3.org/2000/09/xmldsig#"
-C14N_INCLUSIVE = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
-C14N_EXCLUSIVE = "http://www.w3.org/2001/10/xml-exc-c14n#"
-# SII verifier uses the declared CanonicalizationMethod to canonicalize
-# SignedInfo for signature verification. We must use the same method.
-# Exclusive C14N avoids ancestor namespace leakage issues.
-C14N_METHOD = C14N_EXCLUSIVE
+C14N_METHOD = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 
 
 def _wrap_b64(b64_str: str, width: int = 76) -> str:
@@ -321,11 +316,12 @@ class CertificateService:
             ref_uri = f"#{element_id}" if element_id else ""
             digest_element = element
 
-        # 1. Canonicalize the element to digest using exclusive C14N.
-        #    Exclusive C14N only includes "visibly utilized" namespaces,
-        #    producing consistent bytes regardless of ancestor tree context.
-        #    This matches what Java/C# XMLDSig verifiers compute.
-        c14n_bytes = etree.tostring(digest_element, method="c14n", exclusive=True)
+        # 1. Canonicalize the element to digest using inclusive C14N.
+        #    The SII verifier uses inclusive C14N for the Reference data
+        #    (default per XML-DSig spec when no C14N transform is specified).
+        #    DTEs must be signed AFTER assembly into EnvioDTE so ancestor
+        #    namespaces (xmlns:xsi) are in scope — matching verification.
+        c14n_bytes = etree.tostring(digest_element, method="c14n")
 
         # 2. Compute SHA1 digest
         digest = hashlib.sha1(c14n_bytes).digest()
@@ -347,7 +343,51 @@ class CertificateService:
         cert_der = certificate.public_bytes(serialization.Encoding.DER)
         cert_b64 = _wrap_b64(base64.b64encode(cert_der).decode())
 
-        # 5. Build Signature with PLACEHOLDER SignatureValue, append to tree
+        # 5. Collect ancestor prefixed namespace declarations.
+        #    Inclusive C14N of SignedInfo (as the SII verifier does) includes
+        #    ALL in-scope namespace declarations from ancestors. We must
+        #    replicate this when building the canonical SignedInfo manually.
+        ancestor_ns: dict[str, str] = {}
+        for anc in list(element.iterancestors()) + [element]:
+            for prefix, uri in anc.nsmap.items():
+                if prefix is not None and prefix not in ancestor_ns:
+                    ancestor_ns[prefix] = uri
+
+        ns_attrs = [f'xmlns="{XMLDSIG_NS}"']
+        for prefix in sorted(ancestor_ns.keys()):
+            ns_attrs.append(f'xmlns:{prefix}="{ancestor_ns[prefix]}"')
+        ns_str = " ".join(ns_attrs)
+
+        # 6. Build canonical SignedInfo manually (avoids lxml's subtree
+        #    C14N bug that adds spurious xmlns="" on descendant elements).
+        #    Self-closing tags are expanded per C14N canonical form.
+        signed_info_c14n = (
+            f'<SignedInfo {ns_str}>'
+            f'<CanonicalizationMethod Algorithm="{C14N_METHOD}">'
+            f'</CanonicalizationMethod>'
+            f'<SignatureMethod Algorithm="{XMLDSIG_NS}rsa-sha1">'
+            f'</SignatureMethod>'
+            f'<Reference URI="{ref_uri}">'
+            f'<Transforms>'
+            f'<Transform Algorithm="{XMLDSIG_NS}enveloped-signature">'
+            f'</Transform>'
+            f'</Transforms>'
+            f'<DigestMethod Algorithm="{XMLDSIG_NS}sha1">'
+            f'</DigestMethod>'
+            f'<DigestValue>{digest_b64}</DigestValue>'
+            f'</Reference>'
+            f'</SignedInfo>'
+        ).encode("utf-8")
+
+        # 7. Sign canonical SignedInfo with RSA-SHA1
+        signature_bytes = private_key.sign(
+            signed_info_c14n,
+            padding.PKCS1v15(),
+            hashes.SHA1(),
+        )
+        signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
+
+        # 8. Build the complete Signature element and append to parent
         sig_xml = (
             f'<Signature xmlns="{XMLDSIG_NS}">'
             f'<SignedInfo>'
@@ -361,7 +401,7 @@ class CertificateService:
             f'<DigestValue>{digest_b64}</DigestValue>'
             f'</Reference>'
             f'</SignedInfo>'
-            f'<SignatureValue>PLACEHOLDER</SignatureValue>'
+            f'<SignatureValue>\n{signature_b64}\n</SignatureValue>'
             f'<KeyInfo>'
             f'<KeyValue>'
             f'<RSAKeyValue>'
@@ -377,24 +417,6 @@ class CertificateService:
         )
         sig_element = etree.fromstring(sig_xml.encode())
         element.append(sig_element)
-
-        # 6. Canonicalize SignedInfo using exclusive C14N.
-        #    Exclusive C14N avoids lxml's subtree bug (spurious xmlns="")
-        #    and produces output matching Java/C# XMLDSig verifiers.
-        signed_info_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignedInfo")
-        signed_info_c14n = etree.tostring(signed_info_el, method="c14n", exclusive=True)
-
-        # 7. Sign with RSA-SHA1
-        signature_bytes = private_key.sign(
-            signed_info_c14n,
-            padding.PKCS1v15(),
-            hashes.SHA1(),
-        )
-        signature_b64 = _wrap_b64(base64.b64encode(signature_bytes).decode())
-
-        # 8. Update SignatureValue in the tree
-        sig_value_el = sig_element.find(f"{{{XMLDSIG_NS}}}SignatureValue")
-        sig_value_el.text = f"\n{signature_b64}\n"
 
         rut_label = rut_emisor or "default"
         logger.debug(f"XML signed (RSA-SHA1). Emisor: {rut_label}, URI: {ref_uri}")
