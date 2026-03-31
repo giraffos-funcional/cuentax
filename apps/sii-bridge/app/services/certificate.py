@@ -31,7 +31,12 @@ from app.utils.rut import clean_rut
 logger = logging.getLogger(__name__)
 
 XMLDSIG_NS = "http://www.w3.org/2000/09/xmldsig#"
-C14N_METHOD = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+C14N_INCLUSIVE = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+C14N_EXCLUSIVE = "http://www.w3.org/2001/10/xml-exc-c14n#"
+# SII verifier uses the declared CanonicalizationMethod to canonicalize
+# SignedInfo for signature verification. We must use the same method.
+# Exclusive C14N avoids ancestor namespace leakage issues.
+C14N_METHOD = C14N_EXCLUSIVE
 
 
 def _wrap_b64(b64_str: str, width: int = 76) -> str:
