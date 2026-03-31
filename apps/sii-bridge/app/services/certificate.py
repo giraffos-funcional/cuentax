@@ -298,11 +298,12 @@ class CertificateService:
                 points to it. If not provided, the element itself is
                 digested using its own ID attribute.
         """
-        from signxml import XMLSigner, methods
+        from signxml import XMLSigner
         from signxml.algorithms import (
             SignatureMethod as SigMethod,
             DigestAlgorithm,
             CanonicalizationMethod as C14NMethod,
+            SignatureConstructionMethod,
         )
 
         private_key, certificate = self._resolve_cert(rut_emisor)
@@ -322,25 +323,18 @@ class CertificateService:
         )
         cert_pem = certificate.public_bytes(serialization.Encoding.PEM)
 
-        # Configure signer for SII requirements:
-        # - RSA-SHA1 signature
-        # - SHA1 digest
-        # - Inclusive C14N
-        # - Enveloped signature transform
-        signer = XMLSigner(
-            method=methods.enveloped,
-            signature_algorithm="rsa-sha1",
-            digest_algorithm="sha1",
-            c14n_algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315",
-        )
-        # signxml rejects SHA1 by default for security — override for SII
-        signer.excise_empty_xmlns_declarations = True
+        # Subclass to allow SHA1 (required by SII Chile, rejected by default)
+        class SIISigner(XMLSigner):
+            def check_deprecated_methods(self):
+                pass  # SII mandates RSA-SHA1
 
-        # Sign the element. signxml handles:
-        # - Proper C14N of the digest target
-        # - Building the Signature element in-tree
-        # - C14N of SignedInfo for signing
-        # - Correct namespace handling
+        signer = SIISigner(
+            method=SignatureConstructionMethod.enveloped,
+            signature_algorithm=SigMethod.RSA_SHA1,
+            digest_algorithm=DigestAlgorithm.SHA1,
+            c14n_algorithm=C14NMethod.CANONICAL_XML_1_0,
+        )
+
         signed = signer.sign(
             element,
             key=key_pem,
