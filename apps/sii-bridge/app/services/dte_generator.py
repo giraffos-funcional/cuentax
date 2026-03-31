@@ -135,7 +135,7 @@ class DTEXMLGenerator:
 
         # Root DTE — all elements use {SiiDte} namespace to avoid
         # spurious xmlns="" in inclusive C14N (breaks XMLDSig digest)
-        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS})
+        dte_root = etree.Element(f"{_NS}DTE", attrib={"version": "1.0"}, nsmap={None: SII_DTE_NS, "xsi": "http://www.w3.org/2001/XMLSchema-instance"})
         documento = etree.SubElement(dte_root, f"{_NS}Documento", attrib={"ID": f"DTE-T{doc.tipo_dte}F{doc.folio}"})
 
         # Encabezado
