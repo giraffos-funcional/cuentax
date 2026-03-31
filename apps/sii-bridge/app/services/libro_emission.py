@@ -115,6 +115,80 @@ class LibroEmissionService:
 
         return self._generate_sign_send(libro_data, rut_emisor)
 
+    def emit_libro_ventas_from_resultados(
+        self,
+        resultados: list[dict],
+        rut_emisor: str,
+        periodo: str,
+        folio_notificacion: str,
+        fecha_doc: str = "",
+    ) -> dict:
+        """
+        Generate and send Libro de Ventas from batch emission resultados.
+
+        This is an alternative to emit_libro_ventas() when the EnvioDTE XML
+        is not available (e.g., SET BASICO already submitted in prior session).
+
+        Each resultado dict has: caso, tipo_dte, folio, monto_neto, monto_exe,
+        monto_iva, monto_total, rut_receptor, razon_social_receptor
+        """
+        if not fecha_doc:
+            from datetime import date as _date
+            fecha_doc = _date.today().strftime("%Y-%m-%d")
+
+        detalles = []
+        for r in resultados:
+            tipo_dte = r.get("tipo_dte", 0)
+            folio = r.get("folio", 0)
+            if not tipo_dte or not folio:
+                continue
+
+            mnt_neto = r.get("monto_neto", 0)
+            mnt_exe = r.get("monto_exe", 0)
+            mnt_iva = r.get("monto_iva", 0)
+            mnt_total = r.get("monto_total", 0)
+
+            es_nc = tipo_dte in (61,)
+
+            detalles.append(LibroDetalle(
+                tipo_doc=tipo_dte,
+                nro_doc=folio,
+                tasa_imp=Decimal("19") if mnt_neto else Decimal("0"),
+                fch_doc=fecha_doc,
+                rut_doc=r.get("rut_receptor", "66666666-6"),
+                rzn_soc=r.get("razon_social_receptor", "Receptor Prueba"),
+                mnt_exe=mnt_exe,
+                mnt_neto=mnt_neto,
+                mnt_iva=mnt_iva,
+                mnt_total=mnt_total,
+                es_nota_credito=es_nc,
+            ))
+
+        if not detalles:
+            return {
+                "success": False,
+                "tipo": "VENTA",
+                "estado": "error",
+                "mensaje": "No DTEs found in resultados",
+            }
+
+        rut_envia = self._get_rut_envia(rut_emisor)
+
+        libro_data = LibroData(
+            tipo_operacion="VENTA",
+            rut_emisor_libro=format_rut(rut_emisor, dots=False),
+            rut_envia=rut_envia,
+            periodo_tributario=periodo,
+            fch_resol="2014-08-22",
+            nro_resol="0",
+            tipo_libro="ESPECIAL",
+            tipo_envio="TOTAL",
+            folio_notificacion=folio_notificacion,
+            detalles=detalles,
+        )
+
+        return self._generate_sign_send(libro_data, rut_emisor)
+
     def emit_libro_compras(
         self,
         compras_entries: list[dict],

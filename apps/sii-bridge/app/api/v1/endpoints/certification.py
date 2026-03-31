@@ -689,20 +689,9 @@ async def generate_libros(req: LibrosRequest):
             ),
         )
 
-    batch_result = session.get("last_batch_result")
-    if not batch_result or not batch_result.get("xml_envio_b64"):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "No EnvioDTE XML found in session. "
-                "Process the test set first via /wizard/set-prueba/process"
-            ),
-        )
+    batch_result = session.get("last_batch_result", {})
 
     # Parse the original test set file for compras data
-    # The SetPruebasData object stores the raw content; we need the raw file
-    # We'll parse compras from the stored set_pruebas_factura raw text or
-    # from a stored raw_content field
     raw_content = session.get("raw_test_set_content")
     if not raw_content:
         raise HTTPException(
@@ -734,12 +723,31 @@ async def generate_libros(req: LibrosRequest):
         )
 
     # 1. Generate and send Libro de Ventas
-    resultado_ventas = libro_emission_service.emit_libro_ventas(
-        envio_dte_xml_b64=batch_result["xml_envio_b64"],
-        rut_emisor=rut_emisor,
-        periodo=periodo,
-        folio_notificacion=folio_ventas,
-    )
+    # Try from EnvioDTE XML first; fall back to batch resultados
+    xml_b64 = batch_result.get("xml_envio_b64")
+    if xml_b64:
+        resultado_ventas = libro_emission_service.emit_libro_ventas(
+            envio_dte_xml_b64=xml_b64,
+            rut_emisor=rut_emisor,
+            periodo=periodo,
+            folio_notificacion=folio_ventas,
+        )
+    elif batch_result.get("resultados"):
+        resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
+            resultados=batch_result["resultados"],
+            rut_emisor=rut_emisor,
+            periodo=periodo,
+            folio_notificacion=folio_ventas,
+            fecha_doc=fecha_emision,
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No EnvioDTE XML or batch resultados found in session. "
+                "Process the test set first via /wizard/set-prueba/process"
+            ),
+        )
 
     # 2. Generate and send Libro de Compras
     resultado_compras = libro_emission_service.emit_libro_compras(

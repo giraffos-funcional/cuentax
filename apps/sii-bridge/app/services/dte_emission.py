@@ -181,6 +181,12 @@ class DTEEmissionService:
                         "tipo_dte": payload["tipo_dte"],
                         "folio": result["folio"],
                         "estado": "firmado",
+                        "monto_neto": result.get("monto_neto", 0),
+                        "monto_exe": result.get("monto_exe", 0),
+                        "monto_iva": result.get("monto_iva", 0),
+                        "monto_total": result.get("monto_total", 0),
+                        "rut_receptor": payload.get("rut_receptor", ""),
+                        "razon_social_receptor": payload.get("razon_social_receptor", ""),
                     })
                 else:
                     errores.append({
@@ -301,13 +307,24 @@ class DTEEmissionService:
         doc = self._build_dte_document(payload, folio)
         xml_element = self.generator.generate(doc)
 
+        # Calculate totals for result metadata
+        totales = self.generator._calculate_totals(doc)
+
         # Add TED
         xml_element = self._add_ted(xml_element, doc, rut_emisor)
 
         # Sign DTE
         signed_xml = certificate_service.sign_xml(xml_element, rut_emisor=rut_emisor)
 
-        return {"success": True, "folio": folio, "signed_element": signed_xml}
+        return {
+            "success": True,
+            "folio": folio,
+            "signed_element": signed_xml,
+            "monto_neto": totales.get("neto", 0),
+            "monto_exe": totales.get("exento", 0),
+            "monto_iva": totales.get("iva", 0),
+            "monto_total": totales.get("total", 0),
+        }
 
     def _add_ted(self, dte_element: etree._Element, doc: DTEDocumento, rut_emisor: str) -> etree._Element:
         """Add TED (Timbre Electrónico Digital) to the Documento element."""
