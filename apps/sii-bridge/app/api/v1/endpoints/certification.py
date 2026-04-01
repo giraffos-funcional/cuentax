@@ -137,6 +137,7 @@ class ProcessRequest(BaseModel):
     set_type: Optional[str] = "factura"
     only_cases: Optional[list[int]] = None  # 1-indexed case sub-numbers to process (e.g. [6] for case 4756304-6)
     known_folios: Optional[dict[str, int]] = None  # caso_sub -> folio from previous submissions
+    dry_run: Optional[bool] = False  # Validate payloads and compute totals without consuming folios or sending
 
 
 class InterceptRequest(BaseModel):
@@ -477,6 +478,63 @@ async def process_test_set(req: ProcessRequest):
             p["rut_emisor"] = rut_emisor
         if req.fecha_emision:
             p["fecha_emision"] = req.fecha_emision
+
+    # ── Dry-run mode: validate without consuming folios or sending ──
+    if req.dry_run:
+        dry_results = []
+        folio_needs = {}  # tipo_dte -> count needed
+        for i, p in enumerate(payloads):
+            tipo = p["tipo_dte"]
+            folio_needs[tipo] = folio_needs.get(tipo, 0) + 1
+            caso_sub = p.get("_caso_sub", i + 1)
+            ref_sub = p.get("_ref_caso_sub")
+            ref_resolved = (
+                ref_sub in (known_folios_int or {})
+                or ref_sub is None
+                or (ref_sub is not None and any(
+                    pp.get("_caso_sub") == ref_sub
+                    for pp in payloads
+                ))
+            )
+            dry_results.append({
+                "caso": i + 1,
+                "caso_sub": caso_sub,
+                "tipo_dte": tipo,
+                "rut_receptor": p.get("rut_receptor", ""),
+                "items": len(p.get("items", [])),
+                "ref_caso_sub": ref_sub,
+                "ref_resolved": ref_resolved,
+                "descuentos": [
+                    {"nombre": it.get("nombre", ""), "descuento_pct": it.get("descuento_pct", 0)}
+                    for it in p.get("items", []) if it.get("descuento_pct")
+                ],
+            })
+
+        # Check folio availability
+        folio_status = {}
+        for tipo, needed in folio_needs.items():
+            caf = caf_manager.get_caf(rut_emisor, tipo, ambiente="certificacion")
+            available = caf.folios_disponibles if caf else 0
+            folio_status[tipo] = {
+                "needed": needed,
+                "available": available,
+                "ok": available >= needed,
+            }
+
+        all_folios_ok = all(f["ok"] for f in folio_status.values())
+        all_refs_ok = all(r["ref_resolved"] for r in dry_results)
+
+        return {
+            "dry_run": True,
+            "success": all_folios_ok and all_refs_ok,
+            "total_dtes": len(payloads),
+            "folio_status": folio_status,
+            "all_folios_ok": all_folios_ok,
+            "all_refs_ok": all_refs_ok,
+            "cases": dry_results,
+            "set_type": set_type,
+            "mensaje": "✅ Listo para enviar" if (all_folios_ok and all_refs_ok) else "❌ Faltan folios o referencias sin resolver",
+        }
 
     try:
         result = dte_emission_service.emit_batch(payloads, known_folios=known_folios_int)
