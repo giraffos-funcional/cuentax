@@ -135,6 +135,8 @@ class ProcessRequest(BaseModel):
     rut_emisor: str
     fecha_emision: Optional[str] = None
     set_type: Optional[str] = "factura"
+    only_cases: Optional[list[int]] = None  # 1-indexed case sub-numbers to process (e.g. [6] for case 4756304-6)
+    known_folios: Optional[dict[str, int]] = None  # caso_sub -> folio from previous submissions
 
 
 class InterceptRequest(BaseModel):
@@ -450,6 +452,25 @@ async def process_test_set(req: ProcessRequest):
 
     payloads = session[payloads_key]
 
+    # Filter by only_cases if specified (1-indexed case sub-numbers)
+    if req.only_cases:
+        payloads = [
+            p for p in payloads
+            if p.get("_caso_sub") in req.only_cases
+        ]
+        if not payloads:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No payloads match only_cases={req.only_cases}. "
+                f"Available _caso_sub values: {[p.get('_caso_sub') for p in session[payloads_key]]}",
+            )
+        logger.info(f"Filtered to {len(payloads)} payloads for cases {req.only_cases}")
+
+    # Parse known_folios keys to int (JSON keys are always strings)
+    known_folios_int = None
+    if req.known_folios:
+        known_folios_int = {int(k): v for k, v in req.known_folios.items()}
+
     # Ensure all payloads have the correct rut_emisor (may be empty if JWT had no RUT at upload time)
     for p in payloads:
         if not p.get("rut_emisor") or p["rut_emisor"] == "auto":
@@ -458,7 +479,7 @@ async def process_test_set(req: ProcessRequest):
             p["fecha_emision"] = req.fecha_emision
 
     try:
-        result = dte_emission_service.emit_batch(payloads)
+        result = dte_emission_service.emit_batch(payloads, known_folios=known_folios_int)
         session["last_batch_result"] = result
     except Exception as e:
         logger.error(f"Error processing {set_type} test set: {e}")

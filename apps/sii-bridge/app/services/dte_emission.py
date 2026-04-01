@@ -151,7 +151,7 @@ class DTEEmissionService:
             "xml_firmado_b64": base64.b64encode(xml_bytes).decode() if xml_bytes else None,
         }
 
-    def emit_batch(self, payloads: list[dict]) -> dict:
+    def emit_batch(self, payloads: list[dict], known_folios: dict[int, int] | None = None) -> dict:
         """
         Emit multiple DTEs in a single EnvioDTE envelope.
 
@@ -193,7 +193,8 @@ class DTEEmissionService:
         errores: list[dict] = []
 
         # Track caso_sub -> folio mapping for NC/ND reference resolution
-        caso_sub_to_folio: dict[int, int] = {}
+        # Pre-populate with known folios from previous submissions
+        caso_sub_to_folio: dict[int, int] = dict(known_folios) if known_folios else {}
 
         for i, payload in enumerate(payloads):
             try:
