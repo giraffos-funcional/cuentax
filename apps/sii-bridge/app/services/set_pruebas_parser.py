@@ -400,7 +400,7 @@ class SetPruebasParser:
                     ]
 
             elif "DEVOLUCION" in razon_upper:
-                # Partial return: case has quantities, prices come from original
+                # Partial return: case has quantities, prices+discounts from original
                 if case.items:
                     for item in case.items:
                         if item.precio_unitario == 0:
@@ -408,6 +408,7 @@ class SetPruebasParser:
                             for orig in ref_case.items:
                                 if self._items_match(item.nombre, orig.nombre):
                                     item.precio_unitario = orig.precio_unitario
+                                    item.descuento_pct = orig.descuento_pct
                                     item.exento = orig.exento
                                     break
 
