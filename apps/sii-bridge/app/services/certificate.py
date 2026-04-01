@@ -17,6 +17,7 @@ El SII usa XMLDSig con:
 import logging
 import base64
 import hashlib
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from cryptography.hazmat.primitives.serialization import pkcs12
@@ -329,16 +330,23 @@ class CertificateService:
         is_envelope = local_tag != "DTE"
 
         # Step 1: Compute digest of target element.
-        # Serialize and reparse as standalone — this strips ancestor
-        # namespace declarations while keeping the element's own NS.
-        target_xml = etree.tostring(target)
-        target_reparsed = etree.fromstring(target_xml)
-        target_c14n = etree.tostring(target_reparsed, method="c14n")
-
-        # Keep xmlns:xsi in ALL digests — both DTE and envelope.
-        # When serialized via serialize-reparse, Documento inherits
-        # xmlns:xsi from its DTE parent. The SII's Java C14N verifier
-        # includes it in the digest computation for both cases.
+        if is_envelope:
+            # Envelope: serialize-reparse preserves namespaces.
+            target_xml = etree.tostring(target)
+            target_reparsed = etree.fromstring(target_xml)
+            target_c14n = etree.tostring(target_reparsed, method="c14n")
+        else:
+            # DTE: strip ALL xmlns declarations before C14N.
+            # Known-working implementations (facturacion_electronica,
+            # cryptosys.net ref) compute Documento digest WITHOUT xmlns.
+            # The SII validator expects no namespace declarations in the
+            # individual DTE document when verifying the signature.
+            target_xml = etree.tostring(target, encoding="unicode")
+            target_clean = re.sub(
+                r'\s+xmlns(?::\w+)?="[^"]*"', '', target_xml
+            )
+            target_reparsed = etree.fromstring(target_clean.encode("utf-8"))
+            target_c14n = etree.tostring(target_reparsed, method="c14n")
 
         digest_b64 = base64.b64encode(
             hashlib.sha1(target_c14n).digest()
