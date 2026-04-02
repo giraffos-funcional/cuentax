@@ -483,8 +483,14 @@ class DTEEmissionService:
             return f"RUT receptor inválido: {p.get('rut_receptor')}"
         if not p.get("items"):
             return "Al menos un ítem es requerido"
+        # Allow precio=0 for: text corrections (CodRef=2) and documents
+        # that reference text corrections (e.g. ND that voids a text-correction NC)
+        allows_zero_price = p.get("ref_cod_ref") == 2 or any(
+            Decimal(str(item.get("precio_unitario", 0))) == 0 for item in p["items"]
+            if p.get("tipo_dte") in (56, 61)  # NC/ND only
+        )
         for item in p["items"]:
-            if Decimal(str(item.get("precio_unitario", 0))) <= 0:
+            if not allows_zero_price and Decimal(str(item.get("precio_unitario", 0))) <= 0:
                 return f"Precio unitario debe ser mayor a 0: {item}"
         return None
 
