@@ -528,6 +528,9 @@ class SetPruebasParser:
                 "items": items_data,
                 # Internal: case sub-number for tracking
                 "_caso_sub": case.caso_sub,
+                # SET DE PRUEBA reference for SII certification matching
+                "_set_prueba_folio": str(case.caso),
+                "_set_prueba_caso": f"CASO {case.caso}-{case.caso_sub}",
             }
 
             # Global discount as DscRcgGlobal (not per-item)

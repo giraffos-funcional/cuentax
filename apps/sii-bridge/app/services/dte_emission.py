@@ -562,6 +562,8 @@ class DTEEmissionService:
             fecha_vencimiento=p.get("fecha_vencimiento"),
             observaciones=p.get("observaciones"),
             descuentos_globales=descuentos,
+            set_prueba_folio=p.get("_set_prueba_folio"),
+            set_prueba_caso=p.get("_set_prueba_caso"),
         )
 
     def _send_to_sii(self, xml_bytes: bytes, rut_emisor: str, token: str) -> dict:

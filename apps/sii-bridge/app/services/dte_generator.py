@@ -112,6 +112,9 @@ class DTEDocumento:
     fecha_vencimiento: Optional[str] = None
     observaciones: Optional[str] = None
     descuentos_globales: list[DscRcgGlobal] = field(default_factory=list)
+    # SET DE PRUEBA reference (for SII certification matching)
+    set_prueba_folio: Optional[str] = None  # e.g. "4756304"
+    set_prueba_caso: Optional[str] = None   # e.g. "CASO-4756304-1"
 
 
 class DTEXMLGenerator:
@@ -155,8 +158,19 @@ class DTEXMLGenerator:
             self._build_dsc_rcg_global(documento, dsc, i)
 
         # Referencia (para NC/ND)
+        ref_line = 1
         if doc.receptor.ref_tipo_doc and doc.receptor.ref_folio:
             self._build_referencia(documento, doc)
+            ref_line = 2
+
+        # SET DE PRUEBA reference (for SII certification case matching)
+        if doc.set_prueba_folio and doc.set_prueba_caso:
+            ref_set = etree.SubElement(documento, f"{_NS}Referencia")
+            self._elem(ref_set, "NroLinRef", str(ref_line))
+            self._elem(ref_set, "TpoDocRef", "SET")
+            self._elem(ref_set, "FolioRef", doc.set_prueba_folio)
+            self._elem(ref_set, "FchRef", doc.fecha_emision)
+            self._elem(ref_set, "RazonRef", doc.set_prueba_caso)
 
         logger.debug(f"XML DTE tipo {doc.tipo_dte} folio {doc.folio} generado")
         return dte_root
