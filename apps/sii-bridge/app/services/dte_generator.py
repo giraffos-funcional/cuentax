@@ -224,17 +224,16 @@ class DTEXMLGenerator:
         if item.exento:
             self._elem(det, "IndExe", "1")
         self._elem(det, "NmbItem", item.nombre[:80])
+        # QtyItem is required by XSD after NmbItem
+        self._elem(det, "QtyItem", str(item.cantidad))
+        self._elem(det, "UnmdItem", item.unidad)
         if item.precio_unitario > 0:
-            self._elem(det, "QtyItem", str(item.cantidad))
-            self._elem(det, "UnmdItem", item.unidad)
             self._elem(det, "PrcItem", str(item.precio_unitario))
             if item.descuento_pct > 0:
                 self._elem(det, "DescuentoPct", str(item.descuento_pct))
                 self._elem(det, "DescuentoMonto", str(item.descuento_monto))
-            self._elem(det, "MontoItem", str(item.monto_item))
-        else:
-            # Text correction (CodRef=2): only NmbItem, no quantities/prices/amounts
-            pass
+        # MontoItem: 0 for text corrections (CodRef=2), calculated for normal items
+        self._elem(det, "MontoItem", str(item.monto_item))
 
     def _build_referencia(self, documento, doc: DTEDocumento):
         ref = etree.SubElement(documento, f"{_NS}Referencia")
