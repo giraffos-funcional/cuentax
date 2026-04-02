@@ -157,20 +157,20 @@ class DTEXMLGenerator:
         for i, dsc in enumerate(doc.descuentos_globales, start=1):
             self._build_dsc_rcg_global(documento, dsc, i)
 
-        # Referencia (para NC/ND)
+        # SET DE PRUEBA reference FIRST (SII checker matches on first Referencia)
         ref_line = 1
-        if doc.receptor.ref_tipo_doc and doc.receptor.ref_folio:
-            self._build_referencia(documento, doc)
-            ref_line = 2
-
-        # SET DE PRUEBA reference (for SII certification case matching)
         if doc.set_prueba_folio and doc.set_prueba_caso:
             ref_set = etree.SubElement(documento, f"{_NS}Referencia")
-            self._elem(ref_set, "NroLinRef", str(ref_line))
+            self._elem(ref_set, "NroLinRef", "1")
             self._elem(ref_set, "TpoDocRef", "SET")
             self._elem(ref_set, "FolioRef", doc.set_prueba_folio)
             self._elem(ref_set, "FchRef", doc.fecha_emision)
             self._elem(ref_set, "RazonRef", doc.set_prueba_caso)
+            ref_line = 2
+
+        # Referencia (para NC/ND) — after SET reference
+        if doc.receptor.ref_tipo_doc and doc.receptor.ref_folio:
+            self._build_referencia(documento, doc, nro_lin=ref_line)
 
         logger.debug(f"XML DTE tipo {doc.tipo_dte} folio {doc.folio} generado")
         return dte_root
@@ -249,9 +249,9 @@ class DTEXMLGenerator:
         # MontoItem: 0 for text corrections (CodRef=2), calculated for normal items
         self._elem(det, "MontoItem", str(item.monto_item))
 
-    def _build_referencia(self, documento, doc: DTEDocumento):
+    def _build_referencia(self, documento, doc: DTEDocumento, nro_lin: int = 1):
         ref = etree.SubElement(documento, f"{_NS}Referencia")
-        self._elem(ref, "NroLinRef", "1")
+        self._elem(ref, "NroLinRef", str(nro_lin))
         self._elem(ref, "TpoDocRef", str(doc.receptor.ref_tipo_doc))
         self._elem(ref, "FolioRef", str(doc.receptor.ref_folio))
         self._elem(ref, "FchRef", doc.receptor.ref_fecha or doc.fecha_emision)
