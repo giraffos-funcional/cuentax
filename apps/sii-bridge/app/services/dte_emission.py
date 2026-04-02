@@ -249,6 +249,17 @@ class DTEEmissionService:
                     "error": str(e),
                 })
 
+        # Fail entirely if ANY DTE had errors — never send partial EnvioDTE
+        if errores:
+            return {
+                "success": False,
+                "total": len(payloads),
+                "emitidos": 0,
+                "errores": errores,
+                "estado": "error",
+                "mensaje": f"{len(errores)} DTE(s) con error. No se envía nada para evitar envíos parciales.",
+            }
+
         if not unsigned_dtes:
             return {
                 "success": False,
