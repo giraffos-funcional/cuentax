@@ -413,18 +413,32 @@ class SetPruebasParser:
                                     break
 
             elif "CORRIGE" in razon_upper:
-                # Correction (e.g. "CORRIGE GIRO"): copy items from original
-                if not case.items:
+                if "GIRO" in razon_upper or "TEXTO" in razon_upper or "RAZON" in razon_upper:
+                    # Text correction (CodRef=2): NC must have MntTotal=0
+                    # SII requires at least 1 Detalle — use items with precio=0
                     case.items = [
                         SetPruebasItem(
                             nombre=it.nombre,
                             cantidad=it.cantidad,
-                            precio_unitario=it.precio_unitario,
-                            descuento_pct=it.descuento_pct,
+                            precio_unitario=0,
+                            descuento_pct=0,
                             exento=it.exento,
                         )
                         for it in ref_case.items
                     ]
+                else:
+                    # Amount correction (CodRef=3): copy items with prices from original
+                    if not case.items:
+                        case.items = [
+                            SetPruebasItem(
+                                nombre=it.nombre,
+                                cantidad=it.cantidad,
+                                precio_unitario=it.precio_unitario,
+                                descuento_pct=it.descuento_pct,
+                                exento=it.exento,
+                            )
+                            for it in ref_case.items
+                        ]
 
             else:
                 # Unknown reference type: copy items if missing

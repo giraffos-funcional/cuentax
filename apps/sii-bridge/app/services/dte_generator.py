@@ -226,7 +226,8 @@ class DTEXMLGenerator:
         self._elem(det, "NmbItem", item.nombre[:80])
         self._elem(det, "QtyItem", str(item.cantidad))
         self._elem(det, "UnmdItem", item.unidad)
-        self._elem(det, "PrcItem", str(item.precio_unitario))
+        if item.precio_unitario > 0:
+            self._elem(det, "PrcItem", str(item.precio_unitario))
         if item.descuento_pct > 0:
             self._elem(det, "DescuentoPct", str(item.descuento_pct))
             self._elem(det, "DescuentoMonto", str(item.descuento_monto))
