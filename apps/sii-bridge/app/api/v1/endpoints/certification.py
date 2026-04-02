@@ -193,9 +193,9 @@ async def check_prerequisites(rut_emisor: str = Query("")):
             caf = caf_manager.get_caf(rut_emisor, tipo, ambiente="certificacion")
         # If not found by rut_emisor, search all loaded CAFs for this type in certification
         if not caf:
-            for (rut, t, amb), c in caf_manager._cafs.items():
-                if t == tipo and amb == "certificacion":
-                    caf = c
+            for (rut, t, amb), caf_list in caf_manager._cafs.items():
+                if t == tipo and amb == "certificacion" and caf_list:
+                    caf = next((c for c in caf_list if c.folios_disponibles > 0), caf_list[0])
                     break
         cafs_loaded[tipo] = {
             "loaded": caf is not None,

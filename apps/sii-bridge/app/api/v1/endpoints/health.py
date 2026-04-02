@@ -15,7 +15,7 @@ async def health():
     it just cannot sign DTEs until one is provided.
     """
     cert_loaded = certificate_service.is_loaded
-    cafs_loaded = len(caf_manager._cafs)
+    cafs_loaded = sum(len(v) for v in caf_manager._cafs.values())
 
     return {
         "status": "ok",

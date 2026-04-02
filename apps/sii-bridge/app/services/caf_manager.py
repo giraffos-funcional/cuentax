@@ -104,12 +104,13 @@ class CAFData:
 class CAFManager:
     """
     Gestiona múltiples CAFs por tipo de DTE, empresa y ambiente.
-    Key: (rut_empresa, tipo_dte, ambiente) → CAFData
+    Key: (rut_empresa, tipo_dte, ambiente) → list[CAFData]
+    Supports multiple CAFs per type (SII gives 1-folio CAFs for some types).
     """
 
     def __init__(self):
-        # {(rut_empresa, tipo_dte, ambiente): CAFData}
-        self._cafs: dict[tuple[str, int, str], CAFData] = {}
+        # {(rut_empresa, tipo_dte, ambiente): [CAFData, ...]}
+        self._cafs: dict[tuple[str, int, str], list[CAFData]] = {}
 
     def load_caf_from_xml(self, caf_xml: str, rut_empresa: str, ambiente: str = "") -> CAFData:
         """
@@ -166,12 +167,23 @@ class CAFManager:
             )
 
             key = (rut_empresa, tipo_dte, ambiente)
-            self._cafs[key] = caf_data
+            if key not in self._cafs:
+                self._cafs[key] = []
+            # Avoid duplicates (same folio range)
+            existing_ranges = {(c.folio_desde, c.folio_hasta) for c in self._cafs[key]}
+            if (folio_desde, folio_hasta) not in existing_ranges:
+                self._cafs[key].append(caf_data)
+            else:
+                # Replace existing CAF with same range (reset counter)
+                for i, c in enumerate(self._cafs[key]):
+                    if c.folio_desde == folio_desde and c.folio_hasta == folio_hasta:
+                        self._cafs[key][i] = caf_data
+                        break
 
             logger.info(
                 f"✅ CAF cargado. Tipo {tipo_dte}, RUT {rut_caf}, "
                 f"Folios {folio_desde}-{folio_hasta} ({folio_hasta - folio_desde + 1} folios) "
-                f"[{ambiente}]"
+                f"[{ambiente}] (total CAFs tipo {tipo_dte}: {len(self._cafs[key])})"
             )
 
             # Persist to Odoo
@@ -186,6 +198,7 @@ class CAFManager:
     def get_next_folio(self, rut_empresa: str, tipo_dte: int, ambiente: str = "") -> Optional[int]:
         """
         Obtiene y reserva el próximo folio para emitir un DTE.
+        Iterates through all CAFs of this type, using the first with available folios.
 
         Returns:
             Número de folio o None si no hay CAF disponible
@@ -194,50 +207,73 @@ class CAFManager:
             from app.core.config import settings
             ambiente = settings.SII_AMBIENTE
         key = (rut_empresa, tipo_dte, ambiente)
-        caf = self._cafs.get(key)
+        caf_list = self._cafs.get(key, [])
 
-        if not caf:
+        if not caf_list:
             logger.warning(f"No hay CAF para RUT {rut_empresa} tipo {tipo_dte}")
             return None
 
-        folio = caf.consume_folio()
-        if not folio:
-            logger.error(f"CAF agotado para tipo {tipo_dte} — renovar urgente")
-            return None
+        # Sort by folio_desde to consume in order
+        for caf in sorted(caf_list, key=lambda c: c.folio_desde):
+            folio = caf.consume_folio()
+            if folio:
+                # Sync folio position to Odoo
+                self.sync_folio_to_odoo(rut_empresa, tipo_dte, ambiente)
 
-        # Sync folio position to Odoo
-        self.sync_folio_to_odoo(rut_empresa, tipo_dte, ambiente)
+                if caf.necesita_renovacion:
+                    total_remaining = sum(c.folios_disponibles for c in caf_list)
+                    if total_remaining < 5:
+                        logger.warning(
+                            f"⚠️  CAF tipo {tipo_dte}: solo quedan {total_remaining} folios total. "
+                            f"Renovar en el portal SII."
+                        )
+                return folio
 
-        if caf.necesita_renovacion:
-            logger.warning(
-                f"⚠️  CAF tipo {tipo_dte}: solo quedan {caf.folios_disponibles} folios. "
-                f"Renovar en el portal SII."
-            )
-
-        return folio
+        logger.error(f"Todos los CAFs agotados para tipo {tipo_dte} — renovar urgente")
+        return None
 
     def get_status(self, rut_empresa: str, ambiente: str = "") -> list[dict]:
-        """Retorna el estado de los CAFs de una empresa, filtrado por ambiente."""
-        return [
-            caf.status
-            for (rut, _, amb), caf in self._cafs.items()
-            if rut == rut_empresa and (not ambiente or amb == ambiente)
-        ]
+        """Retorna el estado de los CAFs de una empresa, filtrado por ambiente.
+        Aggregates multiple CAFs of the same type into a single status entry."""
+        result = []
+        for (rut, tipo, amb), caf_list in self._cafs.items():
+            if rut != rut_empresa or (ambiente and amb != ambiente):
+                continue
+            # Aggregate: show combined availability across all CAFs of this type
+            total_disponibles = sum(c.folios_disponibles for c in caf_list)
+            # Use the first CAF with available folios for display
+            active = next((c for c in sorted(caf_list, key=lambda c: c.folio_desde) if c.folios_disponibles > 0), caf_list[0])
+            status = active.status
+            status["folios_disponibles"] = total_disponibles
+            status["caf_count"] = len(caf_list)
+            result.append(status)
+        return result
 
     def get_caf(self, rut_empresa: str, tipo_dte: int, ambiente: str = "") -> Optional[CAFData]:
+        """Returns the active CAF (first with available folios) for TED signing."""
         if not ambiente:
             from app.core.config import settings
             ambiente = settings.SII_AMBIENTE
-        return self._cafs.get((rut_empresa, tipo_dte, ambiente))
+        caf_list = self._cafs.get((rut_empresa, tipo_dte, ambiente), [])
+        if not caf_list:
+            return None
+        # Return first CAF with available folios (sorted by folio_desde)
+        for caf in sorted(caf_list, key=lambda c: c.folio_desde):
+            if caf.folios_disponibles > 0:
+                return caf
+        return caf_list[-1]  # Fallback to last CAF even if exhausted
 
     # ── Odoo Persistence (ir.config_parameter) ─────────────────
     # Uses Odoo's built-in key-value store so no custom modules needed.
     # Key format: cuentax.caf.{rut}.{tipo} → JSON blob
 
-    def _caf_param_key(self, rut: str, tipo: int, ambiente: str = "") -> str:
+    def _caf_param_key(self, rut: str, tipo: int, ambiente: str = "", folio_desde: int = 0) -> str:
+        base = f"cuentax.caf.{rut}.{tipo}"
         if ambiente:
-            return f"cuentax.caf.{rut}.{tipo}.{ambiente}"
-        return f"cuentax.caf.{rut}.{tipo}"
+            base += f".{ambiente}"
+        if folio_desde:
+            base += f".{folio_desde}"
+        return base
 
     def _caf_to_dict(self, caf: CAFData) -> dict:
         return {
@@ -256,7 +292,7 @@ class CAFManager:
         """Save a CAF to Odoo ir.config_parameter."""
         try:
             from app.adapters.odoo_rpc import odoo_rpc
-            key = self._caf_param_key(caf_data.rut_empresa, caf_data.tipo_dte, caf_data.ambiente)
+            key = self._caf_param_key(caf_data.rut_empresa, caf_data.tipo_dte, caf_data.ambiente, caf_data.folio_desde)
             value = json.dumps(self._caf_to_dict(caf_data))
             odoo_rpc.execute(
                 "ir.config_parameter", "set_param", key, value,
@@ -274,23 +310,22 @@ class CAFManager:
         if not ambiente:
             from app.core.config import settings
             ambiente = settings.SII_AMBIENTE
-        caf = self._cafs.get((rut_empresa, tipo_dte, ambiente))
-        if not caf:
-            return
-        try:
-            from app.adapters.odoo_rpc import odoo_rpc
-            key = self._caf_param_key(rut_empresa, tipo_dte, ambiente)
-            value = json.dumps(self._caf_to_dict(caf))
-            odoo_rpc.execute("ir.config_parameter", "set_param", key, value)
-        except Exception as e:
-            logger.error(f"Failed to sync folio to Odoo: {e}")
+        caf_list = self._cafs.get((rut_empresa, tipo_dte, ambiente), [])
+        for caf in caf_list:
+            try:
+                from app.adapters.odoo_rpc import odoo_rpc
+                key = self._caf_param_key(rut_empresa, tipo_dte, ambiente, caf.folio_desde)
+                value = json.dumps(self._caf_to_dict(caf))
+                odoo_rpc.execute("ir.config_parameter", "set_param", key, value)
+            except Exception as e:
+                logger.error(f"Failed to sync folio to Odoo: {e}")
 
     def _update_caf_index(self, odoo_rpc) -> None:
         """Maintain an index of all CAF param keys for restore."""
-        keys = [
-            self._caf_param_key(caf.rut_empresa, caf.tipo_dte, caf.ambiente)
-            for caf in self._cafs.values()
-        ]
+        keys = []
+        for caf_list in self._cafs.values():
+            for caf in caf_list:
+                keys.append(self._caf_param_key(caf.rut_empresa, caf.tipo_dte, caf.ambiente, caf.folio_desde))
         odoo_rpc.execute(
             "ir.config_parameter", "set_param",
             "cuentax.caf._index", json.dumps(keys),
@@ -347,7 +382,9 @@ class CAFManager:
                     caf._next_folio = data.get("next_folio", data["folio_desde"])
 
                     mem_key = (data["rut_empresa"], data["tipo_dte"], amb)
-                    self._cafs[mem_key] = caf
+                    if mem_key not in self._cafs:
+                        self._cafs[mem_key] = []
+                    self._cafs[mem_key].append(caf)
                     count += 1
                     logger.info(
                         f"Restored CAF: tipo={data['tipo_dte']}, "
