@@ -433,7 +433,7 @@ class DTEEmissionService:
         (no lxml, no xmlns) to avoid namespace contamination from ancestor
         elements. The FRMT is computed over clean DD bytes.
         """
-        caf_data = caf_manager.get_caf(rut_emisor, doc.tipo_dte)
+        caf_data = caf_manager.get_caf(rut_emisor, doc.tipo_dte, folio=doc.folio)
         if not caf_data:
             logger.warning(f"No CAF for TED generation (tipo={doc.tipo_dte}), skipping TED")
             return dte_element

@@ -249,19 +249,26 @@ class CAFManager:
             result.append(status)
         return result
 
-    def get_caf(self, rut_empresa: str, tipo_dte: int, ambiente: str = "") -> Optional[CAFData]:
-        """Returns the active CAF (first with available folios) for TED signing."""
+    def get_caf(self, rut_empresa: str, tipo_dte: int, ambiente: str = "", folio: int = 0) -> Optional[CAFData]:
+        """Returns the CAF for a specific folio (for TED signing).
+        If folio is specified, returns the CAF whose range contains it.
+        Otherwise returns the first CAF with available folios."""
         if not ambiente:
             from app.core.config import settings
             ambiente = settings.SII_AMBIENTE
         caf_list = self._cafs.get((rut_empresa, tipo_dte, ambiente), [])
         if not caf_list:
             return None
-        # Return first CAF with available folios (sorted by folio_desde)
+        # If folio specified, find the CAF that owns it
+        if folio:
+            for caf in caf_list:
+                if caf.folio_desde <= folio <= caf.folio_hasta:
+                    return caf
+        # Fallback: first CAF with available folios (sorted by folio_desde)
         for caf in sorted(caf_list, key=lambda c: c.folio_desde):
             if caf.folios_disponibles > 0:
                 return caf
-        return caf_list[-1]  # Fallback to last CAF even if exhausted
+        return caf_list[-1]
 
     # ── Odoo Persistence (ir.config_parameter) ─────────────────
     # Uses Odoo's built-in key-value store so no custom modules needed.
