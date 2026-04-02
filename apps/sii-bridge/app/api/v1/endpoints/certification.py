@@ -156,6 +156,9 @@ class LibrosRequest(BaseModel):
     rut_emisor: str
     periodo: Optional[str] = None  # "YYYY-MM", defaults to current month
     fecha_emision: Optional[str] = None  # date for compras docs, defaults to today
+    # Optional inline data — when session was lost (e.g. after deploy)
+    resultados: Optional[list[dict]] = None
+    raw_test_set_path: Optional[str] = None  # path to test set file on server
 
 
 # ── Prerequisites check ───────────────────────────────────────
@@ -745,8 +748,11 @@ async def generate_libros(req: LibrosRequest):
     periodo = req.periodo or date.today().strftime("%Y-%m")
     fecha_emision = req.fecha_emision or date.today().strftime("%Y-%m-%d")
 
-    # Find session with batch results
+    # Try session first, then fall back to inline data
     session = None
+    batch_result = {}
+    raw_content = None
+
     if rut_emisor and rut_emisor != "auto":
         candidate = _sessions.get(rut_emisor)
         if candidate:
@@ -758,31 +764,35 @@ async def generate_libros(req: LibrosRequest):
             if sess.get("last_batch_result"):
                 rut_emisor = session_rut
                 session = sess
-                logger.info(
-                    f"Found batch results in session for {session_rut} "
-                    f"(requested: {req.rut_emisor})"
-                )
                 break
 
-    if not session:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "No certification session found. "
-                "Upload and process a test set first via /wizard/set-prueba/upload"
-            ),
-        )
+    if session:
+        batch_result = session.get("last_batch_result", {})
+        raw_content = session.get("raw_test_set_content")
 
-    batch_result = session.get("last_batch_result", {})
+    # Fall back to inline data when session is lost (e.g. after deploy)
+    inline_resultados = req.resultados
+    if req.raw_test_set_path:
+        import os
+        if os.path.exists(req.raw_test_set_path):
+            with open(req.raw_test_set_path, "r", encoding="latin-1") as f:
+                raw_content = f.read()
 
-    # Parse the original test set file for compras data
-    raw_content = session.get("raw_test_set_content")
     if not raw_content:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Original test set file content not found in session. "
-                "Re-upload the test set file via /wizard/set-prueba/upload"
+                "No test set content available. Either upload via "
+                "/wizard/set-prueba/upload or pass raw_test_set_path"
+            ),
+        )
+
+    if not batch_result and not inline_resultados:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No batch results available. Either process via "
+                "/wizard/set-prueba/process or pass resultados inline"
             ),
         )
 
@@ -807,7 +817,7 @@ async def generate_libros(req: LibrosRequest):
         )
 
     # 1. Generate and send Libro de Ventas
-    # Try from EnvioDTE XML first; fall back to batch resultados
+    # Priority: EnvioDTE XML > inline resultados > session resultados
     xml_b64 = batch_result.get("xml_envio_b64")
     if xml_b64:
         resultado_ventas = libro_emission_service.emit_libro_ventas(
@@ -815,6 +825,14 @@ async def generate_libros(req: LibrosRequest):
             rut_emisor=rut_emisor,
             periodo=periodo,
             folio_notificacion=folio_ventas,
+        )
+    elif inline_resultados:
+        resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
+            resultados=inline_resultados,
+            rut_emisor=rut_emisor,
+            periodo=periodo,
+            folio_notificacion=folio_ventas,
+            fecha_doc=fecha_emision,
         )
     elif batch_result.get("resultados"):
         resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
@@ -827,10 +845,7 @@ async def generate_libros(req: LibrosRequest):
     else:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "No EnvioDTE XML or batch resultados found in session. "
-                "Process the test set first via /wizard/set-prueba/process"
-            ),
+            detail="No EnvioDTE XML or resultados found",
         )
 
     # 2. Generate and send Libro de Compras
