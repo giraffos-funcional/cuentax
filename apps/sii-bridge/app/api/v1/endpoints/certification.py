@@ -516,8 +516,8 @@ async def process_test_set(req: ProcessRequest):
         # Check folio availability
         folio_status = {}
         for tipo, needed in folio_needs.items():
-            caf = caf_manager.get_caf(rut_emisor, tipo, ambiente="certificacion")
-            available = caf.folios_disponibles if caf else 0
+            caf_list = caf_manager._cafs.get((rut_emisor, tipo, "certificacion"), [])
+            available = sum(c.folios_disponibles for c in caf_list) if caf_list else 0
             folio_status[tipo] = {
                 "needed": needed,
                 "available": available,
