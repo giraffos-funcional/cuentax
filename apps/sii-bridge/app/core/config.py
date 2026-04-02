@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     SII_RESOLUCION_NUMERO: int = 0  # e.g. 80
 
     # Resolución SII (certificación — assigned by SII when company postulates)
-    SII_CERT_RESOLUCION_FECHA: str = "2026-03-28"  # Zyncro SPA postulation date
+    SII_CERT_RESOLUCION_FECHA: str = "2014-08-22"  # Standard SII certification date
 
     # Certificado Digital
     SII_CERT_PATH: str = ""
