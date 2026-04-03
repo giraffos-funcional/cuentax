@@ -89,3 +89,32 @@ async def reset_caf_folios(rut_empresa: str, tipo_dte: int, next_folio: int = 0)
                     "mensaje": f"Reseteo exitoso: {caf.folios_disponibles} folios disponibles",
                 }
     raise HTTPException(404, detail=f"No se encontró CAF tipo {tipo_dte} para {rut_empresa}")
+
+@router.delete("/remove/{rut_empresa}/{tipo_dte}/{folio_desde}")
+async def remove_caf(rut_empresa: str, tipo_dte: int, folio_desde: int):
+    """Remove a specific CAF by its folio_desde. Also removes from Odoo persistence."""
+    from app.core.config import settings
+    import json
+
+    ambiente = settings.SII_AMBIENTE
+    key = (rut_empresa, tipo_dte, ambiente)
+    caf_list = caf_manager._cafs.get(key, [])
+
+    for i, caf in enumerate(caf_list):
+        if caf.folio_desde == folio_desde:
+            removed = caf_list.pop(i)
+            # Remove from Odoo persistence
+            try:
+                from app.adapters.odoo_rpc import odoo_rpc
+                param_key = caf_manager._caf_param_key(rut_empresa, tipo_dte, ambiente, folio_desde)
+                odoo_rpc.execute("ir.config_parameter", "set_param", param_key, "")
+                caf_manager._update_caf_index(odoo_rpc)
+            except Exception as e:
+                pass  # Best effort
+            return {
+                "success": True,
+                "removed": f"CAF tipo {tipo_dte} folios {removed.folio_desde}-{removed.folio_hasta}",
+                "remaining": len(caf_list),
+            }
+
+    raise HTTPException(404, detail=f"No CAF with folio_desde={folio_desde} for tipo {tipo_dte}")
