@@ -362,7 +362,10 @@ async def upload_test_set(
         raise HTTPException(status_code=400, detail="Empty file")
 
     try:
-        parsed = set_pruebas_parser.parse(text, emisor_data)
+        if set_type == "boleta":
+            parsed = set_pruebas_parser.parse_boleta(text, emisor_data)
+        else:
+            parsed = set_pruebas_parser.parse(text, emisor_data)
     except Exception as e:
         logger.error(f"Error parsing test set: {e}")
         raise HTTPException(status_code=400, detail=f"Error parsing test set: {e}")
@@ -382,7 +385,10 @@ async def upload_test_set(
 
     session = _get_session(rut_emisor)
     session[f"set_pruebas_{set_type}"] = parsed
-    session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
+    if set_type == "boleta":
+        session[f"payloads_{set_type}"] = set_pruebas_parser.boleta_to_payloads(parsed)
+    else:
+        session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
     # Store raw content for libro de compras parsing later
     session["raw_test_set_content"] = text
 

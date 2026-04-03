@@ -588,6 +588,223 @@ class SetPruebasParser:
         logger.info(f"Generated {len(payloads)} emission payloads from test set")
         return payloads
 
+    def parse_boleta(self, content: str, emisor_data: dict) -> SetPruebasData:
+        """
+        Parse the SII boleta test set file.
+
+        Boleta format is different from SET BASICO:
+        - Cases are "CASO-N" (no full atencion number)
+        - All documents are tipo 39 (Boleta Electrónica)
+        - Prices include IVA
+        - No RUT receptor (consumer sales)
+        - SET reference uses "CASO-N" format
+        - Some cases have OBSERVACION for special handling
+
+        Args:
+            content: Raw text content of the boleta test set file
+            emisor_data: Issuer data dict
+
+        Returns:
+            SetPruebasData with all parsed boleta test cases
+        """
+        result = SetPruebasData(
+            rut_emisor=emisor_data["rut_emisor"],
+            razon_social_emisor=emisor_data["razon_social"],
+            giro_emisor=emisor_data["giro"],
+            direccion_emisor=emisor_data.get("direccion", "Santiago"),
+            comuna_emisor=emisor_data.get("comuna", "Santiago"),
+            ciudad_emisor=emisor_data.get("ciudad", "Santiago"),
+            actividad_economica=emisor_data.get("actividad_economica", 620200),
+        )
+
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Split into CASO blocks
+        parts = re.split(r'\n(?=CASO-\d+)', content)
+        caso_blocks = [p.strip() for p in parts if p.strip() and re.match(r'CASO-\d+', p.strip())]
+
+        for block in caso_blocks:
+            try:
+                case = self._parse_boleta_case(block)
+                if case:
+                    result.casos.append(case)
+            except Exception as e:
+                logger.warning(f"Error parsing boleta case: {e}. Text: {block[:200]}")
+
+        logger.info(
+            f"Boleta test set parsed: {len(result.casos)} cases "
+            f"for emisor {result.rut_emisor}"
+        )
+        return result
+
+    def _parse_boleta_case(self, text: str) -> Optional[SetPruebasCase]:
+        """Parse a single boleta test case block."""
+        lines = text.strip().split("\n")
+        if not lines:
+            return None
+
+        # Extract case number: "CASO-1"
+        header_match = re.match(r'CASO-(\d+)', lines[0])
+        if not header_match:
+            return None
+
+        caso_sub = int(header_match.group(1))
+
+        # Parse OBSERVACION for special handling
+        observacion = ""
+        obs_match = re.search(r'OBSERVACION:\s*"(.+?)"', text, re.IGNORECASE)
+        if obs_match:
+            observacion = obs_match.group(1).strip()
+
+        # Parse items — look for header line with "Cantidad" and "Precio"
+        items = []
+        header_idx = None
+        for i, line in enumerate(lines):
+            if re.search(r'Item\s', line, re.IGNORECASE) and \
+               re.search(r'Cantidad', line, re.IGNORECASE):
+                header_idx = i
+                break
+
+        if header_idx is not None:
+            for line in lines[header_idx + 1:]:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Stop at section markers
+                if stripped.startswith("=") or stripped.startswith("-"):
+                    break
+                if re.match(r'(OBSERVACION|CASO-\d)', stripped, re.IGNORECASE):
+                    break
+
+                item = self._parse_boleta_item_line(line, observacion)
+                if item:
+                    items.append(item)
+
+        if not items:
+            return None
+
+        # Boletas: no RUT receptor, consumer sales
+        return SetPruebasCase(
+            caso=0,  # Boleta set has no atencion number
+            caso_sub=caso_sub,
+            tipo_dte=39,
+            rut_receptor="66666666-6",  # SII test receptor
+            razon_social_receptor="Consumidor Final",
+            giro_receptor="",
+            direccion_receptor="Santiago",
+            comuna_receptor="Santiago",
+            ciudad_receptor="Santiago",
+            items=items,
+            observaciones=observacion or None,
+        )
+
+    def _parse_boleta_item_line(self, line: str, observacion: str = "") -> Optional[SetPruebasItem]:
+        """Parse a boleta item line. Handles tab-separated format with IVA-inclusive prices."""
+        if "\t" not in line:
+            return None
+
+        parts = [p.strip() for p in line.split("\t") if p.strip()]
+        if len(parts) < 2:
+            return None
+
+        nombre = parts[0]
+        if not nombre or nombre.upper().startswith(("CASO", "OBSERV")):
+            return None
+
+        cantidad = self._safe_decimal(parts[1])
+        if cantidad is None:
+            return None
+
+        # Precio unitario con IVA
+        precio = Decimal("0")
+        if len(parts) >= 3:
+            precio = self._safe_decimal(parts[2]) or Decimal("0")
+
+        # Detect exento from observacion context
+        exento = False
+        nombre_upper = nombre.upper()
+        if "EXENTO" in nombre_upper or "EXENTA" in nombre_upper:
+            exento = True
+        elif observacion:
+            obs_upper = observacion.upper()
+            # Check if this item is specifically marked exento in observacion
+            if nombre_upper.strip().split()[0] in obs_upper and "EXENTO" in obs_upper:
+                # More specific: check "item N es ... exento"
+                for part in obs_upper.split("."):
+                    item_words = nombre_upper.strip().lower().split()
+                    if any(w in part.lower() for w in item_words) and "exento" in part.lower():
+                        exento = True
+                        break
+
+        # Check for special unit from observacion (e.g., "Kg")
+        unidad = "UN"
+        if observacion:
+            kg_match = re.search(r'[Uu]nidad de medida en (\w+)', observacion)
+            if kg_match:
+                unidad = kg_match.group(1)
+
+        return SetPruebasItem(
+            nombre=nombre,
+            cantidad=cantidad,
+            precio_unitario=precio,
+            descuento_pct=Decimal("0"),
+            exento=exento,
+            unidad=unidad,
+        )
+
+    def boleta_to_payloads(self, data: SetPruebasData) -> list[dict]:
+        """
+        Convert parsed boleta test set to emission payloads.
+
+        Key differences from factura payloads:
+        - tipo_dte is always 39
+        - Prices include IVA (handled by DTE generator for tipo 39)
+        - SET reference uses "CASO-N" format (no atencion number)
+        - No document references (no NCs/NDs for boletas)
+        """
+        payloads = []
+
+        for case in data.casos:
+            items_data = []
+            for item in case.items:
+                items_data.append({
+                    "nombre": item.nombre,
+                    "cantidad": str(item.cantidad),
+                    "precio_unitario": str(item.precio_unitario),
+                    "descuento_pct": str(item.descuento_pct),
+                    "exento": item.exento,
+                    "codigo": item.codigo,
+                    "unidad": item.unidad,
+                })
+
+            payload: dict = {
+                "tipo_dte": 39,
+                "rut_emisor": data.rut_emisor,
+                "razon_social_emisor": data.razon_social_emisor,
+                "giro_emisor": data.giro_emisor,
+                "direccion_emisor": data.direccion_emisor,
+                "comuna_emisor": data.comuna_emisor,
+                "ciudad_emisor": data.ciudad_emisor,
+                "actividad_economica": data.actividad_economica,
+                "rut_receptor": case.rut_receptor,
+                "razon_social_receptor": case.razon_social_receptor,
+                "giro_receptor": case.giro_receptor,
+                "direccion_receptor": case.direccion_receptor,
+                "comuna_receptor": case.comuna_receptor,
+                "ciudad_receptor": case.ciudad_receptor,
+                "forma_pago": case.forma_pago,
+                "items": items_data,
+                "_caso_sub": case.caso_sub,
+                # Boleta SET reference: CASO-N format
+                "_set_prueba_folio": f"CASO-{case.caso_sub}",
+                "_set_prueba_caso": f"CASO-{case.caso_sub}",
+            }
+
+            payloads.append(payload)
+
+        logger.info(f"Generated {len(payloads)} boleta emission payloads")
+        return payloads
+
     def parse_libro_compras(self, content: str) -> dict:
         """
         Parse the SET LIBRO DE COMPRAS section from the test set file.

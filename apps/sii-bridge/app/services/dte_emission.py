@@ -273,18 +273,34 @@ class DTEEmissionService:
         # Get RUT of the certificate holder (the person sending)
         rut_envia = self._get_rut_envia(rut_emisor)
 
-        # Build EnvioDTE envelope with UNSIGNED DTEs first, then sign
-        # each DTE in the tree context. This ensures inclusive C14N
-        # produces consistent bytes at both signing and verification
-        # time (ancestor namespaces like xmlns:xsi are in scope).
+        # Build envelope with UNSIGNED DTEs first, then sign each DTE
+        # in the tree context. This ensures inclusive C14N produces
+        # consistent bytes at both signing and verification time
+        # (ancestor namespaces like xmlns:xsi are in scope).
+        #
+        # Use EnvioBOLETA for boleta-only batches (tipo 39/41),
+        # EnvioDTE for everything else.
         try:
             unsigned_elements = [d["unsigned_element"] for d in unsigned_dtes]
-            envio_xml = self.generator.generate_envio_dte(
-                signed_dtes=unsigned_elements,
-                rut_emisor=rut_emisor,
-                rut_envia=rut_envia,
-                ambiente=settings.SII_AMBIENTE,
+            all_boletas = all(
+                d["tipo_dte"] in (39, 41) for d in unsigned_dtes
             )
+            if all_boletas:
+                envio_xml = self.generator.generate_envio_boleta(
+                    signed_dtes=unsigned_elements,
+                    rut_emisor=rut_emisor,
+                    rut_envia=rut_envia,
+                    ambiente=settings.SII_AMBIENTE,
+                )
+                envelope_type = "EnvioBOLETA"
+            else:
+                envio_xml = self.generator.generate_envio_dte(
+                    signed_dtes=unsigned_elements,
+                    rut_emisor=rut_emisor,
+                    rut_envia=rut_envia,
+                    ambiente=settings.SII_AMBIENTE,
+                )
+                envelope_type = "EnvioDTE"
 
             # Sign each DTE in the tree context (ancestor namespaces match)
             for dte_info in unsigned_dtes:
@@ -294,28 +310,28 @@ class DTEEmissionService:
                     dte_el, rut_emisor=rut_emisor, target_id=doc_id
                 )
 
-            # Sign the EnvioDTE — Signature appended as child of EnvioDTE,
-            # with Reference URI pointing to SetDTE's ID ("SetDoc")
+            # Sign the envelope — Signature appended as child of
+            # EnvioDTE/EnvioBOLETA, Reference URI → SetDTE ID ("SetDoc")
             certificate_service.sign_xml(
                 envio_xml, rut_emisor=rut_emisor, target_id="SetDoc"
             )
 
             envio_bytes = _serialize_xml_iso8859(envio_xml)
         except Exception as e:
-            logger.error(f"Error building EnvioDTE: {e}")
+            logger.error(f"Error building {envelope_type}: {e}")
             return {
                 "success": False,
                 "total": len(payloads),
                 "emitidos": len(unsigned_dtes),
                 "errores": errores,
                 "estado": "error_envio",
-                "mensaje": f"DTEs generados pero error en EnvioDTE: {e}",
+                "mensaje": f"DTEs generados pero error en {envelope_type}: {e}",
             }
 
         # Send to SII
         track_id = None
         estado = "firmado"
-        mensaje = f"EnvioDTE con {len(unsigned_dtes)} DTEs generado y firmado"
+        mensaje = f"{envelope_type} con {len(unsigned_dtes)} DTEs generado y firmado"
 
         token = sii_soap_client.get_token(rut_emisor=rut_emisor)
         if not token:
@@ -334,11 +350,11 @@ class DTEEmissionService:
                 if not track_id:
                     mensaje += f" | SII status: {send_result.get('status')} | response: {send_response_raw}"
             except Exception as e:
-                logger.error(f"Error sending EnvioDTE to SII: {e}")
+                logger.error(f"Error sending {envelope_type} to SII: {e}")
                 estado = "error_envio"
-                mensaje = f"EnvioDTE firmado pero error al enviar: {e}"
+                mensaje = f"{envelope_type} firmado pero error al enviar: {e}"
         else:
-            logger.warning("No SII token after retry — EnvioDTE signed but not sent")
+            logger.warning(f"No SII token after retry — {envelope_type} signed but not sent")
             estado = "firmado_sin_envio"
             mensaje = (
                 f"DTEs firmados pero NO enviados al SII\n\n"

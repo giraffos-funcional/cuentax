@@ -181,6 +181,9 @@ class DTEXMLGenerator:
         self._elem(id_doc, "Folio", str(doc.folio))
         self._elem(id_doc, "FchEmis", doc.fecha_emision)
         self._elem(id_doc, "FmaPago", str(doc.forma_pago))
+        # Boletas require IndServicio (3 = ventas y servicios)
+        if doc.tipo_dte in (39, 41):
+            self._elem(id_doc, "IndServicio", "3")
         if doc.fecha_vencimiento:
             self._elem(id_doc, "FchVenc", doc.fecha_vencimiento)
 
@@ -436,6 +439,59 @@ class DTEXMLGenerator:
             self._elem(sub, "NroDTE", str(count))
 
         return caratula
+
+
+    def generate_envio_boleta(
+        self,
+        signed_dtes: list[etree._Element],
+        rut_emisor: str,
+        rut_envia: str,
+        ambiente: str = "certificacion",
+    ) -> etree._Element:
+        """
+        Generate the EnvioBOLETA envelope for boleta-type DTEs (tipo 39, 41).
+
+        Identical structure to EnvioDTE but uses:
+        - Root element: EnvioBOLETA (instead of EnvioDTE)
+        - Schema: EnvioBOLETA_v11.xsd (instead of EnvioDTE_v10.xsd)
+        - Same namespace, same SetDTE/Caratula inner structure
+
+        Args:
+            signed_dtes: List of individually signed boleta DTE XML elements
+            rut_emisor: RUT of the issuing company
+            rut_envia: RUT of the person sending (certificate holder)
+            ambiente: "certificacion" or "produccion"
+
+        Returns:
+            EnvioBOLETA XML element (SetDTE NOT yet signed — caller must sign it)
+        """
+        xsi_ns = "http://www.w3.org/2001/XMLSchema-instance"
+        nsmap = {None: SII_DTE_NS, "xsi": xsi_ns}
+
+        envio = etree.Element(
+            f"{_NS}EnvioBOLETA",
+            attrib={
+                "version": "1.0",
+                f"{{{xsi_ns}}}schemaLocation": f"{SII_DTE_NS} EnvioBOLETA_v11.xsd",
+            },
+            nsmap=nsmap,
+        )
+        set_dte = etree.SubElement(envio, f"{_NS}SetDTE", attrib={"ID": "SetDoc"})
+
+        # Build Caratula (same structure as EnvioDTE)
+        self._build_caratula(
+            set_dte, signed_dtes, rut_emisor, rut_envia, ambiente
+        )
+
+        # Append all signed boleta DTEs
+        for dte in signed_dtes:
+            set_dte.append(dte)
+
+        logger.info(
+            f"EnvioBOLETA generated: {len(signed_dtes)} boletas, "
+            f"emisor={rut_emisor}, envia={rut_envia}"
+        )
+        return envio
 
 
 # Singleton
