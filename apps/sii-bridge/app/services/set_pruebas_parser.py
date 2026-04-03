@@ -393,16 +393,32 @@ class SetPruebasParser:
 
             if "ANULA" in razon_upper:
                 if ref_is_text_correction:
-                    # Voiding a text-correction NC: single generic item, MntTotal=0
-                    case.items = [
-                        SetPruebasItem(
-                            nombre=ref_case.items[0].nombre if ref_case.items else "Anulacion",
-                            cantidad=Decimal("1"),
-                            precio_unitario=Decimal("0"),
-                            descuento_pct=Decimal("0"),
-                            exento=False,
-                        )
-                    ]
+                    # ND voiding a text-correction NC: use first item from the ORIGINAL
+                    # factura (the one the NC referenced). NDs must have positive amounts.
+                    # The text-correction NC itself has MntTotal=0, but the ND needs real
+                    # amounts from the factura to pass SII DTE validation.
+                    orig_case = by_sub.get(ref_case._ref_caso_sub) if ref_case._ref_caso_sub else None
+                    if orig_case and orig_case.items:
+                        src_item = orig_case.items[0]
+                        case.items = [
+                            SetPruebasItem(
+                                nombre=src_item.nombre,
+                                cantidad=src_item.cantidad,
+                                precio_unitario=src_item.precio_unitario,
+                                descuento_pct=src_item.descuento_pct,
+                                exento=src_item.exento,
+                            )
+                        ]
+                    else:
+                        case.items = [
+                            SetPruebasItem(
+                                nombre=ref_case.items[0].nombre if ref_case.items else "Anulacion",
+                                cantidad=Decimal("1"),
+                                precio_unitario=Decimal("0"),
+                                descuento_pct=Decimal("0"),
+                                exento=False,
+                            )
+                        ]
                 elif not case.items:
                     # Full void: copy ALL items from referenced case at same prices
                     case.items = [
