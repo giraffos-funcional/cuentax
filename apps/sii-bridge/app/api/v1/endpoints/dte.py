@@ -104,6 +104,13 @@ async def get_dte_status(track_id: str, rut_emisor: str):
     }
 
 
+@router.get("/status/{track_id}/detail")
+async def get_dte_advance(track_id: str, rut_emisor: str):
+    """Get per-DTE details from a track using QueryEstDteAv. Shows rejection codes."""
+    result = sii_soap_client.query_dte_advance(rut_company=rut_emisor, track_id=track_id)
+    return result
+
+
 class QueryDteStatusRequest(BaseModel):
     rut_emisor: str
     rut_receptor: str

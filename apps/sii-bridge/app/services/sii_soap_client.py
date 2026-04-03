@@ -727,6 +727,69 @@ class SIISoapClient:
                 "glosa": str(e),
             }
 
+    def query_dte_advance(self, rut_company: str, track_id: str, token: Optional[str] = None) -> dict:
+        """
+        Query per-DTE details from a track using QueryEstDteAv service.
+        Returns individual DTE status including rejection codes.
+        """
+        import re
+        from app.utils.rut import format_rut
+
+        if not token:
+            token = self.get_token()
+        if not token:
+            return {"track_id": track_id, "estado": "ERROR", "glosa": "Sin token SII"}
+
+        rut_fmt = format_rut(rut_company, dots=False)
+        parts = rut_fmt.split("-")
+        rut_num = parts[0]
+        rut_dv = parts[1] if len(parts) > 1 else "0"
+
+        soap_body = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<soapenv:Body>'
+            '<getEstDteAv xmlns="http://DefaultNamespace">'
+            f'<RutEmpresa>{rut_num}</RutEmpresa>'
+            f'<DvEmpresa>{rut_dv}</DvEmpresa>'
+            f'<TrackId>{track_id}</TrackId>'
+            f'<Token>{token}</Token>'
+            '</getEstDteAv>'
+            '</soapenv:Body>'
+            '</soapenv:Envelope>'
+        )
+
+        endpoint = self._wsdls["status"].replace("?WSDL", "")
+        proxies = {"http": self._proxy_url, "https": self._proxy_url} if self._proxy_url else None
+
+        try:
+            resp = self._request_with_retry(
+                "post",
+                endpoint,
+                data=soap_body.encode("utf-8"),
+                headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": '""'},
+                proxies=proxies,
+                timeout=30,
+            )
+
+            if resp.status_code != 200:
+                return {"track_id": track_id, "estado": "HTTP_ERROR", "glosa": f"HTTP {resp.status_code}"}
+
+            inner_xml = self._extract_soap_return(resp.content, "getEstDteAvReturn")
+            if not inner_xml:
+                inner_xml = resp.text
+
+            logger.info(f"QueryEstDteAv response for {track_id}: {inner_xml[:1000]}")
+
+            return {
+                "track_id": track_id,
+                "raw_xml": inner_xml[:5000],
+            }
+
+        except Exception as e:
+            logger.error(f"Error querying DTE advance for {track_id}: {e}")
+            return {"track_id": track_id, "estado": "ERROR", "glosa": str(e)}
+
     def check_connectivity(self) -> dict:
         """
         Verifica conectividad con el SII.
