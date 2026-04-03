@@ -186,10 +186,11 @@ class DTEXMLGenerator:
         self._elem(id_doc, "TipoDTE", str(doc.tipo_dte))
         self._elem(id_doc, "Folio", str(doc.folio))
         self._elem(id_doc, "FchEmis", doc.fecha_emision)
-        # Boletas: IndServicio BEFORE FmaPago per EnvioBOLETA XSD
         if doc.tipo_dte in (39, 41):
+            # Boletas: IndServicio required, no FmaPago
             self._elem(id_doc, "IndServicio", "3")
-        self._elem(id_doc, "FmaPago", str(doc.forma_pago))
+        else:
+            self._elem(id_doc, "FmaPago", str(doc.forma_pago))
         if doc.fecha_vencimiento:
             self._elem(id_doc, "FchVenc", doc.fecha_vencimiento)
 
@@ -200,10 +201,11 @@ class DTEXMLGenerator:
         if tipo_dte in (39, 41):
             self._elem(e, "RznSocEmisor", emisor.razon_social[:100])
             self._elem(e, "GiroEmisor", emisor.giro[:80])
+            # Boletas: no Acteco in Emisor
         else:
             self._elem(e, "RznSoc", emisor.razon_social[:100])
             self._elem(e, "GiroEmis", emisor.giro[:80])
-        self._elem(e, "Acteco", str(emisor.actividad_economica))
+            self._elem(e, "Acteco", str(emisor.actividad_economica))
         if emisor.direccion:
             self._elem(e, "DirOrigen", emisor.direccion[:70])
         if emisor.comuna:
