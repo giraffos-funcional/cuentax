@@ -385,9 +385,26 @@ class SetPruebasParser:
 
             razon_upper = (case.referencia.razon_ref if case.referencia else "").upper()
 
+            # Check if referenced case is a text correction (CodRef=2)
+            ref_razon = (ref_case.referencia.razon_ref if ref_case.referencia else "").upper()
+            ref_is_text_correction = any(
+                kw in ref_razon for kw in ("CORRIGE GIRO", "CORRIGE TEXTO", "CORRIGE RAZON")
+            )
+
             if "ANULA" in razon_upper:
-                # Full void: copy ALL items from referenced case at same prices
-                if not case.items:
+                if ref_is_text_correction:
+                    # Voiding a text-correction NC: single generic item, MntTotal=0
+                    case.items = [
+                        SetPruebasItem(
+                            nombre=ref_case.items[0].nombre if ref_case.items else "Anulacion",
+                            cantidad=Decimal("1"),
+                            precio_unitario=Decimal("0"),
+                            descuento_pct=Decimal("0"),
+                            exento=False,
+                        )
+                    ]
+                elif not case.items:
+                    # Full void: copy ALL items from referenced case at same prices
                     case.items = [
                         SetPruebasItem(
                             nombre=it.nombre,
@@ -415,16 +432,15 @@ class SetPruebasParser:
             elif "CORRIGE" in razon_upper:
                 if "GIRO" in razon_upper or "TEXTO" in razon_upper or "RAZON" in razon_upper:
                     # Text correction (CodRef=2): NC must have MntTotal=0
-                    # SII requires at least 1 Detalle — use items with precio=0
+                    # SII SET checker expects exactly 1 Detalle line
                     case.items = [
                         SetPruebasItem(
-                            nombre=it.nombre,
-                            cantidad=it.cantidad,
-                            precio_unitario=0,
-                            descuento_pct=0,
-                            exento=it.exento,
+                            nombre=ref_case.items[0].nombre if ref_case.items else "Correccion",
+                            cantidad=Decimal("1"),
+                            precio_unitario=Decimal("0"),
+                            descuento_pct=Decimal("0"),
+                            exento=False,
                         )
-                        for it in ref_case.items
                     ]
                 else:
                     # Amount correction (CodRef=3): copy items with prices from original
