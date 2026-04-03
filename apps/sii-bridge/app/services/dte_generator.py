@@ -145,8 +145,8 @@ class DTEXMLGenerator:
         # Encabezado
         encabezado = etree.SubElement(documento, f"{_NS}Encabezado")
         self._build_id_doc(encabezado, doc)
-        self._build_emisor(encabezado, doc.emisor)
-        self._build_receptor(encabezado, doc.receptor)
+        self._build_emisor(encabezado, doc.emisor, doc.tipo_dte)
+        self._build_receptor(encabezado, doc.receptor, doc.tipo_dte)
         self._build_totales(encabezado, totales, doc.tipo_dte)
 
         # Detalle de items
@@ -162,10 +162,16 @@ class DTEXMLGenerator:
         if doc.set_prueba_folio and doc.set_prueba_caso:
             ref_set = etree.SubElement(documento, f"{_NS}Referencia")
             self._elem(ref_set, "NroLinRef", "1")
-            self._elem(ref_set, "TpoDocRef", "SET")
-            self._elem(ref_set, "FolioRef", doc.set_prueba_folio)
-            self._elem(ref_set, "FchRef", doc.fecha_emision)
-            self._elem(ref_set, "RazonRef", doc.set_prueba_caso)
+            if doc.tipo_dte in (39, 41):
+                # Boleta SET reference: CodRef + RazonRef only (no TpoDocRef/FolioRef/FchRef)
+                self._elem(ref_set, "CodRef", "SET")
+                self._elem(ref_set, "RazonRef", doc.set_prueba_caso)
+            else:
+                # Factura SET reference: TpoDocRef + FolioRef + FchRef + RazonRef
+                self._elem(ref_set, "TpoDocRef", "SET")
+                self._elem(ref_set, "FolioRef", doc.set_prueba_folio)
+                self._elem(ref_set, "FchRef", doc.fecha_emision)
+                self._elem(ref_set, "RazonRef", doc.set_prueba_caso)
             ref_line = 2
 
         # Referencia (para NC/ND) — after SET reference
@@ -180,18 +186,23 @@ class DTEXMLGenerator:
         self._elem(id_doc, "TipoDTE", str(doc.tipo_dte))
         self._elem(id_doc, "Folio", str(doc.folio))
         self._elem(id_doc, "FchEmis", doc.fecha_emision)
-        self._elem(id_doc, "FmaPago", str(doc.forma_pago))
-        # Boletas require IndServicio (3 = ventas y servicios)
+        # Boletas: IndServicio BEFORE FmaPago per EnvioBOLETA XSD
         if doc.tipo_dte in (39, 41):
             self._elem(id_doc, "IndServicio", "3")
+        self._elem(id_doc, "FmaPago", str(doc.forma_pago))
         if doc.fecha_vencimiento:
             self._elem(id_doc, "FchVenc", doc.fecha_vencimiento)
 
-    def _build_emisor(self, encabezado, emisor: DTEEmisor):
+    def _build_emisor(self, encabezado, emisor: DTEEmisor, tipo_dte: int = 33):
         e = etree.SubElement(encabezado, f"{_NS}Emisor")
         self._elem(e, "RUTEmisor", emisor.rut)
-        self._elem(e, "RznSoc", emisor.razon_social[:100])
-        self._elem(e, "GiroEmis", emisor.giro[:80])
+        # Boletas use RznSocEmisor/GiroEmisor; facturas use RznSoc/GiroEmis
+        if tipo_dte in (39, 41):
+            self._elem(e, "RznSocEmisor", emisor.razon_social[:100])
+            self._elem(e, "GiroEmisor", emisor.giro[:80])
+        else:
+            self._elem(e, "RznSoc", emisor.razon_social[:100])
+            self._elem(e, "GiroEmis", emisor.giro[:80])
         self._elem(e, "Acteco", str(emisor.actividad_economica))
         if emisor.direccion:
             self._elem(e, "DirOrigen", emisor.direccion[:70])
@@ -200,11 +211,13 @@ class DTEXMLGenerator:
         if emisor.ciudad:
             self._elem(e, "CiudadOrigen", emisor.ciudad[:20])
 
-    def _build_receptor(self, encabezado, receptor: DTEReceptor):
+    def _build_receptor(self, encabezado, receptor: DTEReceptor, tipo_dte: int = 33):
         r = etree.SubElement(encabezado, f"{_NS}Receptor")
         self._elem(r, "RUTRecep", receptor.rut)
         self._elem(r, "RznSocRecep", receptor.razon_social[:100])
-        self._elem(r, "GiroRecep", receptor.giro[:40])
+        # Boletas: no GiroRecep (consumer sales)
+        if tipo_dte not in (39, 41) and receptor.giro:
+            self._elem(r, "GiroRecep", receptor.giro[:40])
         if receptor.direccion:
             self._elem(r, "DirRecep", receptor.direccion[:70])
         if receptor.comuna:
@@ -219,6 +232,8 @@ class DTEXMLGenerator:
         
         # Boletas (39, 41) incluyen IVA en precio — reportan MntTotal directamente
         if tipo_dte in (39, 41):
+            if totales["exento"] > 0:
+                self._elem(t, "MntExe", str(totales["exento"]))
             self._elem(t, "MntTotal", str(totales["total"]))
         else:
             if totales["neto"] > 0:
