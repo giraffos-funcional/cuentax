@@ -12,6 +12,7 @@
  * GET  /api/v1/portal/contrato
  * GET  /api/v1/portal/asistencia
  * GET  /api/v1/portal/ausencias
+ * GET  /api/v1/portal/documentos/certificado-laboral
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
@@ -23,6 +24,7 @@ import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { odooHRAdapter } from '@/adapters/odoo-hr.adapter'
 import { generatePayslipPDF } from '@/services/payslip-pdf.service'
 import type { PayslipPDFData, PayslipPDFLine } from '@/services/payslip-pdf.service'
+import { generateCertificadoLaboralPDF } from '@/services/certificado-laboral-pdf.service'
 
 // ── Portal JWT Configuration ──────────────────────────────────
 const PORTAL_ACCESS_TTL = 8 * 60 * 60 * 1000 // 8 hours in ms
@@ -834,6 +836,124 @@ export async function portalRoutes(fastify: FastifyInstance) {
     } catch (err) {
       logger.error({ err, employeeId: portal.employee_id }, 'Error fetching portal leaves')
       return reply.send({ ausencias: [], saldos: [] })
+    }
+  })
+
+  // ── GET /documentos/certificado-laboral ────────────────────
+  fastify.get('/documentos/certificado-laboral', { preHandler: [portalGuard] }, async (request, reply) => {
+    const portal = request.portalUser!
+
+    try {
+      // 1. Fetch employee data
+      const empResults = await odooAccountingAdapter.searchRead(
+        'hr.employee',
+        [['id', '=', portal.employee_id]],
+        [
+          'name', 'identification_id', 'job_title', 'department_id',
+          'date_start', 'company_id',
+        ],
+        { limit: 1 },
+      )
+      const emp = empResults[0] as Record<string, unknown> | undefined
+      if (!emp) {
+        return reply.status(404).send({ error: 'Empleado no encontrado' })
+      }
+
+      // 2. Fetch active contract
+      const contractResults = await odooAccountingAdapter.searchRead(
+        'hr.contract',
+        [
+          ['employee_id', '=', portal.employee_id],
+          ['state', '=', 'open'],
+        ],
+        ['name', 'wage', 'date_start', 'date_end', 'contract_type_id'],
+        { limit: 1, order: 'date_start desc' },
+      )
+      const contract = contractResults[0] as Record<string, unknown> | undefined
+      if (!contract) {
+        return reply.status(404).send({ error: 'No se encontro contrato activo' })
+      }
+
+      // 3. Fetch company data
+      const companyId = Array.isArray(emp.company_id)
+        ? (emp.company_id as [number, string])[0]
+        : Number(emp.company_id ?? portal.company_id)
+
+      const companyResults = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', companyId]],
+        ['name', 'vat', 'street', 'city', 'logo'],
+        { limit: 1 },
+      )
+      const company = companyResults[0] as Record<string, unknown> | undefined
+
+      // 4. Determine contract type from name or type_id
+      const contractName = String(contract.name ?? '').toLowerCase()
+      let contractType = 'indefinido'
+      if (contractName.includes('plazo fijo') || contractName.includes('plazo_fijo')) {
+        contractType = 'plazo_fijo'
+      } else if (contractName.includes('obra') || contractName.includes('faena')) {
+        contractType = 'obra_faena'
+      }
+
+      // 5. Get rep legal (fall back to company name)
+      let repLegalName = String(company?.name ?? 'Representante Legal')
+      let repLegalRut = String(company?.vat ?? '-')
+
+      // Try to get a more specific rep legal from res.partner
+      try {
+        const partnerResults = await odooAccountingAdapter.searchRead(
+          'res.partner',
+          [['company_id', '=', companyId], ['function', 'ilike', 'legal']],
+          ['name', 'vat'],
+          { limit: 1 },
+        )
+        const partner = partnerResults[0] as Record<string, unknown> | undefined
+        if (partner?.name) {
+          repLegalName = String(partner.name)
+          repLegalRut = String(partner.vat ?? repLegalRut)
+        }
+      } catch {
+        // Use company defaults
+      }
+
+      const today = new Date().toISOString().slice(0, 10)
+
+      // 6. Generate PDF
+      const pdfBuffer = await generateCertificadoLaboralPDF({
+        company_name: String(company?.name ?? 'Sin empresa'),
+        company_rut: String(company?.vat ?? '-'),
+        company_address: String(company?.street ?? '-'),
+        company_city: String(company?.city ?? '-'),
+        company_logo: company?.logo ? String(company.logo) : undefined,
+        rep_legal_name: repLegalName,
+        rep_legal_rut: repLegalRut,
+
+        employee_name: String(emp.name ?? portal.name),
+        employee_rut: String(emp.identification_id ?? portal.rut),
+        job_title: String(emp.job_title ?? ''),
+        department: Array.isArray(emp.department_id)
+          ? String((emp.department_id as [number, string])[1])
+          : '',
+
+        contract_type: contractType,
+        start_date: String(contract.date_start ?? emp.date_start ?? today),
+        wage: Number(contract.wage ?? 0),
+
+        issue_date: today,
+      })
+
+      const safeName = String(emp.name ?? portal.name)
+        .replace(/[^a-zA-Z0-9\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00c1\u00c9\u00cd\u00d3\u00da\u00d1 ]/g, '')
+        .replace(/\s+/g, '-')
+      const filename = `certificado-laboral-${safeName}-${today}.pdf`
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, employeeId: portal.employee_id }, 'Error generating certificado laboral')
+      return reply.status(500).send({ error: 'Error al generar certificado laboral' })
     }
   })
 }

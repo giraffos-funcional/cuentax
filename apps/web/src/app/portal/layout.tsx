@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { usePortalAuthStore } from '@/stores/portal-auth.store'
 import {
-  Receipt, Briefcase, Clock4, CalendarDays,
+  Receipt, Briefcase, Clock4, CalendarDays, FileText,
   LogOut, User,
 } from 'lucide-react'
 
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { href: '/portal/contrato',   icon: Briefcase,    label: 'Mi Contrato' },
   { href: '/portal/asistencia', icon: Clock4,       label: 'Asistencia' },
   { href: '/portal/ausencias',  icon: CalendarDays, label: 'Ausencias' },
+  { href: '/portal/documentos', icon: FileText,     label: 'Documentos' },
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
