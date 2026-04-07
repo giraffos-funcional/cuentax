@@ -208,6 +208,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const portal = request.portalUser!
 
     try {
+      const companyCtx = { allowed_company_ids: [portal.company_id] }
+
       const results = await odooAccountingAdapter.searchRead(
         'hr.employee',
         [
@@ -218,7 +220,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
           'work_email', 'work_phone', 'image_128', 'date_start',
           'l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_health_plan',
         ],
-        { limit: 1 },
+        { limit: 1, context: companyCtx },
       )
 
       const employee = results[0] as Record<string, unknown> | undefined
@@ -465,7 +467,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
           'contract_id', 'date_start',
           'l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_isapre_cotizacion_uf',
         ],
-        { limit: 1 },
+        { limit: 1, context: { allowed_company_ids: [portal.company_id] } },
       )
       const employee = employeeResults[0] as Record<string, unknown> | undefined
 
@@ -845,6 +847,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
 
     try {
       // 1. Fetch employee data
+      const companyCtx = { allowed_company_ids: [portal.company_id] }
       const empResults = await odooAccountingAdapter.searchRead(
         'hr.employee',
         [['id', '=', portal.employee_id]],
@@ -852,7 +855,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
           'name', 'identification_id', 'job_title', 'department_id',
           'date_start', 'company_id',
         ],
-        { limit: 1 },
+        { limit: 1, context: companyCtx },
       )
       const emp = empResults[0] as Record<string, unknown> | undefined
       if (!emp) {

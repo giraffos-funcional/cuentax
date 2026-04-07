@@ -247,13 +247,14 @@ export class OdooAccountingAdapter {
     model: string,
     domain: unknown[][],
     fields: string[],
-    opts: { limit?: number; offset?: number; order?: string } = {},
+    opts: { limit?: number; offset?: number; order?: string; context?: Record<string, unknown> } = {},
   ): Promise<unknown[]> {
     const result = await this.rpcCall(model, 'search_read', [domain], {
       fields,
       limit: opts.limit ?? 100,
       offset: opts.offset ?? 0,
       ...(opts.order ? { order: opts.order } : {}),
+      ...(opts.context ? { context: opts.context } : {}),
     })
     return Array.isArray(result) ? result : []
   }
