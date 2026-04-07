@@ -2415,10 +2415,15 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
     })
     const data = JSON.parse(previewRes.body)
 
+    const employees = data.employees ?? []
+    if (employees.length === 0) {
+      return reply.status(204).send()
+    }
+
     const fileContent = generatePreviredFile({
       company_rut: user.company_rut ?? '',
       periodo: { year, mes },
-      employees: data.employees ?? [],
+      employees,
     })
 
     reply.header('Content-Type', 'text/plain; charset=utf-8')

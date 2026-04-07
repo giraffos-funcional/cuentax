@@ -1485,6 +1485,9 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
         code: body.code ?? '',
         company_id: user.company_id,
       })
+      if (!id || id === 0) {
+        return reply.status(502).send({ error: 'Odoo failed to create analytic account' })
+      }
       return reply.status(201).send({ id })
     } catch (err) {
       logger.error({ err }, 'Error creating centro de costo')
@@ -1632,7 +1635,8 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
           ['amount:sum'],
           [],
         )
-        saldo_actual = (bankGroups as any[])[0]?.amount ?? 0
+        const rawAmount = (bankGroups as any[])[0]?.amount
+        saldo_actual = typeof rawAmount === 'number' ? rawAmount : 0
       }
 
       // 2. Get accounts receivable and payable totals
