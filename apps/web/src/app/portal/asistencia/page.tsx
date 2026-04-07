@@ -68,6 +68,7 @@ export default function PortalAsistenciaPage() {
           <select
             value={month}
             onChange={(e) => setMonth(Number(e.target.value))}
+            aria-label="Seleccionar mes"
             className="input-field !w-auto text-sm px-3 py-1.5"
           >
             {MONTHS_ES.map((m, i) => (
@@ -77,6 +78,7 @@ export default function PortalAsistenciaPage() {
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
+            aria-label="Seleccionar año"
             className="input-field !w-auto text-sm px-3 py-1.5"
           >
             {Array.from({ length: 3 }, (_, i) => now.getFullYear() - i).map((y) => (

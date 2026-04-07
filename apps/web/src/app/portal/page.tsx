@@ -66,6 +66,7 @@ export default function PortalPayslipsPage() {
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
+            aria-label="Seleccionar año"
             className="input-field !w-auto text-sm px-3 py-1.5"
           >
             {Array.from({ length: 5 }, (_, i) => currentYear - i).map((y) => (

@@ -129,40 +129,60 @@ export default function PortalPayslipDetailPage() {
             <TrendingUp size={14} /> Haberes
           </h2>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[var(--cx-border)]">
-              <th className="text-left px-4 py-2 text-xs font-medium text-slate-500">Concepto</th>
-              <th className="text-right px-4 py-2 text-xs font-medium text-slate-500">Monto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {haberes.length === 0 && (
-              <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-xs text-slate-400">
-                  Sin haberes registrados
-                </td>
-              </tr>
-            )}
-            {haberes.map((line) => (
-              <tr key={line.id} className="border-b border-[var(--cx-border)] last:border-0">
-                <td className="px-4 py-2.5">
-                  <span className="text-slate-700">{line.name}</span>
-                  <span className="text-xs text-slate-400 ml-2">({line.code})</span>
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-slate-800">
-                  {clpFmt(line.total)}
-                </td>
-              </tr>
-            ))}
-            <tr className="bg-emerald-50/50">
-              <td className="px-4 py-2.5 font-semibold text-emerald-800">Subtotal Haberes</td>
-              <td className="px-4 py-2.5 text-right font-semibold text-emerald-800 tabular-nums">
-                {clpFmt(totals.total_haberes)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        {haberes.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-slate-400">Sin haberes registrados</p>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <table className="hidden sm:table w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--cx-border)]">
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-500">Concepto</th>
+                  <th className="text-right px-4 py-2 text-xs font-medium text-slate-500">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {haberes.map((line) => (
+                  <tr key={line.id} className="border-b border-[var(--cx-border)] last:border-0">
+                    <td className="px-4 py-2.5">
+                      <span className="text-slate-700">{line.name}</span>
+                      <span className="text-xs text-slate-400 ml-2">({line.code})</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-slate-800">
+                      {clpFmt(line.total)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-emerald-50/50">
+                  <td className="px-4 py-2.5 font-semibold text-emerald-800">Subtotal Haberes</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-emerald-800 tabular-nums">
+                    {clpFmt(totals.total_haberes)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            {/* Mobile cards */}
+            <div className="sm:hidden divide-y divide-[var(--cx-border)]">
+              {haberes.map((line) => (
+                <div key={line.id} className="px-4 py-2.5 flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-slate-700">{line.name}</span>
+                    <span className="text-xs text-slate-400 ml-1.5">({line.code})</span>
+                  </div>
+                  <span className="text-sm tabular-nums text-slate-800 font-medium ml-3 shrink-0">
+                    {clpFmt(line.total)}
+                  </span>
+                </div>
+              ))}
+              <div className="px-4 py-2.5 flex items-center justify-between bg-emerald-50/50">
+                <span className="text-sm font-semibold text-emerald-800">Subtotal</span>
+                <span className="text-sm font-semibold text-emerald-800 tabular-nums">
+                  {clpFmt(totals.total_haberes)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Descuentos section */}
@@ -172,40 +192,60 @@ export default function PortalPayslipDetailPage() {
             <TrendingDown size={14} /> Descuentos
           </h2>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[var(--cx-border)]">
-              <th className="text-left px-4 py-2 text-xs font-medium text-slate-500">Concepto</th>
-              <th className="text-right px-4 py-2 text-xs font-medium text-slate-500">Monto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {descuentos.length === 0 && (
-              <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-xs text-slate-400">
-                  Sin descuentos registrados
-                </td>
-              </tr>
-            )}
-            {descuentos.map((line) => (
-              <tr key={line.id} className="border-b border-[var(--cx-border)] last:border-0">
-                <td className="px-4 py-2.5">
-                  <span className="text-slate-700">{line.name}</span>
-                  <span className="text-xs text-slate-400 ml-2">({line.code})</span>
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-red-600">
-                  -{clpFmt(Math.abs(line.total))}
-                </td>
-              </tr>
-            ))}
-            <tr className="bg-red-50/50">
-              <td className="px-4 py-2.5 font-semibold text-red-800">Subtotal Descuentos</td>
-              <td className="px-4 py-2.5 text-right font-semibold text-red-800 tabular-nums">
-                -{clpFmt(totals.total_descuentos)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        {descuentos.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-slate-400">Sin descuentos registrados</p>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <table className="hidden sm:table w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--cx-border)]">
+                  <th className="text-left px-4 py-2 text-xs font-medium text-slate-500">Concepto</th>
+                  <th className="text-right px-4 py-2 text-xs font-medium text-slate-500">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {descuentos.map((line) => (
+                  <tr key={line.id} className="border-b border-[var(--cx-border)] last:border-0">
+                    <td className="px-4 py-2.5">
+                      <span className="text-slate-700">{line.name}</span>
+                      <span className="text-xs text-slate-400 ml-2">({line.code})</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-red-600">
+                      -{clpFmt(Math.abs(line.total))}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-red-50/50">
+                  <td className="px-4 py-2.5 font-semibold text-red-800">Subtotal Descuentos</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-red-800 tabular-nums">
+                    -{clpFmt(totals.total_descuentos)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            {/* Mobile cards */}
+            <div className="sm:hidden divide-y divide-[var(--cx-border)]">
+              {descuentos.map((line) => (
+                <div key={line.id} className="px-4 py-2.5 flex items-center justify-between">
+                  <div>
+                    <span className="text-sm text-slate-700">{line.name}</span>
+                    <span className="text-xs text-slate-400 ml-1.5">({line.code})</span>
+                  </div>
+                  <span className="text-sm tabular-nums text-red-600 font-medium ml-3 shrink-0">
+                    -{clpFmt(Math.abs(line.total))}
+                  </span>
+                </div>
+              ))}
+              <div className="px-4 py-2.5 flex items-center justify-between bg-red-50/50">
+                <span className="text-sm font-semibold text-red-800">Subtotal</span>
+                <span className="text-sm font-semibold text-red-800 tabular-nums">
+                  -{clpFmt(totals.total_descuentos)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Total final */}

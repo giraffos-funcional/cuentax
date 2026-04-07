@@ -44,11 +44,19 @@ export const usePortalAuthStore = create<PortalAuthState>()(
     }),
     {
       name: 'cuentax-portal-auth',
-      // Only persist employee data, NOT the access token
+      // Only persist employee data, NOT the access token.
+      // isAuthenticated is derived from accessToken presence at runtime.
       partialize: (state) => ({
         employee: state.employee,
-        isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrate: () => (state) => {
+        // After rehydration, isAuthenticated is false (no token persisted).
+        // User must re-login. This prevents flash-redirect on refresh.
+        if (state) {
+          state.isAuthenticated = false
+          state.accessToken = null
+        }
+      },
     },
   ),
 )

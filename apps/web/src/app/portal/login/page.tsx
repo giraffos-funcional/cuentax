@@ -81,9 +81,8 @@ export default function PortalLoginPage() {
       await login(data.rut, data.pin)
       router.push('/portal')
     } catch (err: unknown) {
-      const msg =
-        (err as any)?.response?.data?.message ??
-        'Error al iniciar sesion. Verifica tus credenciales.'
+      const axiosErr = err as { response?: { data?: { message?: string } } }
+      const msg = axiosErr?.response?.data?.message ?? 'Error al iniciar sesion. Verifica tus credenciales.'
       setServerError(msg)
     }
   }
@@ -116,10 +115,11 @@ export default function PortalLoginPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {/* RUT */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">
+              <label htmlFor="portal-rut" className="block text-xs font-medium text-slate-600 mb-1.5">
                 RUT
               </label>
               <input
+                id="portal-rut"
                 type="text"
                 autoComplete="username"
                 placeholder="12.345.678-9"
@@ -134,10 +134,11 @@ export default function PortalLoginPage() {
 
             {/* PIN */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1.5">
+              <label htmlFor="portal-pin" className="block text-xs font-medium text-slate-600 mb-1.5">
                 PIN (6 digitos)
               </label>
               <input
+                id="portal-pin"
                 type="password"
                 autoComplete="current-password"
                 placeholder="------"

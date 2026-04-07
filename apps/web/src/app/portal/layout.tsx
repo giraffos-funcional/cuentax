@@ -83,6 +83,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       isActive
                         ? 'bg-violet-50 text-violet-700'
@@ -114,7 +115,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </div>
 
           {/* Mobile nav */}
-          <nav className="flex sm:hidden items-center gap-1 pb-2 overflow-x-auto -mx-1">
+          <nav className="flex sm:hidden items-center gap-1 pb-2 overflow-x-auto -mx-1 pr-4">
             {NAV_ITEMS.map((item) => {
               const isActive =
                 item.href === '/portal'
@@ -124,6 +125,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={isActive ? 'page' : undefined}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     isActive
                       ? 'bg-violet-50 text-violet-700'
