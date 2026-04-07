@@ -717,6 +717,151 @@ export async function portalRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // ── GET /contrato/pdf ───────────────────────────────────────
+  fastify.get('/contrato/pdf', { preHandler: [portalGuard] }, async (request, reply) => {
+    const portal = request.portalUser!
+
+    try {
+      // 1. Fetch employee
+      const empResults = await odooAccountingAdapter.searchRead(
+        'hr.employee', [['id', '=', portal.employee_id]],
+        ['name', 'identification_id', 'job_title', 'department_id', 'company_id'],
+        { limit: 1 },
+      )
+      const emp = empResults[0] as Record<string, unknown> | undefined
+
+      // 2. Fetch active contract
+      const contracts = await odooAccountingAdapter.searchRead(
+        'hr.contract',
+        [['employee_id', '=', portal.employee_id], ['state', '=', 'open']],
+        ['name', 'state', 'date_start', 'date_end', 'wage', 'job_id', 'department_id', 'struct_id'],
+        { limit: 1, order: 'date_start desc' },
+      )
+      const contract = contracts[0] as Record<string, unknown> | undefined
+      if (!contract) {
+        return reply.status(404).send({ error: 'No se encontro contrato activo' })
+      }
+
+      // 3. Fetch company
+      const companyId = emp && Array.isArray(emp.company_id)
+        ? (emp.company_id as [number, string])[0]
+        : portal.company_id
+      const companyResults = await odooAccountingAdapter.searchRead(
+        'res.company', [['id', '=', companyId]], ['name', 'vat', 'street', 'city', 'logo'], { limit: 1 },
+      )
+      const company = companyResults[0] as Record<string, unknown> | undefined
+
+      // 4. Build PDF using PDFKit
+      const PDFDocument = (await import('pdfkit')).default
+      const chunks: Buffer[] = []
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margins: { top: 72, bottom: 72, left: 72, right: 72 },
+        info: { Title: `Contrato - ${emp?.name ?? portal.name}`, Author: String(company?.name ?? '') },
+      })
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk))
+
+      const pdfDone = new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => resolve(Buffer.concat(chunks)))
+        doc.on('error', reject)
+      })
+
+      const W = 612 - 144 // content width
+      const L = 72
+      const BOLD = 'Helvetica-Bold'
+      const REG = 'Helvetica'
+
+      const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+      const fmtDate = (s: string) => {
+        if (!s) return '-'
+        const d = new Date(s + 'T12:00:00')
+        return `${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`
+      }
+      const fmtCLP = (n: number) => '$' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '.-'
+
+      // Header
+      let y = 72
+      if (company?.logo) {
+        try {
+          doc.image(Buffer.from(String(company.logo), 'base64'), L, y, { width: 60, height: 60 })
+          doc.font(BOLD).fontSize(11).text(String(company.name ?? ''), L + 75, y + 8)
+          doc.font(REG).fontSize(8).text(`RUT: ${company.vat ?? '-'}`, L + 75, y + 22)
+          doc.text(String(company.street ?? ''), L + 75, y + 32)
+          y += 70
+        } catch {
+          doc.font(BOLD).fontSize(11).text(String(company?.name ?? ''), L, y)
+          y += 20
+        }
+      } else {
+        doc.font(BOLD).fontSize(11).text(String(company?.name ?? ''), L, y)
+        doc.font(REG).fontSize(8).text(`RUT: ${company?.vat ?? '-'}`, L, y + 14)
+        y += 30
+      }
+
+      y += 10
+      doc.moveTo(L, y).lineTo(L + W, y).lineWidth(1).stroke('#7c3aed')
+      y += 25
+
+      doc.font(BOLD).fontSize(15).text('RESUMEN DE CONTRATO', L, y, { align: 'center', width: W })
+      y += 35
+
+      // Employee info
+      const employeeName = String(emp?.name ?? portal.name)
+      const employeeRut = String(emp?.identification_id ?? portal.rut)
+
+      const row = (label: string, value: string) => {
+        doc.font(BOLD).fontSize(10).text(label, L + 20, y, { width: 150 })
+        doc.font(REG).fontSize(10).text(value, L + 175, y, { width: W - 175 })
+        y += 20
+      }
+
+      doc.font(BOLD).fontSize(12).text('Datos del Trabajador', L, y)
+      y += 5
+      doc.moveTo(L, y + 10).lineTo(L + W, y + 10).lineWidth(0.3).stroke('#999')
+      y += 18
+      row('Nombre:', employeeName)
+      row('RUT:', employeeRut)
+      row('Cargo:', String(emp?.job_title ?? ''))
+      const dept = Array.isArray(emp?.department_id) ? String((emp.department_id as [number, string])[1]) : ''
+      if (dept) row('Departamento:', dept)
+      y += 10
+
+      doc.font(BOLD).fontSize(12).text('Datos del Contrato', L, y)
+      y += 5
+      doc.moveTo(L, y + 10).lineTo(L + W, y + 10).lineWidth(0.3).stroke('#999')
+      y += 18
+      row('Contrato:', String(contract.name ?? ''))
+      row('Estado:', 'Vigente')
+      row('Fecha Inicio:', fmtDate(String(contract.date_start ?? '')))
+      row('Fecha Termino:', contract.date_end ? fmtDate(String(contract.date_end)) : 'Indefinido')
+      row('Sueldo Base:', fmtCLP(Number(contract.wage ?? 0)))
+
+      const job = Array.isArray(contract.job_id) ? String((contract.job_id as [number, string])[1]) : ''
+      if (job) row('Puesto:', job)
+      const struct = Array.isArray(contract.struct_id) ? String((contract.struct_id as [number, string])[1]) : ''
+      if (struct) row('Estructura:', struct)
+
+      y += 20
+      doc.font(REG).fontSize(9).text(
+        'Este documento es un resumen informativo del contrato de trabajo vigente. No reemplaza al contrato original.',
+        L, y, { width: W, align: 'center' },
+      )
+
+      doc.end()
+      const pdfBuffer = await pdfDone
+
+      const safeName = employeeName.replace(/[^a-zA-Z0-9\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00c1\u00c9\u00cd\u00d3\u00da\u00d1 ]/g, '').replace(/\s+/g, '-')
+      const filename = `contrato-${safeName}.pdf`
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, employeeId: portal.employee_id }, 'Error generating contract PDF')
+      return reply.status(500).send({ error: 'Error al generar PDF del contrato' })
+    }
+  })
+
   // ── GET /asistencia ────────────────────────────────────────
   fastify.get('/asistencia', { preHandler: [portalGuard] }, async (request, reply) => {
     const portal = request.portalUser!

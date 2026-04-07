@@ -5,10 +5,11 @@
 
 'use client'
 
-import { usePortalContract } from '@/hooks/use-portal'
+import { useState } from 'react'
+import { usePortalContract, downloadContractPDF } from '@/hooks/use-portal'
 import {
   Briefcase, Loader2, AlertCircle, Calendar,
-  Building2, Banknote, FileText,
+  Building2, Banknote, FileText, Download,
 } from 'lucide-react'
 
 // ── CLP formatter ─────────────────────────────────────────────
@@ -40,6 +41,20 @@ function formatDate(dateStr: string | null): string {
 
 export default function PortalContratoPage() {
   const { contratoActivo, historicos, isLoading, error } = usePortalContract()
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState(false)
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    setDownloadError(false)
+    try {
+      await downloadContractPDF()
+    } catch {
+      setDownloadError(true)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -62,12 +77,34 @@ export default function PortalContratoPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-semibold text-slate-800">Mi Contrato</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Informacion de tu contrato de trabajo
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-800">Mi Contrato</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Informacion de tu contrato de trabajo
+          </p>
+        </div>
+        {contratoActivo && (
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors disabled:opacity-50"
+          >
+            {downloading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Download size={14} />
+            )}
+            Descargar PDF
+          </button>
+        )}
       </div>
+      {downloadError && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
+          <AlertCircle size={14} className="text-red-500" />
+          <span className="text-xs text-red-600">Error al descargar el contrato</span>
+        </div>
+      )}
 
       {/* Active contract */}
       {contratoActivo ? (
