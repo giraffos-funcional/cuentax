@@ -127,13 +127,16 @@ interface RpcResponse<T = unknown> {
 
 export class OdooAccountingAdapter {
   private readonly rpcUrl: string
+  private readonly webUrl: string
   private readonly adminUser: string
   private readonly adminPassword: string
   private uid: number | null = null
+  private webSessionId: string | null = null
   private password: string = ''
 
   constructor() {
     this.rpcUrl = `${config.ODOO_URL}/jsonrpc`
+    this.webUrl = config.ODOO_URL
     // Service account credentials — sourced from env, not from config constants
     // (will be wired up in .env later; fall back to empty strings so startup never crashes)
     this.adminUser = process.env['ODOO_ADMIN_USER'] ?? ''
@@ -187,6 +190,105 @@ export class OdooAccountingAdapter {
       return { uid: this.uid, password: this.password, db: config.ODOO_DB }
     } catch (error) {
       logger.error({ error }, 'Odoo service account authentication error')
+      return null
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Web session auth — for endpoints that need context (ir.rule aware)
+  // -------------------------------------------------------------------------
+
+  private async ensureWebSession(): Promise<string | null> {
+    if (this.webSessionId) return this.webSessionId
+
+    try {
+      const response = await axios.post<RpcResponse<{ session_id: string; uid: number }>>(
+        `${this.webUrl}/web/session/authenticate`,
+        {
+          jsonrpc: '2.0',
+          id: Date.now(),
+          params: {
+            db: config.ODOO_DB,
+            login: this.adminUser,
+            password: this.adminPassword,
+          },
+        },
+        { timeout: 15_000, headers: this.correlationHeaders },
+      )
+
+      const result = response.data?.result
+      const sessionCookie = response.headers['set-cookie']?.find((c: string) => c.startsWith('session_id='))
+      const sessionId = sessionCookie?.split(';')[0]?.split('=')[1]
+
+      if (!result?.uid || !sessionId) {
+        logger.warn('Odoo web session auth failed')
+        return null
+      }
+
+      this.webSessionId = sessionId
+      logger.info({ uid: result.uid }, 'Odoo web session authenticated')
+      return this.webSessionId
+    } catch (error) {
+      logger.error({ error }, 'Odoo web session auth error')
+      return null
+    }
+  }
+
+  /**
+   * Call via /web/dataset/call_kw — processes context for ir.rules.
+   * Use this for queries that need allowed_company_ids or other context.
+   */
+  private async webCallKw(
+    model: string,
+    method: string,
+    args: unknown[],
+    kwargs: Record<string, unknown> = {},
+  ): Promise<unknown> {
+    const sessionId = await this.ensureWebSession()
+    if (!sessionId) {
+      // Fall back to regular RPC without context
+      const { context: _ctx, ...restKwargs } = kwargs
+      return this.rpcCall(model, method, args, restKwargs)
+    }
+
+    try {
+      const response = await axios.post<RpcResponse>(
+        `${this.webUrl}/web/dataset/call_kw/${model}/${method}`,
+        {
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'call',
+          params: {
+            model,
+            method,
+            args,
+            kwargs,
+          },
+        },
+        {
+          timeout: 15_000,
+          headers: {
+            ...this.correlationHeaders,
+            Cookie: `session_id=${sessionId}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+
+      if (response.data?.error) {
+        logger.error(
+          { model, method, rpcError: response.data.error, reqId: getRequestId() },
+          'Odoo web call_kw returned error',
+        )
+        // Invalidate session on auth errors
+        if (response.data.error.code === 100) this.webSessionId = null
+        return null
+      }
+
+      return response.data?.result ?? null
+    } catch (error) {
+      logger.error({ error, model, method, reqId: getRequestId() }, 'Odoo web call_kw failed')
+      this.webSessionId = null
       return null
     }
   }
@@ -249,12 +351,23 @@ export class OdooAccountingAdapter {
     fields: string[],
     opts: { limit?: number; offset?: number; order?: string; context?: Record<string, unknown> } = {},
   ): Promise<unknown[]> {
+    // If context is provided, use web-style call_kw which processes context for ir.rules
+    if (opts.context) {
+      const result = await this.webCallKw(model, 'search_read', [domain], {
+        fields,
+        limit: opts.limit ?? 100,
+        offset: opts.offset ?? 0,
+        ...(opts.order ? { order: opts.order } : {}),
+        context: opts.context,
+      })
+      return Array.isArray(result) ? result : []
+    }
+
     const result = await this.rpcCall(model, 'search_read', [domain], {
       fields,
       limit: opts.limit ?? 100,
       offset: opts.offset ?? 0,
       ...(opts.order ? { order: opts.order } : {}),
-      ...(opts.context ? { context: opts.context } : {}),
     })
     return Array.isArray(result) ? result : []
   }
