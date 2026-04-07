@@ -60,6 +60,8 @@ interface PortalProfile {
     health_plan: string
     isapre: string
     image_128: string | null
+    company_name: string
+    company_logo: string | null
   }
 }
 

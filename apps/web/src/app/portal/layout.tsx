@@ -9,10 +9,12 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { usePortalAuthStore } from '@/stores/portal-auth.store'
+import { usePortalProfile } from '@/hooks/use-portal'
 import {
   Receipt, Briefcase, Clock4, CalendarDays, FileText,
-  LogOut, User,
+  LogOut, User, Building2,
 } from 'lucide-react'
 
 // ── Navigation items ──────────────────────────────────────────
@@ -28,6 +30,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const pathname = usePathname()
   const router = useRouter()
   const { employee, isAuthenticated, clearAuth } = usePortalAuthStore()
+  const { profile } = usePortalProfile()
 
   // Redirect to login if not authenticated (skip if already on login page)
   useEffect(() => {
@@ -57,14 +60,24 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <header className="sticky top-0 z-40 bg-white border-b border-[var(--cx-border)]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-14">
-            {/* Logo + brand */}
+            {/* Company logo + brand */}
             <Link href="/portal" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-sm">
-                <span className="text-white font-bold text-sm tracking-tighter">CX</span>
-              </div>
+              {profile?.company_logo ? (
+                <Image
+                  src={`data:image/png;base64,${profile.company_logo}`}
+                  alt={profile.company_name ?? 'Empresa'}
+                  width={32}
+                  height={32}
+                  className="w-8 h-8 rounded-lg object-contain"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-sm">
+                  <Building2 size={16} className="text-white" />
+                </div>
+              )}
               <div className="flex flex-col">
                 <span className="text-slate-800 text-sm font-semibold tracking-tight leading-none">
-                  CUENTA<span className="text-violet-600">X</span>
+                  {profile?.company_name || <>CUENTA<span className="text-violet-600">X</span></>}
                 </span>
                 <span className="text-[10px] text-slate-400 leading-none mt-0.5">
                   Portal del Trabajador

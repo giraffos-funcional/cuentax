@@ -13,6 +13,8 @@ interface PortalEmployee {
   rut: string
   job_title: string
   department: string
+  company_name?: string
+  company_logo?: string | null
 }
 
 interface PortalAuthState {

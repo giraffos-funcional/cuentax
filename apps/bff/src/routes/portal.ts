@@ -253,6 +253,25 @@ export async function portalRoutes(fastify: FastifyInstance) {
         healthPlan = String(clHr.l10n_cl_health_plan ?? 'fonasa')
       }
 
+      // Fetch company name + logo
+      let companyName = ''
+      let companyLogo: string | null = null
+      const companyId = Array.isArray(employee.company_id)
+        ? (employee.company_id as [number, string])[0]
+        : Number(employee.company_id)
+      if (companyId) {
+        try {
+          const companyResults = await odooAccountingAdapter.searchRead(
+            'res.company', [['id', '=', companyId]], ['name', 'logo'], { limit: 1 },
+          )
+          const company = companyResults[0] as Record<string, unknown> | undefined
+          if (company) {
+            companyName = String(company.name ?? '')
+            if (company.logo) companyLogo = String(company.logo)
+          }
+        } catch { /* company data is non-critical */ }
+      }
+
       return reply.send({
         employee: {
           id: portal.employee_id,
@@ -268,6 +287,8 @@ export async function portalRoutes(fastify: FastifyInstance) {
           health_plan: healthPlan,
           isapre,
           image_128: image128,
+          company_name: companyName,
+          company_logo: companyLogo,
         },
       })
     } catch (err) {
