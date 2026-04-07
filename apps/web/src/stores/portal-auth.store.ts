@@ -51,7 +51,7 @@ export const usePortalAuthStore = create<PortalAuthState>()(
       partialize: (state) => ({
         employee: state.employee,
       }),
-      onRehydrate: () => (state) => {
+      onRehydrateStorage: () => (state) => {
         // After rehydration, isAuthenticated is false (no token persisted).
         // User must re-login. This prevents flash-redirect on refresh.
         if (state) {
