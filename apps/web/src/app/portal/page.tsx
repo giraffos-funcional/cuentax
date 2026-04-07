@@ -37,10 +37,10 @@ export default function PortalPayslipsPage() {
   const { liquidaciones, total, isLoading, error } = usePortalPayslips(year)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
 
-  const handleDownload = async (id: number) => {
+  const handleDownload = async (id: number, periodLabel?: string, name?: string) => {
     setDownloadingId(id)
     try {
-      await downloadPortalPayslipPDF(id)
+      await downloadPortalPayslipPDF(id, periodLabel, name)
     } catch {
       // Handled by interceptor
     } finally {
@@ -142,7 +142,7 @@ export default function PortalPayslipsPage() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            onClick={() => handleDownload(liq.id)}
+                            onClick={() => handleDownload(liq.id, liq.period_label, liq.name)}
                             disabled={downloadingId === liq.id}
                             className="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-slate-500 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-50"
                             title="Descargar PDF"
@@ -194,7 +194,7 @@ export default function PortalPayslipsPage() {
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     <button
-                      onClick={() => handleDownload(liq.id)}
+                      onClick={() => handleDownload(liq.id, liq.period_label, liq.name)}
                       disabled={downloadingId === liq.id}
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs bg-slate-50 text-slate-600 hover:bg-violet-50 hover:text-violet-600 transition-colors disabled:opacity-50"
                     >

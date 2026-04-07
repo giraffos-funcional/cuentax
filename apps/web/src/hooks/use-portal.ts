@@ -306,7 +306,11 @@ export function usePortalLeaves() {
 }
 
 // ── PDF Download Helper ───────────────────────────────────────
-export async function downloadPortalPayslipPDF(payslipId: number): Promise<void> {
+export async function downloadPortalPayslipPDF(
+  payslipId: number,
+  periodLabel?: string,
+  employeeName?: string,
+): Promise<void> {
   const token = usePortalAuthStore.getState().accessToken
   if (!token) {
     window.location.href = '/portal/login'
@@ -319,7 +323,12 @@ export async function downloadPortalPayslipPDF(payslipId: number): Promise<void>
 
   const contentDisposition = response.headers['content-disposition'] ?? ''
   const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/)
-  const filename = filenameMatch?.[1] ?? `liquidacion-${payslipId}.pdf`
+  let filename = filenameMatch?.[1] ?? ''
+  if (!filename && periodLabel) {
+    const safe = (s: string) => s.replace(/[^a-zA-Z0-9\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1 ]/g, '').replace(/\s+/g, '-')
+    filename = `liquidacion-${safe(periodLabel)}${employeeName ? `-${safe(employeeName)}` : ''}.pdf`
+  }
+  if (!filename) filename = `liquidacion-${payslipId}.pdf`
 
   const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
   const link = document.createElement('a')

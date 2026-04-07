@@ -115,7 +115,7 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-ID', 'X-API-Key', 'X-Request-ID'],
-    exposedHeaders: ['X-Request-ID'],
+    exposedHeaders: ['X-Request-ID', 'Content-Disposition'],
   })
 
   // ── Plugins ───────────────────────────────────────────────

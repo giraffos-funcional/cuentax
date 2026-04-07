@@ -29,7 +29,7 @@ export default function PortalPayslipDetailPage() {
     if (!payslipId) return
     setDownloading(true)
     try {
-      await downloadPortalPayslipPDF(payslipId)
+      await downloadPortalPayslipPDF(payslipId, data?.liquidacion?.period_label, data?.liquidacion?.name)
     } catch {
       // Handled by interceptor
     } finally {
