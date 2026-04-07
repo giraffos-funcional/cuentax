@@ -203,89 +203,54 @@ export async function portalRoutes(fastify: FastifyInstance) {
     }
   })
 
-  // ── GET /me/debug (TEMP — remove after fixing) ─────────────
-  fastify.get('/me/debug', { preHandler: [portalGuard] }, async (request, reply) => {
-    const portal = request.portalUser!
-    try {
-      const byId = await odooAccountingAdapter.searchRead(
-        'hr.employee', [['id', '=', portal.employee_id]], ['name'], { limit: 1 },
-      )
-      const allActive = await odooAccountingAdapter.searchRead(
-        'hr.employee', [['active', '=', true]], ['id', 'name', 'company_id'], { limit: 0 },
-      )
-      const allAny = await odooAccountingAdapter.searchRead(
-        'hr.employee', [], ['id', 'name', 'company_id'], { limit: 10 },
-      )
-      return reply.send({
-        portal,
-        byId_count: (byId as unknown[]).length,
-        byId_first: (byId as unknown[])[0] ?? null,
-        allActive_count: (allActive as unknown[]).length,
-        allActive_ids: (allActive as Array<Record<string, unknown>>).map((e) => ({ id: e.id, name: e.name, company: e.company_id })),
-        allAny_count: (allAny as unknown[]).length,
-        allAny_first: (allAny as unknown[])[0] ?? null,
-      })
-    } catch (err) {
-      return reply.status(500).send({ error: String(err) })
-    }
-  })
-
   // ── GET /me ────────────────────────────────────────────────
   fastify.get('/me', { preHandler: [portalGuard] }, async (request, reply) => {
     const portal = request.portalUser!
 
     try {
-      // First try with standard fields only (l10n_cl fields may not exist)
-      const baseFields = [
-        'name', 'identification_id', 'job_title', 'department_id',
-        'work_email', 'work_phone', 'image_128', 'date_start',
-      ]
-      let results = await odooAccountingAdapter.searchRead(
+      // Use only fields proven to exist (same as login query)
+      const results = await odooAccountingAdapter.searchRead(
         'hr.employee',
         [['id', '=', portal.employee_id]],
-        baseFields,
+        ['name', 'identification_id', 'job_title', 'department_id', 'company_id'],
         { limit: 1 },
       )
-
-      // If not found, try without company ir.rule by fetching all and filtering
-      if (results.length === 0) {
-        const allEmps = await odooAccountingAdapter.searchRead(
-          'hr.employee',
-          [['active', '=', true]],
-          ['id', ...baseFields],
-          { limit: 0 },
-        )
-        results = (allEmps as Array<Record<string, unknown>>).filter(
-          (e) => Number(e.id) === portal.employee_id,
-        )
-      }
 
       const employee = results[0] as Record<string, unknown> | undefined
       if (!employee) {
         return reply.status(404).send({ error: 'Empleado no encontrado' })
       }
 
-      // Try to get Chilean HR fields (may not exist)
+      // Try extended fields separately (may fail if modules not installed)
+      let workEmail = '', workPhone = '', dateStart = '', image128: string | null = null
       let afp = '', isapre = '', healthPlan = 'fonasa'
-      try {
-        const extResults = await odooAccountingAdapter.searchRead(
-          'hr.employee',
-          [['id', '=', portal.employee_id]],
-          ['l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_health_plan'],
-          { limit: 1 },
-        )
-        const ext = extResults[0] as Record<string, unknown> | undefined
-        if (ext) {
-          afp = Array.isArray(ext.l10n_cl_afp_id)
-            ? String((ext.l10n_cl_afp_id as [number, string])[1])
-            : ''
-          isapre = Array.isArray(ext.l10n_cl_isapre_id)
-            ? String((ext.l10n_cl_isapre_id as [number, string])[1])
-            : ''
-          healthPlan = String(ext.l10n_cl_health_plan ?? 'fonasa')
-        }
-      } catch {
-        // Chilean HR fields not available
+
+      const tryFields = async (fields: string[]) => {
+        try {
+          const r = await odooAccountingAdapter.searchRead(
+            'hr.employee', [['id', '=', portal.employee_id]], fields, { limit: 1 },
+          )
+          return (r[0] as Record<string, unknown>) ?? null
+        } catch { return null }
+      }
+
+      const contact = await tryFields(['work_email', 'work_phone', 'date_start'])
+      if (contact) {
+        workEmail = String(contact.work_email ?? '')
+        workPhone = String(contact.work_phone ?? '')
+        dateStart = String(contact.date_start ?? '')
+      }
+
+      const avatar = await tryFields(['image_128'])
+      if (avatar?.image_128) image128 = String(avatar.image_128)
+
+      const clHr = await tryFields(['l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_health_plan'])
+      if (clHr) {
+        afp = Array.isArray(clHr.l10n_cl_afp_id)
+          ? String((clHr.l10n_cl_afp_id as [number, string])[1]) : ''
+        isapre = Array.isArray(clHr.l10n_cl_isapre_id)
+          ? String((clHr.l10n_cl_isapre_id as [number, string])[1]) : ''
+        healthPlan = String(clHr.l10n_cl_health_plan ?? 'fonasa')
       }
 
       return reply.send({
@@ -295,15 +260,14 @@ export async function portalRoutes(fastify: FastifyInstance) {
           rut: portal.rut,
           job_title: String(employee.job_title ?? ''),
           department: Array.isArray(employee.department_id)
-            ? String((employee.department_id as [number, string])[1])
-            : '',
-          work_email: String(employee.work_email ?? ''),
-          work_phone: String(employee.work_phone ?? ''),
-          date_start: String(employee.date_start ?? ''),
+            ? String((employee.department_id as [number, string])[1]) : '',
+          work_email: workEmail,
+          work_phone: workPhone,
+          date_start: dateStart,
           afp,
           health_plan: healthPlan,
           isapre,
-          image_128: employee.image_128 ? String(employee.image_128) : null,
+          image_128: image128,
         },
       })
     } catch (err) {
@@ -514,30 +478,25 @@ export async function portalRoutes(fastify: FastifyInstance) {
       // 2. Get payslip lines
       const rawLines = await odooHRAdapter.getPayslipLines(payslipId) as Array<Record<string, unknown>>
 
-      // 3. Get employee data (with fallback for ir.rule)
-      const pdfEmpFields = ['name', 'identification_id', 'job_title', 'department_id', 'contract_id', 'date_start']
-      let employeeResults = await odooAccountingAdapter.searchRead(
-        'hr.employee', [['id', '=', portal.employee_id]], pdfEmpFields, { limit: 1 },
+      // 3. Get employee data (core fields only, extend separately)
+      const employeeResults = await odooAccountingAdapter.searchRead(
+        'hr.employee', [['id', '=', portal.employee_id]],
+        ['name', 'identification_id', 'job_title', 'department_id', 'company_id'],
+        { limit: 1 },
       )
-      if (employeeResults.length === 0) {
-        const allE = await odooAccountingAdapter.searchRead(
-          'hr.employee', [['active', '=', true]], ['id', ...pdfEmpFields], { limit: 0 },
-        )
-        employeeResults = (allE as Array<Record<string, unknown>>).filter(
-          (e) => Number(e.id) === portal.employee_id,
-        )
+      // Try extended fields separately
+      const tryEmpFields = async (fields: string[]) => {
+        try {
+          const r = await odooAccountingAdapter.searchRead(
+            'hr.employee', [['id', '=', portal.employee_id]], fields, { limit: 1 },
+          )
+          return (r[0] as Record<string, unknown>) ?? null
+        } catch { return null }
       }
-      // Try Chilean fields separately
-      try {
-        const clFields = await odooAccountingAdapter.searchRead(
-          'hr.employee', [['id', '=', portal.employee_id]],
-          ['l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_isapre_cotizacion_uf'],
-          { limit: 1 },
-        )
-        if (clFields[0] && employeeResults[0]) {
-          Object.assign(employeeResults[0] as Record<string, unknown>, clFields[0] as Record<string, unknown>)
-        }
-      } catch { /* Chilean fields not available */ }
+      const empExt = await tryEmpFields(['contract_id', 'date_start'])
+      const empCl = await tryEmpFields(['l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_isapre_cotizacion_uf'])
+      if (employeeResults[0] && empExt) Object.assign(employeeResults[0] as Record<string, unknown>, empExt)
+      if (employeeResults[0] && empCl) Object.assign(employeeResults[0] as Record<string, unknown>, empCl)
       const employee = employeeResults[0] as Record<string, unknown> | undefined
 
       // 4. Get company data
@@ -915,28 +874,25 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const portal = request.portalUser!
 
     try {
-      // 1. Fetch employee data (with fallback for ir.rule issues)
-      let empResults = await odooAccountingAdapter.searchRead(
+      // 1. Fetch employee data (use only core fields to avoid field-not-found errors)
+      const empResults = await odooAccountingAdapter.searchRead(
         'hr.employee',
         [['id', '=', portal.employee_id]],
-        ['name', 'identification_id', 'job_title', 'department_id', 'date_start', 'company_id'],
+        ['name', 'identification_id', 'job_title', 'department_id', 'company_id'],
         { limit: 1 },
       )
-      if (empResults.length === 0) {
-        const allEmps = await odooAccountingAdapter.searchRead(
-          'hr.employee',
-          [['active', '=', true]],
-          ['id', 'name', 'identification_id', 'job_title', 'department_id', 'date_start', 'company_id'],
-          { limit: 0 },
-        )
-        empResults = (allEmps as Array<Record<string, unknown>>).filter(
-          (e) => Number(e.id) === portal.employee_id,
-        )
-      }
       const emp = empResults[0] as Record<string, unknown> | undefined
       if (!emp) {
         return reply.status(404).send({ error: 'Empleado no encontrado' })
       }
+      // Try to get date_start separately (may not exist in all Odoo configs)
+      let empDateStart = ''
+      try {
+        const ds = await odooAccountingAdapter.searchRead(
+          'hr.employee', [['id', '=', portal.employee_id]], ['date_start'], { limit: 1 },
+        )
+        empDateStart = String((ds[0] as Record<string, unknown>)?.date_start ?? '')
+      } catch { /* field not available */ }
 
       // 2. Fetch active contract
       const contractResults = await odooAccountingAdapter.searchRead(
@@ -1016,7 +972,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
           : '',
 
         contract_type: contractType,
-        start_date: String(contract.date_start ?? emp.date_start ?? today),
+        start_date: String(contract.date_start ?? empDateStart ?? today),
         wage: Number(contract.wage ?? 0),
 
         issue_date: today,
