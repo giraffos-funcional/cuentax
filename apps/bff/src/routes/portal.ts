@@ -203,6 +203,33 @@ export async function portalRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // ── GET /me/debug (TEMP — remove after fixing) ─────────────
+  fastify.get('/me/debug', { preHandler: [portalGuard] }, async (request, reply) => {
+    const portal = request.portalUser!
+    try {
+      const byId = await odooAccountingAdapter.searchRead(
+        'hr.employee', [['id', '=', portal.employee_id]], ['name'], { limit: 1 },
+      )
+      const allActive = await odooAccountingAdapter.searchRead(
+        'hr.employee', [['active', '=', true]], ['id', 'name', 'company_id'], { limit: 0 },
+      )
+      const allAny = await odooAccountingAdapter.searchRead(
+        'hr.employee', [], ['id', 'name', 'company_id'], { limit: 10 },
+      )
+      return reply.send({
+        portal,
+        byId_count: (byId as unknown[]).length,
+        byId_first: (byId as unknown[])[0] ?? null,
+        allActive_count: (allActive as unknown[]).length,
+        allActive_ids: (allActive as Array<Record<string, unknown>>).map((e) => ({ id: e.id, name: e.name, company: e.company_id })),
+        allAny_count: (allAny as unknown[]).length,
+        allAny_first: (allAny as unknown[])[0] ?? null,
+      })
+    } catch (err) {
+      return reply.status(500).send({ error: String(err) })
+    }
+  })
+
   // ── GET /me ────────────────────────────────────────────────
   fastify.get('/me', { preHandler: [portalGuard] }, async (request, reply) => {
     const portal = request.portalUser!
