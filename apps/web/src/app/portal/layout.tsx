@@ -19,9 +19,9 @@ import {
 const NAV_ITEMS = [
   { href: '/portal',            icon: Receipt,      label: 'Mis Liquidaciones' },
   { href: '/portal/contrato',   icon: Briefcase,    label: 'Mi Contrato' },
+  { href: '/portal/documentos', icon: FileText,     label: 'Documentos' },
   { href: '/portal/asistencia', icon: Clock4,       label: 'Asistencia' },
   { href: '/portal/ausencias',  icon: CalendarDays, label: 'Ausencias' },
-  { href: '/portal/documentos', icon: FileText,     label: 'Documentos' },
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
