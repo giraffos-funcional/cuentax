@@ -210,7 +210,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
         'hr.employee',
         [
           ['id', '=', portal.employee_id],
-          ['company_id', '=', portal.company_id],
         ],
         [
           'name', 'identification_id', 'job_title', 'department_id',
@@ -263,53 +262,56 @@ export async function portalRoutes(fastify: FastifyInstance) {
     const limit = Number(q.limit ?? 24)
 
     try {
+      const domain = [
+        ['employee_id', '=', portal.employee_id],
+        ['state', 'in', ['done', 'paid']],
+        ['date_from', '>=', `${year - 1}-01-01`],
+        ['date_to', '<=', `${year}-12-31`],
+      ]
+
       const payslips = await odooAccountingAdapter.searchRead(
         'hr.payslip',
-        [
-          ['employee_id', '=', portal.employee_id],
-          ['company_id', '=', portal.company_id],
-          ['state', 'in', ['done', 'paid']],
-          ['date_from', '>=', `${year - 1}-01-01`],
-          ['date_to', '<=', `${year}-12-31`],
-        ],
-        [
-          'number', 'name', 'date_from', 'date_to', 'state',
-          'net_wage', 'gross_wage', 'basic_wage',
-        ],
+        domain,
+        ['number', 'name', 'date_from', 'date_to', 'state'],
         { limit, offset: (page - 1) * limit, order: 'date_from desc' },
       )
 
-      const total = await odooAccountingAdapter.searchCount(
-        'hr.payslip',
-        [
-          ['employee_id', '=', portal.employee_id],
-          ['company_id', '=', portal.company_id],
-          ['state', 'in', ['done', 'paid']],
-          ['date_from', '>=', `${year - 1}-01-01`],
-          ['date_to', '<=', `${year}-12-31`],
-        ],
+      const total = await odooAccountingAdapter.searchCount('hr.payslip', domain)
+
+      // Compute wage totals from payslip lines (Odoo 18 Community lacks net_wage/gross_wage fields)
+      const liquidaciones = await Promise.all(
+        (payslips as Array<Record<string, unknown>>).map(async (p) => {
+          const payslipId = Number(p.id)
+          const lines = await odooHRAdapter.getPayslipLines(payslipId) as Array<Record<string, unknown>>
+
+          let basic = 0, gross = 0, net = 0
+          for (const l of lines) {
+            const code = String(l.code ?? '').toUpperCase()
+            const amount = Number(l.total ?? l.amount ?? 0)
+            if (code === 'BASIC' || code === 'BASE') basic = amount
+            else if (code === 'GROSS' || code === 'BRUT') gross = amount
+            else if (code === 'NET' || code === 'LIQ') net = amount
+          }
+
+          const dateFrom = String(p.date_from ?? '')
+          const periodDate = dateFrom ? new Date(dateFrom + 'T12:00:00') : new Date()
+          const monthIdx = periodDate.getMonth() + 1
+          const periodYear = periodDate.getFullYear()
+
+          return {
+            id: payslipId,
+            number: String(p.number ?? ''),
+            name: String(p.name ?? ''),
+            date_from: dateFrom,
+            date_to: String(p.date_to ?? ''),
+            state: String(p.state ?? ''),
+            net_wage: net,
+            gross_wage: gross,
+            basic_wage: basic,
+            period_label: `${MONTHS_ES[monthIdx] ?? monthIdx} ${periodYear}`,
+          }
+        }),
       )
-
-      // Map to frontend-friendly format
-      const liquidaciones = (payslips as Array<Record<string, unknown>>).map((p) => {
-        const dateFrom = String(p.date_from ?? '')
-        const periodDate = dateFrom ? new Date(dateFrom + 'T12:00:00') : new Date()
-        const monthIdx = periodDate.getMonth() + 1
-        const periodYear = periodDate.getFullYear()
-
-        return {
-          id: Number(p.id),
-          number: String(p.number ?? ''),
-          name: String(p.name ?? ''),
-          date_from: dateFrom,
-          date_to: String(p.date_to ?? ''),
-          state: String(p.state ?? ''),
-          net_wage: Number(p.net_wage ?? 0),
-          gross_wage: Number(p.gross_wage ?? 0),
-          basic_wage: Number(p.basic_wage ?? 0),
-          period_label: `${MONTHS_ES[monthIdx] ?? monthIdx} ${periodYear}`,
-        }
-      })
 
       return reply.send({ liquidaciones, total, page, limit })
     } catch (err) {
@@ -330,12 +332,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
         [
           ['id', '=', payslipId],
           ['employee_id', '=', portal.employee_id],
-          ['company_id', '=', portal.company_id],
         ],
         [
           'number', 'name', 'employee_id', 'date_from', 'date_to',
-          'company_id', 'state', 'struct_id', 'net_wage', 'basic_wage',
-          'gross_wage', 'line_ids', 'contract_id',
+          'state', 'struct_id', 'contract_id',
         ],
         { limit: 1 },
       )
@@ -387,6 +387,15 @@ export async function portalRoutes(fastify: FastifyInstance) {
       const totalHaberes = haberes.reduce((sum, l) => sum + l.total, 0)
       const totalDescuentos = descuentos.reduce((sum, l) => sum + Math.abs(l.total), 0)
 
+      // Compute wage totals from lines (Odoo 18 Community lacks net_wage/gross_wage fields)
+      let basicWage = 0, grossWage = 0, netWage = 0
+      for (const l of lineas) {
+        const code = l.code.toUpperCase()
+        if (code === 'BASIC' || code === 'BASE') basicWage = l.total
+        else if (code === 'GROSS' || code === 'BRUT') grossWage = l.total
+        else if (code === 'NET' || code === 'LIQ') netWage = l.total
+      }
+
       const dateFrom = String(liquidacion.date_from ?? '')
       const periodDate = dateFrom ? new Date(dateFrom + 'T12:00:00') : new Date()
 
@@ -398,9 +407,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
           date_from: dateFrom,
           date_to: String(liquidacion.date_to ?? ''),
           state: String(liquidacion.state ?? ''),
-          net_wage: Number(liquidacion.net_wage ?? 0),
-          gross_wage: Number(liquidacion.gross_wage ?? 0),
-          basic_wage: Number(liquidacion.basic_wage ?? 0),
+          net_wage: netWage,
+          gross_wage: grossWage,
+          basic_wage: basicWage,
           period_label: `${MONTHS_ES[periodDate.getMonth() + 1] ?? ''} ${periodDate.getFullYear()}`,
         },
         haberes,
@@ -408,7 +417,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         totals: {
           total_haberes: totalHaberes,
           total_descuentos: totalDescuentos,
-          total_pagar: Number(liquidacion.net_wage ?? (totalHaberes - totalDescuentos)),
+          total_pagar: netWage || (totalHaberes - totalDescuentos),
         },
       })
     } catch (err) {
@@ -429,12 +438,10 @@ export async function portalRoutes(fastify: FastifyInstance) {
         [
           ['id', '=', payslipId],
           ['employee_id', '=', portal.employee_id],
-          ['company_id', '=', portal.company_id],
         ],
         [
           'number', 'name', 'employee_id', 'date_from', 'date_to',
-          'company_id', 'state', 'struct_id', 'net_wage', 'basic_wage',
-          'gross_wage', 'line_ids', 'contract_id',
+          'state', 'struct_id', 'contract_id',
         ],
         { limit: 1 },
       )
@@ -450,7 +457,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
       // 3. Get employee data
       const employeeResults = await odooAccountingAdapter.searchRead(
         'hr.employee',
-        [['id', '=', portal.employee_id], ['company_id', '=', portal.company_id]],
+        [['id', '=', portal.employee_id]],
         [
           'name', 'identification_id', 'job_title', 'department_id',
           'contract_id', 'date_start',
@@ -474,7 +481,7 @@ export async function portalRoutes(fastify: FastifyInstance) {
         ? (payslip.contract_id as [number, string])[0]
         : Number(payslip.contract_id ?? 0)
 
-      let wage = Number(payslip.basic_wage ?? 0)
+      let wage = 0
       if (contractId) {
         const contractResults = await odooAccountingAdapter.searchRead(
           'hr.contract',
@@ -554,7 +561,9 @@ export async function portalRoutes(fastify: FastifyInstance) {
         .filter((l) => descuentoCats.has(l.category))
         .reduce((sum, l) => sum + Math.abs(l.total), 0)
 
-      const totalPagar = Number(payslip.net_wage ?? (totalHaberes - totalDescuentos))
+      // Compute net from lines (Odoo 18 Community lacks net_wage field)
+      const netLine = lines.find((l) => l.code.toUpperCase() === 'NET' || l.code.toUpperCase() === 'LIQ')
+      const totalPagar = netLine ? netLine.total : (totalHaberes - totalDescuentos)
 
       // Extract employee fields
       const employeeName = String(employee?.name ?? portal.name)
@@ -636,7 +645,6 @@ export async function portalRoutes(fastify: FastifyInstance) {
         'hr.contract',
         [
           ['employee_id', '=', portal.employee_id],
-          ['company_id', '=', portal.company_id],
         ],
         [
           'name', 'state', 'date_start', 'date_end', 'wage',
