@@ -9,6 +9,7 @@ import { useState } from 'react'
 import {
   Download, Printer, CheckCircle2, Clock, Loader2, AlertCircle,
   Landmark, Upload, Wand2, Check, X, Pencil, Trash2, Plus, Save,
+  FileUp, Search, ChevronDown, ChevronUp, Sparkles,
 } from 'lucide-react'
 import {
   useBankReconciliation,
@@ -19,6 +20,9 @@ import {
   useEditStatementLine,
   useDeleteStatementLine,
   useAddStatementLine,
+  useImportBankFile,
+  useAutoMatch,
+  useApplyMatches,
 } from '@/hooks'
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -69,14 +73,26 @@ function TableHeader({ columns }: { columns: string[] }) {
 function ImportCartolaModal({
   bankJournals,
   isSaving,
+  isImportingFile,
   onImport,
+  onImportFile,
   onClose,
 }: {
   bankJournals: any[]
   isSaving: boolean
+  isImportingFile: boolean
   onImport: (payload: unknown) => Promise<void>
+  onImportFile: (payload: { content: string; format: 'ofx' | 'csv'; bank?: string; journal_id: number }) => Promise<void>
   onClose: () => void
 }) {
+  const [mode, setMode] = useState<'file' | 'manual'>('file')
+  // File import state
+  const [fileJournalId, setFileJournalId] = useState('')
+  const [fileFormat, setFileFormat] = useState<'ofx' | 'csv'>('csv')
+  const [fileBank, setFileBank] = useState('generic')
+  const [fileContent, setFileContent] = useState('')
+  const [fileName, setFileName] = useState('')
+  // Manual import state
   const [journalId, setJournalId] = useState('')
   const [name, setName] = useState('')
   const [date, setDate] = useState('')
@@ -85,7 +101,37 @@ function ImportCartolaModal({
   const [linesText, setLinesText] = useState('')
   const [parseError, setParseError] = useState('')
 
-  const handleImport = async () => {
+  const handleFileRead = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileName(file.name)
+    // Auto-detect format from extension
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext === 'ofx' || ext === 'qfx') setFileFormat('ofx')
+    else setFileFormat('csv')
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setFileContent(ev.target?.result as string ?? '')
+    }
+    reader.readAsText(file)
+  }
+
+  const handleFileImport = async () => {
+    setParseError('')
+    if (!fileJournalId || !fileContent) {
+      setParseError('Selecciona una cuenta y un archivo')
+      return
+    }
+    await onImportFile({
+      content: fileContent,
+      format: fileFormat,
+      bank: fileFormat === 'csv' ? fileBank : undefined,
+      journal_id: Number(fileJournalId),
+    })
+  }
+
+  const handleManualImport = async () => {
     setParseError('')
     if (!journalId || !name || !date) {
       setParseError('Completa los campos obligatorios')
@@ -123,6 +169,8 @@ function ImportCartolaModal({
     })
   }
 
+  const isBusy = isSaving || isImportingFile
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
       <div className="card p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -133,73 +181,329 @@ function ImportCartolaModal({
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Cuenta Bancaria *</label>
-            <select value={journalId} onChange={e => setJournalId(e.target.value)} className="input-field text-sm w-full">
-              <option value="">Seleccionar cuenta...</option>
-              {bankJournals.map((j: any) => (
-                <option key={j.id} value={j.id}>{j.nombre}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Nombre *</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Cartola Marzo 2026" className="input-field text-sm w-full" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha *</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input-field text-sm w-full" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Saldo Inicial</label>
-              <input type="number" value={balanceStart} onChange={e => setBalanceStart(e.target.value)} placeholder="0" className="input-field text-sm w-full" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Saldo Final</label>
-              <input type="number" value={balanceEnd} onChange={e => setBalanceEnd(e.target.value)} placeholder="0" className="input-field text-sm w-full" />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Lineas de la Cartola</label>
-            <p className="text-xs text-[var(--cx-text-muted)] mb-2">
-              Formato: <span className="font-mono bg-[var(--cx-bg-elevated)] px-1 py-0.5 rounded">fecha|descripcion|monto</span> (una linea por movimiento)
-            </p>
-            <textarea
-              rows={6}
-              value={linesText}
-              onChange={e => setLinesText(e.target.value)}
-              placeholder={"2026-03-01|Pago proveedor XYZ|-150000\n2026-03-02|Cobro cliente ABC|500000\n2026-03-05|Comision bancaria|-5000"}
-              className="input-field resize-none font-mono text-xs"
-            />
-          </div>
-
-          {parseError && (
-            <div className="flex items-center gap-2 text-xs text-[var(--cx-status-error-text)]">
-              <AlertCircle size={12} />
-              {parseError}
-            </div>
-          )}
+        {/* Mode tabs */}
+        <div className="flex gap-1 p-1 rounded-xl bg-[var(--cx-bg-elevated)] mb-5">
+          <button
+            onClick={() => setMode('file')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+              mode === 'file'
+                ? 'bg-[var(--cx-bg-card)] text-[var(--cx-text-primary)] shadow-sm'
+                : 'text-[var(--cx-text-muted)] hover:text-[var(--cx-text-secondary)]'
+            }`}
+          >
+            <FileUp size={13} /> Archivo (OFX/CSV)
+          </button>
+          <button
+            onClick={() => setMode('manual')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+              mode === 'manual'
+                ? 'bg-[var(--cx-bg-card)] text-[var(--cx-text-primary)] shadow-sm'
+                : 'text-[var(--cx-text-muted)] hover:text-[var(--cx-text-secondary)]'
+            }`}
+          >
+            <Pencil size={13} /> Manual
+          </button>
         </div>
 
+        {mode === 'file' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Cuenta Bancaria *</label>
+              <select value={fileJournalId} onChange={e => setFileJournalId(e.target.value)} className="input-field text-sm w-full">
+                <option value="">Seleccionar cuenta...</option>
+                {bankJournals.map((j: any) => (
+                  <option key={j.id} value={j.id}>{j.nombre}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Formato</label>
+                <select value={fileFormat} onChange={e => setFileFormat(e.target.value as 'ofx' | 'csv')} className="input-field text-sm w-full">
+                  <option value="csv">CSV</option>
+                  <option value="ofx">OFX / QFX</option>
+                </select>
+              </div>
+              {fileFormat === 'csv' && (
+                <div>
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Banco</label>
+                  <select value={fileBank} onChange={e => setFileBank(e.target.value)} className="input-field text-sm w-full">
+                    <option value="generic">Generico</option>
+                    <option value="bancoestado">BancoEstado</option>
+                    <option value="bci">BCI</option>
+                    <option value="santander">Santander</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Archivo de Cartola *</label>
+              <label className="flex flex-col items-center justify-center gap-2 py-6 px-4 border-2 border-dashed border-[var(--cx-border-light)] rounded-xl cursor-pointer hover:border-[var(--cx-active-icon)] hover:bg-[var(--cx-hover-bg)] transition-colors">
+                <FileUp size={24} className="text-[var(--cx-text-muted)]" />
+                {fileName ? (
+                  <span className="text-sm text-[var(--cx-text-primary)] font-medium">{fileName}</span>
+                ) : (
+                  <span className="text-xs text-[var(--cx-text-muted)]">Seleccionar archivo .csv, .ofx o .qfx</span>
+                )}
+                <input
+                  type="file"
+                  accept=".csv,.ofx,.qfx,.txt"
+                  onChange={handleFileRead}
+                  className="hidden"
+                />
+              </label>
+              {fileContent && (
+                <p className="text-xs text-[var(--cx-text-muted)] mt-1">
+                  {fileContent.split('\n').filter(l => l.trim()).length} lineas detectadas
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mode === 'manual' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Cuenta Bancaria *</label>
+              <select value={journalId} onChange={e => setJournalId(e.target.value)} className="input-field text-sm w-full">
+                <option value="">Seleccionar cuenta...</option>
+                {bankJournals.map((j: any) => (
+                  <option key={j.id} value={j.id}>{j.nombre}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Nombre *</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Cartola Marzo 2026" className="input-field text-sm w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Fecha *</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="input-field text-sm w-full" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Saldo Inicial</label>
+                <input type="number" value={balanceStart} onChange={e => setBalanceStart(e.target.value)} placeholder="0" className="input-field text-sm w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Saldo Final</label>
+                <input type="number" value={balanceEnd} onChange={e => setBalanceEnd(e.target.value)} placeholder="0" className="input-field text-sm w-full" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Lineas de la Cartola</label>
+              <p className="text-xs text-[var(--cx-text-muted)] mb-2">
+                Formato: <span className="font-mono bg-[var(--cx-bg-elevated)] px-1 py-0.5 rounded">fecha|descripcion|monto</span> (una linea por movimiento)
+              </p>
+              <textarea
+                rows={6}
+                value={linesText}
+                onChange={e => setLinesText(e.target.value)}
+                placeholder={"2026-03-01|Pago proveedor XYZ|-150000\n2026-03-02|Cobro cliente ABC|500000\n2026-03-05|Comision bancaria|-5000"}
+                className="input-field resize-none font-mono text-xs"
+              />
+            </div>
+          </div>
+        )}
+
+        {parseError && (
+          <div className="flex items-center gap-2 text-xs text-[var(--cx-status-error-text)] mt-4">
+            <AlertCircle size={12} />
+            {parseError}
+          </div>
+        )}
+
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={handleImport}
-            disabled={isSaving || !journalId || !name || !date}
-            className="btn-primary flex-1 justify-center"
-          >
-            {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-            Importar
-          </button>
+          {mode === 'file' ? (
+            <button
+              onClick={handleFileImport}
+              disabled={isBusy || !fileJournalId || !fileContent}
+              className="btn-primary flex-1 justify-center"
+            >
+              {isImportingFile ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+              Importar Archivo
+            </button>
+          ) : (
+            <button
+              onClick={handleManualImport}
+              disabled={isBusy || !journalId || !name || !date}
+              className="btn-primary flex-1 justify-center"
+            >
+              {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              Importar Manual
+            </button>
+          )}
           <button onClick={onClose} className="btn-secondary">Cancelar</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Auto-Match Suggestions Panel ──────────────────────────────
+function AutoMatchPanel({
+  suggestions,
+  extracto,
+  sinConciliar,
+  isLoading,
+  isApplying,
+  onApply,
+}: {
+  suggestions: Array<{ statement_line_id: number; move_line_id: number; confidence: number; reason: string }>
+  extracto: any[]
+  sinConciliar: any[]
+  isLoading: boolean
+  isApplying: boolean
+  onApply: (matches: Array<{ statement_line_id: number; move_line_id: number }>) => Promise<void>
+}) {
+  const [selected, setSelected] = useState<Set<number>>(new Set(suggestions.map((_, i) => i)))
+  const [expanded, setExpanded] = useState(true)
+
+  // Update selection when suggestions change
+  const prevLen = selected.size
+  if (suggestions.length > 0 && prevLen === 0 && !isLoading) {
+    // Auto-select all on fresh load
+    const allIdxs = new Set(suggestions.map((_, i) => i))
+    if (allIdxs.size !== selected.size) {
+      setSelected(allIdxs)
+    }
+  }
+
+  const toggleSelect = (idx: number) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  const selectAll = () => setSelected(new Set(suggestions.map((_, i) => i)))
+  const selectNone = () => setSelected(new Set())
+
+  const handleApply = async () => {
+    const matches = suggestions
+      .filter((_, i) => selected.has(i))
+      .map(s => ({ statement_line_id: s.statement_line_id, move_line_id: s.move_line_id }))
+    await onApply(matches)
+  }
+
+  // Helper to find statement/move info by id
+  const getStLine = (id: number) => extracto.find((l: any) => l.id === id)
+  const getMvLine = (id: number) => sinConciliar.find((l: any) => l.id === id)
+
+  const confidenceColor = (c: number) => {
+    if (c >= 90) return 'text-[var(--cx-status-ok-text)] bg-[var(--cx-status-ok-bg)]'
+    if (c >= 80) return 'text-blue-700 bg-blue-50'
+    return 'text-[var(--cx-status-warn-text)] bg-[var(--cx-status-warn-bg)]'
+  }
+
+  if (suggestions.length === 0 && !isLoading) return null
+
+  return (
+    <div className="card border border-[var(--cx-border-light)] rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-5 py-3 border-b border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)] flex items-center justify-between"
+      >
+        <div className="flex items-center gap-2">
+          <Sparkles size={14} className="text-[var(--cx-active-icon)]" />
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-[var(--cx-text-muted)]">
+            Sugerencias de Conciliacion
+          </h3>
+          {suggestions.length > 0 && (
+            <span className="text-xs font-bold bg-[var(--cx-active-bg)] text-[var(--cx-active-icon)] px-2 py-0.5 rounded-full">
+              {suggestions.length}
+            </span>
+          )}
+        </div>
+        {expanded ? <ChevronUp size={14} className="text-[var(--cx-text-muted)]" /> : <ChevronDown size={14} className="text-[var(--cx-text-muted)]" />}
+      </button>
+
+      {expanded && (
+        <div>
+          {isLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={18} className="animate-spin text-[var(--cx-active-icon)]" />
+              <span className="ml-2 text-sm text-[var(--cx-text-secondary)]">Buscando coincidencias...</span>
+            </div>
+          )}
+
+          {!isLoading && suggestions.length > 0 && (
+            <>
+              {/* Toolbar */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--cx-border-light)] bg-[var(--cx-bg-elevated)]">
+                <div className="flex items-center gap-3 text-xs text-[var(--cx-text-muted)]">
+                  <button onClick={selectAll} className="hover:text-[var(--cx-active-icon)] transition-colors">Seleccionar todo</button>
+                  <span>|</span>
+                  <button onClick={selectNone} className="hover:text-[var(--cx-active-icon)] transition-colors">Ninguno</button>
+                  <span className="text-[var(--cx-text-muted)]">({selected.size} de {suggestions.length})</span>
+                </div>
+                <button
+                  onClick={handleApply}
+                  disabled={selected.size === 0 || isApplying}
+                  className="btn-primary text-xs py-1.5 px-3"
+                >
+                  {isApplying ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                  Aplicar Seleccionados
+                </button>
+              </div>
+
+              {/* Suggestion rows */}
+              <div className="divide-y divide-[var(--cx-border-light)]">
+                {suggestions.map((s, i) => {
+                  const stLine = getStLine(s.statement_line_id)
+                  const mvLine = getMvLine(s.move_line_id)
+                  return (
+                    <div
+                      key={i}
+                      className={`px-4 py-3 hover:bg-[var(--cx-hover-bg)] transition-colors ${
+                        selected.has(i) ? 'bg-[var(--cx-active-bg)]' : ''
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(i)}
+                          onChange={() => toggleSelect(i)}
+                          className="mt-1 w-3.5 h-3.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${confidenceColor(s.confidence)}`}>
+                              {s.confidence}%
+                            </span>
+                            <span className="text-xs text-[var(--cx-text-muted)]">{s.reason}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div className="bg-[var(--cx-bg-elevated)] rounded-lg p-2">
+                              <p className="text-[10px] uppercase tracking-widest text-[var(--cx-text-muted)] mb-1">Extracto</p>
+                              <p className="text-[var(--cx-text-primary)] truncate">{stLine?.referencia ?? `#${s.statement_line_id}`}</p>
+                              <p className="text-[var(--cx-text-secondary)] font-mono tabular-nums">{stLine ? formatCLP(stLine.monto) : '-'}</p>
+                            </div>
+                            <div className="bg-[var(--cx-bg-elevated)] rounded-lg p-2">
+                              <p className="text-[10px] uppercase tracking-widest text-[var(--cx-text-muted)] mb-1">Movimiento</p>
+                              <p className="text-[var(--cx-text-primary)] truncate">{mvLine?.documento ?? `#${s.move_line_id}`}</p>
+                              <p className="text-[var(--cx-text-secondary)] font-mono tabular-nums">{mvLine ? formatCLP(mvLine.monto) : '-'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -437,6 +741,9 @@ export default function ConciliacionPage() {
   const [editingLine, setEditingLine] = useState<any | null>(null)
   const [showAddLine, setShowAddLine] = useState(false)
   const [isSavingLine, setIsSavingLine] = useState(false)
+  const [matchSuggestions, setMatchSuggestions] = useState<Array<{ statement_line_id: number; move_line_id: number; confidence: number; reason: string }>>([])
+  const [isMatching, setIsMatching] = useState(false)
+  const [isApplyingMatches, setIsApplyingMatches] = useState(false)
 
   const { journals } = useJournals()
   const bankJournals = journals.filter((j: any) => j.tipo === 'bank')
@@ -450,6 +757,9 @@ export default function ConciliacionPage() {
   const { editar } = useEditStatementLine()
   const { eliminar } = useDeleteStatementLine()
   const { agregar } = useAddStatementLine()
+  const { importFile } = useImportBankFile()
+  const { findMatches: findMatchesTrigger } = useAutoMatch()
+  const { apply: applyMatchesTrigger } = useApplyMatches()
 
   const diferencia = total_extracto - total_sin_conciliar
   const cuadra = diferencia === 0
@@ -542,6 +852,52 @@ export default function ConciliacionPage() {
       setActionMessage({ type: 'error', text: err?.message ?? 'Error al agregar linea' })
     } finally {
       setIsSavingLine(false)
+    }
+  }
+
+  const handleImportFile = async (payload: { content: string; format: 'ofx' | 'csv'; bank?: string; journal_id: number }) => {
+    setActionMessage(null)
+    try {
+      const result = await importFile(payload)
+      setShowImport(false)
+      setActionMessage({ type: 'ok', text: `Archivo importado: ${result?.created ?? 0} de ${result?.parsed ?? 0} lineas creadas` })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Error al importar archivo' })
+    }
+  }
+
+  const handleAutoMatch = async () => {
+    if (!journalId) return
+    setIsMatching(true)
+    setActionMessage(null)
+    setMatchSuggestions([])
+    try {
+      const result = await findMatchesTrigger({ journal_id: journalId, mes: month, year })
+      setMatchSuggestions(result?.suggestions ?? [])
+      const count = result?.suggestions?.length ?? 0
+      if (count === 0) {
+        setActionMessage({ type: 'ok', text: 'No se encontraron coincidencias automaticas' })
+      } else {
+        setActionMessage({ type: 'ok', text: `${count} coincidencias encontradas (confianza promedio: ${result?.avg_confidence ?? 0}%)` })
+      }
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Error buscando coincidencias' })
+    } finally {
+      setIsMatching(false)
+    }
+  }
+
+  const handleApplyMatches = async (matches: Array<{ statement_line_id: number; move_line_id: number }>) => {
+    setIsApplyingMatches(true)
+    setActionMessage(null)
+    try {
+      const result = await applyMatchesTrigger(matches)
+      setMatchSuggestions([])
+      setActionMessage({ type: 'ok', text: `${result?.reconciled ?? 0} de ${result?.total ?? 0} lineas conciliadas` })
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Error aplicando conciliaciones' })
+    } finally {
+      setIsApplyingMatches(false)
     }
   }
 
@@ -644,7 +1000,7 @@ export default function ConciliacionPage() {
           {!isLoading && !error && (
             <div className="space-y-5">
               {/* Reconcile action bar */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleReconcile}
                   disabled={selectedIds.size === 0 || isReconciling}
@@ -660,6 +1016,14 @@ export default function ConciliacionPage() {
                 >
                   {isAutoReconciling ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
                   Auto-Conciliar
+                </button>
+                <button
+                  onClick={handleAutoMatch}
+                  disabled={isMatching}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  {isMatching ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  Buscar Coincidencias
                 </button>
               </div>
 
@@ -693,6 +1057,18 @@ export default function ConciliacionPage() {
                   <SinConciliarPanel items={sin_conciliar ?? []} />
                 </div>
               </div>
+
+              {/* Auto-match suggestions panel */}
+              {(matchSuggestions.length > 0 || isMatching) && (
+                <AutoMatchPanel
+                  suggestions={matchSuggestions}
+                  extracto={extracto}
+                  sinConciliar={sin_conciliar}
+                  isLoading={isMatching}
+                  isApplying={isApplyingMatches}
+                  onApply={handleApplyMatches}
+                />
+              )}
 
               {/* Summary bar */}
               <div className={`grid grid-cols-3 gap-4 p-4 rounded-2xl border ${
@@ -739,7 +1115,9 @@ export default function ConciliacionPage() {
         <ImportCartolaModal
           bankJournals={bankJournals}
           isSaving={isImporting}
+          isImportingFile={false}
           onImport={handleImport}
+          onImportFile={handleImportFile}
           onClose={() => setShowImport(false)}
         />
       )}

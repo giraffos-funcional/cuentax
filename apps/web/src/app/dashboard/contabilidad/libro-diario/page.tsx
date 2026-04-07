@@ -174,6 +174,13 @@ export default function LibroDiarioPage() {
             <Plus size={14} /> Nuevo Asiento
           </Link>
           <button
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl border border-[var(--cx-border-light)] text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)] transition-colors"
+            onClick={() => window.open(`/api/v1/contabilidad/libro-diario/pdf?year=${year}&mes=${mes}`, '_blank')}
+          >
+            <Download size={13} />
+            PDF
+          </button>
+          <button
             className="btn-secondary flex items-center gap-2"
             onClick={() => exportCSV(asientos ?? [], 'libro-diario')}
           >

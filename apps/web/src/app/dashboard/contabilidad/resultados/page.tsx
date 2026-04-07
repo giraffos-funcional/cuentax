@@ -123,6 +123,13 @@ export default function ResultadosPage() {
             <Printer size={13} /> Imprimir
           </button>
           <button
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl border border-[var(--cx-border-light)] text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)] transition-colors"
+            onClick={() => window.open(`/api/v1/contabilidad/resultados/pdf?year=${year}&mes=${month}`, '_blank')}
+          >
+            <Download size={13} />
+            PDF
+          </button>
+          <button
             className="btn-secondary flex items-center gap-2"
             onClick={() => {
               if (!resultados) return

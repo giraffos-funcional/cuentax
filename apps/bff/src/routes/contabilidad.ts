@@ -13,6 +13,13 @@ import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { logger } from '@/core/logger'
+import { generateBalancePDF } from '@/services/balance-pdf.service'
+import { generateResultadosPDF } from '@/services/resultados-pdf.service'
+import { generateLibroDiarioPDF } from '@/services/libro-diario-pdf.service'
+import { generateLibroMayorPDF } from '@/services/libro-mayor-pdf.service'
+import { parseStatement } from '@/services/bank-import.service'
+import { findMatches } from '@/services/bank-matching.service'
+import { generateForecast, type CashFlowPeriod, type CashFlowForecastData } from '@/services/cashflow-forecast.service'
 
 // ---------------------------------------------------------------------------
 // Zod schemas for transactional endpoints
@@ -1119,5 +1126,651 @@ export async function contabilidadRoutes(fastify: FastifyInstance) {
     }
     logger.info({ results }, 'Company accounting setup completed')
     return reply.status(201).send(results)
+  })
+
+  // =========================================================================
+  // PDF Export Endpoints
+  // =========================================================================
+
+  // ── GET /balance/pdf ────────────────────────────────────────
+  fastify.get('/balance/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { year?: string; mes?: string }
+    const year = Number(q.year ?? new Date().getFullYear())
+    const mes = Number(q.mes ?? new Date().getMonth() + 1)
+
+    try {
+      const dataRes = await fastify.inject({
+        method: 'GET',
+        url: `/api/v1/contabilidad/balance?year=${year}&mes=${mes}`,
+        headers: { authorization: req.headers.authorization },
+      })
+      const data = JSON.parse(dataRes.body)
+
+      const pdf = await generateBalancePDF({
+        company_name: user.company_name ?? '',
+        company_rut: user.company_rut ?? '',
+        periodo: { year, mes },
+        activos: data.activos ?? { corrientes: 0, no_corrientes: 0, total: 0 },
+        pasivos: data.pasivos ?? { corrientes: 0, no_corrientes: 0, total: 0 },
+        patrimonio: data.patrimonio ?? { capital: 0, resultado: 0, total: 0 },
+        cuadra: data.cuadra ?? false,
+      })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="Balance_${year}_${mes}.pdf"`)
+      return reply.send(pdf)
+    } catch (err) {
+      logger.error({ err }, 'Error generating balance PDF')
+      return reply.status(500).send({ error: 'Error generando PDF de balance' })
+    }
+  })
+
+  // ── GET /resultados/pdf ─────────────────────────────────────
+  fastify.get('/resultados/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { year?: string; mes?: string }
+    const year = Number(q.year ?? new Date().getFullYear())
+    const mes = Number(q.mes ?? new Date().getMonth() + 1)
+
+    try {
+      const dataRes = await fastify.inject({
+        method: 'GET',
+        url: `/api/v1/contabilidad/resultados?year=${year}&mes=${mes}`,
+        headers: { authorization: req.headers.authorization },
+      })
+      const data = JSON.parse(dataRes.body)
+
+      const pdf = await generateResultadosPDF({
+        company_name: user.company_name ?? '',
+        company_rut: user.company_rut ?? '',
+        periodo: { year, mes },
+        ingresos: data.ingresos ?? { ventas: 0, otros: 0, total: 0 },
+        gastos: data.gastos ?? { costo_ventas: 0, administrativos: 0, depreciacion: 0, total: 0 },
+        resultado: data.resultado ?? { utilidad_bruta: 0, utilidad_neta: 0 },
+      })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="Estado_Resultados_${year}_${mes}.pdf"`)
+      return reply.send(pdf)
+    } catch (err) {
+      logger.error({ err }, 'Error generating resultados PDF')
+      return reply.status(500).send({ error: 'Error generando PDF de estado de resultados' })
+    }
+  })
+
+  // ── GET /libro-diario/pdf ───────────────────────────────────
+  fastify.get('/libro-diario/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string }
+    const year = Number(q.year ?? new Date().getFullYear())
+    const mes = Number(q.mes ?? new Date().getMonth() + 1)
+
+    try {
+      // Fetch all journal entries for the period (no pagination for PDF)
+      const dataRes = await fastify.inject({
+        method: 'GET',
+        url: `/api/v1/contabilidad/libro-diario?mes=${mes}&year=${year}&limit=9999`,
+        headers: { authorization: req.headers.authorization },
+      })
+      const data = JSON.parse(dataRes.body)
+      const asientos = (data.asientos ?? []).map((a: any) => ({
+        name: a.numero ?? a.name ?? '',
+        date: a.fecha ?? a.date ?? '',
+        journal_name: a.diario ?? a.journal_name ?? '',
+        state: a.estado ?? a.state ?? 'draft',
+        lines: (a.lineas ?? a.lines ?? []).map((l: any) => ({
+          account_code: l.account_code ?? '',
+          account_name: l.cuenta ?? l.account_name ?? '',
+          debit: l.debe ?? l.debit ?? 0,
+          credit: l.haber ?? l.credit ?? 0,
+          name: l.descripcion ?? l.name ?? '',
+        })),
+      }))
+
+      const pdf = await generateLibroDiarioPDF({
+        company_name: user.company_name ?? '',
+        company_rut: user.company_rut ?? '',
+        periodo: { year, mes },
+        asientos,
+      })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="Libro_Diario_${year}_${mes}.pdf"`)
+      return reply.send(pdf)
+    } catch (err) {
+      logger.error({ err }, 'Error generating libro diario PDF')
+      return reply.status(500).send({ error: 'Error generando PDF de libro diario' })
+    }
+  })
+
+  // ── GET /libro-mayor/pdf ────────────────────────────────────
+  fastify.get('/libro-mayor/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { account_id?: string; mes?: string; year?: string }
+
+    if (!q.account_id) {
+      return reply.status(400).send({ error: 'account_id es requerido' })
+    }
+
+    const year = Number(q.year ?? new Date().getFullYear())
+    const mes = Number(q.mes ?? new Date().getMonth() + 1)
+    const accountId = q.account_id
+
+    try {
+      // Fetch all movements for the period (no pagination for PDF)
+      const dataRes = await fastify.inject({
+        method: 'GET',
+        url: `/api/v1/contabilidad/libro-mayor?account_id=${accountId}&mes=${mes}&year=${year}&limit=9999`,
+        headers: { authorization: req.headers.authorization },
+      })
+      const data = JSON.parse(dataRes.body)
+
+      const movimientos = (data.movimientos ?? []).map((m: any) => ({
+        date: m.fecha ?? m.date ?? '',
+        move_name: m.documento ?? m.move_name ?? '',
+        partner: m.partner ?? '',
+        debit: m.debe ?? m.debit ?? 0,
+        credit: m.haber ?? m.credit ?? 0,
+        name: m.descripcion ?? m.name ?? '',
+      }))
+
+      const pdf = await generateLibroMayorPDF({
+        company_name: user.company_name ?? '',
+        company_rut: user.company_rut ?? '',
+        periodo: { year, mes },
+        cuenta: {
+          code: data.cuenta?.codigo ?? data.cuenta?.code ?? '',
+          name: data.cuenta?.nombre ?? data.cuenta?.name ?? '',
+        },
+        movimientos,
+        saldo_inicial: data.saldo_inicial ?? 0,
+        saldo_final: data.saldo_final ?? 0,
+      })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="Libro_Mayor_${accountId}_${year}_${mes}.pdf"`)
+      return reply.send(pdf)
+    } catch (err) {
+      logger.error({ err }, 'Error generating libro mayor PDF')
+      return reply.status(500).send({ error: 'Error generando PDF de libro mayor' })
+    }
+  })
+
+  // ── POST /conciliacion/import-file ────────────────────────
+  fastify.post('/conciliacion/import-file', async (req, reply) => {
+    const body = req.body as { content: string; format: 'ofx' | 'csv'; bank?: string; journal_id: number }
+
+    if (!body.content || !body.format || !body.journal_id) {
+      return reply.status(400).send({ error: 'content, format, and journal_id are required' })
+    }
+
+    const result = parseStatement(body.content, body.format, body.bank)
+
+    // Create statement lines in Odoo
+    const user = (req as any).user
+    let created = 0
+    for (const line of result.lines) {
+      try {
+        await odooAccountingAdapter.create('account.bank.statement.line', {
+          journal_id: body.journal_id,
+          date: line.date,
+          payment_ref: line.description,
+          amount: line.amount,
+          company_id: user.company_id,
+        })
+        created++
+      } catch (err) {
+        logger.warn({ err, line }, 'Failed to create statement line')
+        result.errors.push(`Failed to create line: ${line.date} ${line.description} ${line.amount}`)
+      }
+    }
+
+    return reply.send({
+      parsed: result.lines.length,
+      created,
+      errors: result.errors,
+      bank: result.bank,
+      format: result.format,
+    })
+  })
+
+  // ── POST /conciliacion/auto-match ─────────────────────────
+  fastify.post('/conciliacion/auto-match', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as { journal_id: number; mes?: number; year?: number }
+
+    if (!body.journal_id) {
+      return reply.status(400).send({ error: 'journal_id is required' })
+    }
+
+    const now = new Date()
+    const year = body.year ?? now.getFullYear()
+    const mes = body.mes ?? now.getMonth() + 1
+
+    // Fetch reconciliation data using the same logic as GET /conciliacion
+    const monthStr = String(mes).padStart(2, '0')
+    const lastDay = new Date(year, mes, 0).getDate()
+    const desde = `${year}-${monthStr}-01`
+    const hasta = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
+    try {
+      const [extractoRaw, sinConciliarRaw] = await Promise.all([
+        odooAccountingAdapter.searchRead(
+          'account.bank.statement.line',
+          [
+            ['journal_id', '=', body.journal_id],
+            ['date', '>=', desde],
+            ['date', '<=', hasta],
+            ['company_id', '=', user.company_id],
+          ],
+          ['date', 'payment_ref', 'amount', 'is_reconciled', 'partner_id'],
+          { order: 'date desc' },
+        ),
+        odooAccountingAdapter.searchRead(
+          'account.move.line',
+          [
+            ['account_id.reconcile', '=', true],
+            ['reconciled', '=', false],
+            ['journal_id', '=', body.journal_id],
+            ['company_id', '=', user.company_id],
+          ],
+          ['date', 'move_id', 'name', 'debit', 'credit', 'partner_id'],
+          { order: 'date desc' },
+        ),
+      ])
+
+      const extracto = (extractoRaw as any[]).map((l: any) => ({
+        id: l.id,
+        fecha: l.date ?? '',
+        referencia: l.payment_ref ?? '',
+        monto: l.amount ?? 0,
+        conciliado: l.is_reconciled ?? false,
+        partner: l.partner_id ? (Array.isArray(l.partner_id) ? l.partner_id[1] : l.partner_id) : null,
+      }))
+
+      const sinConciliar = (sinConciliarRaw as any[]).map((l: any) => ({
+        id: l.id,
+        fecha: l.date ?? '',
+        documento: l.move_id ? (Array.isArray(l.move_id) ? l.move_id[1] : l.move_id) : '',
+        descripcion: l.name ?? '',
+        monto: (l.debit ?? 0) - (l.credit ?? 0),
+        partner: l.partner_id ? (Array.isArray(l.partner_id) ? l.partner_id[1] : l.partner_id) : null,
+      }))
+
+      const suggestions = findMatches(extracto, sinConciliar)
+
+      return reply.send({
+        suggestions,
+        total_matches: suggestions.length,
+        avg_confidence: suggestions.length > 0
+          ? Math.round(suggestions.reduce((s, m) => s + m.confidence, 0) / suggestions.length)
+          : 0,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error in auto-match')
+      return reply.status(500).send({ error: 'Error buscando coincidencias' })
+    }
+  })
+
+  // ── POST /conciliacion/apply-matches ──────────────────────
+  fastify.post('/conciliacion/apply-matches', async (req, reply) => {
+    const body = req.body as { matches: Array<{ statement_line_id: number; move_line_id: number }> }
+
+    if (!body.matches?.length) {
+      return reply.status(400).send({ error: 'matches array required' })
+    }
+
+    let reconciled = 0
+    const errors: string[] = []
+
+    for (const match of body.matches) {
+      try {
+        // Use Odoo's reconciliation method on the statement line
+        await odooAccountingAdapter.callMethod(
+          'account.bank.statement.line',
+          'action_auto_reconcile',
+          [match.statement_line_id],
+        )
+        reconciled++
+      } catch (err) {
+        logger.warn({ err, match }, 'Failed to reconcile match')
+        errors.push(`Failed to reconcile statement ${match.statement_line_id} with move ${match.move_line_id}`)
+      }
+    }
+
+    return reply.send({ reconciled, total: body.matches.length, errors })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // Centros de Costo (Analytic Accounts)
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /centros-costo ────────────────────────────────────
+  fastify.get('/centros-costo', async (req, reply) => {
+    const user = (req as any).user
+    try {
+      const centros = await odooAccountingAdapter.searchRead(
+        'account.analytic.account',
+        [['company_id', 'in', [user.company_id, false]]],
+        ['name', 'code', 'company_id', 'active', 'balance'],
+        { order: 'code asc, name asc' },
+      )
+      return reply.send({
+        source: 'odoo',
+        centros: (centros as any[]).map((c: any) => ({
+          id: c.id,
+          name: c.name ?? '',
+          code: c.code ?? '',
+          balance: c.balance ?? 0,
+          active: c.active ?? true,
+        })),
+        total: (centros as any[]).length,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error fetching centros de costo')
+      return reply.send({ source: 'error', centros: [], total: 0 })
+    }
+  })
+
+  // ── POST /centros-costo ───────────────────────────────────
+  fastify.post('/centros-costo', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as { name: string; code?: string }
+    if (!body.name) return reply.status(400).send({ error: 'name is required' })
+
+    try {
+      const id = await odooAccountingAdapter.create('account.analytic.account', {
+        name: body.name,
+        code: body.code ?? '',
+        company_id: user.company_id,
+      })
+      return reply.status(201).send({ id })
+    } catch (err) {
+      logger.error({ err }, 'Error creating centro de costo')
+      return reply.status(502).send({ error: 'Error creating analytic account' })
+    }
+  })
+
+  // ── PUT /centros-costo/:id ────────────────────────────────
+  fastify.put('/centros-costo/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as { name?: string; code?: string; active?: boolean }
+
+    try {
+      await odooAccountingAdapter.write('account.analytic.account', [Number(id)], body)
+      return reply.send({ success: true })
+    } catch (err) {
+      logger.error({ err }, 'Error updating centro de costo')
+      return reply.status(502).send({ error: 'Error updating analytic account' })
+    }
+  })
+
+  // ── GET /centros-costo/:id/movimientos ────────────────────
+  fastify.get('/centros-costo/:id/movimientos', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const q = req.query as { mes?: string; year?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    const monthStr = String(mes).padStart(2, '0')
+    const lastDay = new Date(year, mes, 0).getDate()
+    const desde = `${year}-${monthStr}-01`
+    const hasta = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
+    try {
+      const lines = await odooAccountingAdapter.searchRead(
+        'account.analytic.line',
+        [
+          ['account_id', '=', Number(id)],
+          ['company_id', '=', user.company_id],
+          ['date', '>=', desde],
+          ['date', '<=', hasta],
+        ],
+        ['date', 'name', 'amount', 'general_account_id', 'move_line_id', 'partner_id'],
+        { order: 'date desc' },
+      )
+
+      const movimientos = (lines as any[]).map((l: any) => ({
+        id: l.id,
+        date: l.date ?? '',
+        name: l.name ?? '',
+        amount: l.amount ?? 0,
+        account: Array.isArray(l.general_account_id) ? l.general_account_id[1] : '',
+        partner: Array.isArray(l.partner_id) ? l.partner_id[1] : '',
+      }))
+
+      const total = movimientos.reduce((s: number, m: any) => s + m.amount, 0)
+
+      return reply.send({
+        source: 'odoo',
+        periodo: { year, mes },
+        movimientos,
+        total,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error fetching analytic lines')
+      return reply.send({ source: 'error', movimientos: [], total: 0 })
+    }
+  })
+
+  // ── GET /centros-costo/reporte ────────────────────────────
+  fastify.get('/centros-costo/reporte', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { year?: string; mes?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    const monthStr = String(mes).padStart(2, '0')
+    const lastDay = new Date(year, mes, 0).getDate()
+    const desde = `${year}-${monthStr}-01`
+    const hasta = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
+    try {
+      const groups = await odooAccountingAdapter.readGroup(
+        'account.analytic.line',
+        [
+          ['company_id', '=', user.company_id],
+          ['date', '>=', desde],
+          ['date', '<=', hasta],
+        ],
+        ['amount:sum'],
+        ['account_id'],
+      )
+
+      const reporte = (groups as any[]).map((g: any) => ({
+        centro_id: Array.isArray(g.account_id) ? g.account_id[0] : g.account_id,
+        centro_name: Array.isArray(g.account_id) ? g.account_id[1] : '',
+        total: g.amount ?? 0,
+        count: g.account_id_count ?? 0,
+      }))
+
+      const gran_total = reporte.reduce((s: number, r: any) => s + r.total, 0)
+
+      return reply.send({
+        source: 'odoo',
+        periodo: { year, mes },
+        reporte,
+        gran_total,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error generating cost center report')
+      return reply.send({ source: 'error', reporte: [], gran_total: 0 })
+    }
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // Flujo de Caja (Cash Flow)
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /flujo-caja ───────────────────────────────────────
+  fastify.get('/flujo-caja', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { months?: string }
+    const monthsAhead = Number(q.months ?? 6)
+    const now = new Date()
+
+    try {
+      // 1. Get current bank balance from bank journals
+      const bankJournals = await odooAccountingAdapter.searchRead(
+        'account.journal',
+        [['type', '=', 'bank'], ['company_id', '=', user.company_id]],
+        ['id'],
+        {},
+      )
+
+      let saldo_actual = 0
+      if ((bankJournals as any[]).length > 0) {
+        const journalIds = (bankJournals as any[]).map((j: any) => j.id)
+        // Sum all bank statement lines
+        const bankGroups = await odooAccountingAdapter.readGroup(
+          'account.bank.statement.line',
+          [['journal_id', 'in', journalIds], ['company_id', '=', user.company_id]],
+          ['amount:sum'],
+          [],
+        )
+        saldo_actual = (bankGroups as any[])[0]?.amount ?? 0
+      }
+
+      // 2. Get accounts receivable and payable totals
+      const [receivableGroups, payableGroups] = await Promise.all([
+        odooAccountingAdapter.readGroup(
+          'account.move.line',
+          [
+            ['company_id', '=', user.company_id],
+            ['account_id.account_type', '=', 'asset_receivable'],
+            ['reconciled', '=', false],
+            ['parent_state', '=', 'posted'],
+          ],
+          ['balance:sum'],
+          [],
+        ),
+        odooAccountingAdapter.readGroup(
+          'account.move.line',
+          [
+            ['company_id', '=', user.company_id],
+            ['account_id.account_type', '=', 'liability_payable'],
+            ['reconciled', '=', false],
+            ['parent_state', '=', 'posted'],
+          ],
+          ['balance:sum'],
+          [],
+        ),
+      ])
+
+      const por_cobrar = Math.abs((receivableGroups as any[])[0]?.balance ?? 0)
+      const por_pagar = Math.abs((payableGroups as any[])[0]?.balance ?? 0)
+
+      // 3. Build historical data (last 6 months)
+      const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+      const historico: CashFlowPeriod[] = []
+
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const y = d.getFullYear()
+        const m = d.getMonth() + 1
+        const monthStr = String(m).padStart(2, '0')
+        const lastDay = new Date(y, m, 0).getDate()
+        const desde = `${y}-${monthStr}-01`
+        const hasta = `${y}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
+        // Get income and expenses for this month
+        const groups = await odooAccountingAdapter.readGroup(
+          'account.move.line',
+          [
+            ['company_id', '=', user.company_id],
+            ['date', '>=', desde],
+            ['date', '<=', hasta],
+            ['parent_state', '=', 'posted'],
+          ],
+          ['balance:sum'],
+          ['account_id'],
+        )
+
+        // Map account types
+        const accountIds = (groups as any[]).map((g: any) => Array.isArray(g.account_id) ? g.account_id[0] : g.account_id)
+        const accountsData = accountIds.length > 0
+          ? await odooAccountingAdapter.read('account.account', accountIds, ['id', 'account_type'])
+          : []
+
+        const typeMap: Record<number, string> = {}
+        for (const a of accountsData as any[]) typeMap[a.id] = a.account_type ?? ''
+
+        let ingresos = 0
+        let gastos = 0
+
+        for (const g of groups as any[]) {
+          const aid = Array.isArray(g.account_id) ? g.account_id[0] : g.account_id
+          const tipo = typeMap[aid] ?? ''
+          const bal = g.balance ?? 0
+
+          if (tipo.includes('income')) ingresos += Math.abs(bal)
+          else if (tipo.includes('expense')) gastos += Math.abs(bal)
+        }
+
+        // Get payroll for this month
+        let remuneraciones = 0
+        try {
+          const payrollGroups = await odooAccountingAdapter.readGroup(
+            'hr.payslip',
+            [
+              ['company_id', '=', user.company_id],
+              ['state', '=', 'done'],
+              ['date_from', '>=', desde],
+              ['date_to', '<=', hasta],
+            ],
+            ['net_wage:sum'],
+            [],
+          )
+          remuneraciones = (payrollGroups as any[])[0]?.net_wage ?? 0
+        } catch { /* HR module might not be available */ }
+
+        historico.push({
+          month: m,
+          year: y,
+          label: `${MONTH_NAMES[m - 1]} ${y}`,
+          ingresos: Math.round(ingresos),
+          gastos_fijos: Math.round(gastos * 0.6),  // Estimate 60% fixed
+          gastos_variables: Math.round(gastos * 0.4), // Estimate 40% variable
+          remuneraciones: Math.round(remuneraciones),
+          impuestos: Math.round(ingresos * 0.19 * 0.3), // Rough IVA estimate
+          saldo_proyectado: 0, // Will be computed
+        })
+      }
+
+      // Compute running balance for historical periods
+      let runSaldo = saldo_actual
+      for (let i = historico.length - 1; i >= 0; i--) {
+        const h = historico[i]
+        const totalGastos = h.gastos_fijos + h.gastos_variables + h.remuneraciones + h.impuestos
+        historico[i].saldo_proyectado = runSaldo
+        runSaldo = runSaldo - h.ingresos + totalGastos // Go backwards
+      }
+
+      // 4. Generate forecast
+      const proyeccion = generateForecast(historico, saldo_actual, monthsAhead)
+
+      return reply.send({
+        source: 'odoo',
+        saldo_actual: Math.round(saldo_actual),
+        por_cobrar: Math.round(por_cobrar),
+        por_pagar: Math.round(por_pagar),
+        historico,
+        proyeccion,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error generating cash flow forecast')
+      return reply.send({
+        source: 'error',
+        saldo_actual: 0,
+        por_cobrar: 0,
+        por_pagar: 0,
+        historico: [],
+        proyeccion: [],
+      })
+    }
   })
 }

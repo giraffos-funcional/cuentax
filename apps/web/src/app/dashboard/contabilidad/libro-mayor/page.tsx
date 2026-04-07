@@ -301,12 +301,21 @@ export default function LibroMayorPage() {
           <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Movimientos por cuenta con saldo corrido</p>
         </div>
         {selectedAccount && (
-          <button
-            className="btn-secondary flex items-center gap-2 self-start sm:self-auto"
-            onClick={() => exportCSV(movimientos ?? [], `libro-mayor-${selectedAccount.codigo}`)}
-          >
-            <Download size={13} /> Exportar
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl border border-[var(--cx-border-light)] text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)] transition-colors"
+              onClick={() => window.open(`/api/v1/contabilidad/libro-mayor/pdf?account_id=${selectedAccount.id}&year=${year}&mes=${mes}`, '_blank')}
+            >
+              <Download size={13} />
+              PDF
+            </button>
+            <button
+              className="btn-secondary flex items-center gap-2"
+              onClick={() => exportCSV(movimientos ?? [], `libro-mayor-${selectedAccount.codigo}`)}
+            >
+              <Download size={13} /> Exportar
+            </button>
+          </div>
         )}
       </div>
 

@@ -700,3 +700,141 @@ export function useDeleteAttendance() {
 
   return { remove }
 }
+
+// ══════════════════════════════════════════════════════════════
+// Libro de Remuneraciones
+// ══════════════════════════════════════════════════════════════
+
+/** Libro de Remuneraciones — monthly payroll register */
+export function useLibroRemuneraciones(mes: number, year: number) {
+  const params = new URLSearchParams({ mes: String(mes), year: String(year) })
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/remuneraciones/libro-remuneraciones?${params}`,
+    fetcher,
+    { refreshInterval: 120_000 },
+  )
+  return {
+    registros: data?.registros ?? [],
+    totales: data?.totales ?? {},
+    total_empleados: data?.total_empleados ?? 0,
+    isLoading,
+    error,
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Finiquitos (Employment Termination / Severance)
+// ══════════════════════════════════════════════════════════════
+
+interface Finiquito {
+  id: number
+  name: string
+  employee_id: number
+  employee_name: string
+  contract_id: number
+  contract_name: string
+  date_termination: string
+  date_start: string
+  reason: string
+  reason_label: string
+  state: string
+  wage: number
+  years_service: number
+  months_service: number
+  avg_wage_3m: number
+  indemnizacion_anos: number
+  vacaciones_proporcionales: number
+  feriado_pendiente: number
+  sueldo_proporcional: number
+  gratificacion_proporcional: number
+  total_finiquito: number
+  uf_value: number
+}
+
+/** Lista de finiquitos de la empresa */
+export function useFiniquitos(page?: number) {
+  const params = new URLSearchParams()
+  if (page) params.set('page', String(page))
+  params.set('limit', '20')
+
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/remuneraciones/finiquitos?${params}`,
+    fetcher,
+    { refreshInterval: 60_000 },
+  )
+  return {
+    finiquitos: (data?.finiquitos as Finiquito[]) ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+  }
+}
+
+/** Detalle de un finiquito por ID (condicional) */
+export function useFiniquitoDetail(id: number | null) {
+  const { data, error, isLoading } = useSWR(
+    id ? `/api/v1/remuneraciones/finiquitos/${id}` : null,
+    fetcher,
+  )
+  return {
+    finiquito: (data?.finiquito as Finiquito) ?? null,
+    isLoading,
+    error,
+  }
+}
+
+/** Crear finiquito */
+export function useCreateFiniquito() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/remuneraciones/finiquitos', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/finiquitos'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Calcular finiquito */
+export function useCalculateFiniquito() {
+  const calculate = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/finiquitos/${id}/calculate`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/finiquitos'))
+    return result
+  }
+
+  return { calculate }
+}
+
+/** Confirmar finiquito */
+export function useConfirmFiniquito() {
+  const confirm = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/remuneraciones/finiquitos/${id}/confirm`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/finiquitos'))
+    return result
+  }
+
+  return { confirm }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Previred (Monthly Contribution File)
+// ══════════════════════════════════════════════════════════════
+
+/** Previred — monthly contribution file preview */
+export function usePreviredPreview(mes: number, year: number) {
+  const params = new URLSearchParams({ mes: String(mes), year: String(year) })
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/remuneraciones/previred?${params}`,
+    fetcher,
+    { refreshInterval: 120_000 },
+  )
+  return {
+    employees: data?.employees ?? [],
+    validation: data?.validation ?? { valid: false, errors: [] },
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+  }
+}

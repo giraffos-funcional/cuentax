@@ -18,6 +18,9 @@
  * GET /api/v1/remuneraciones/contratos
  * GET /api/v1/remuneraciones/asistencia
  * GET /api/v1/remuneraciones/stats
+ * GET /api/v1/remuneraciones/libro-remuneraciones
+ * GET /api/v1/remuneraciones/libro-remuneraciones/pdf
+ * GET /api/v1/remuneraciones/libro-remuneraciones/csv
  *
  * WRITE:
  * POST   /api/v1/remuneraciones/empleados
@@ -45,6 +48,17 @@
  * PUT    /api/v1/remuneraciones/indicadores/:id
  * GET    /api/v1/remuneraciones/empresa
  * PUT    /api/v1/remuneraciones/empresa
+ * GET    /api/v1/remuneraciones/finiquitos
+ * POST   /api/v1/remuneraciones/finiquitos
+ * GET    /api/v1/remuneraciones/finiquitos/:id
+ * POST   /api/v1/remuneraciones/finiquitos/:id/calculate
+ * POST   /api/v1/remuneraciones/finiquitos/:id/confirm
+ * GET    /api/v1/remuneraciones/finiquitos/:id/pdf
+ *
+ * PREVIRED:
+ * GET  /api/v1/remuneraciones/previred
+ * POST /api/v1/remuneraciones/previred/validate
+ * GET  /api/v1/remuneraciones/previred/file
  */
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
@@ -55,7 +69,11 @@ import { generatePayslipPDF } from '@/services/payslip-pdf.service'
 import type { PayslipPDFData, PayslipPDFLine } from '@/services/payslip-pdf.service'
 import { generateContractPDF } from '@/services/contract-pdf.service'
 import type { ContractPDFData } from '@/services/contract-pdf.service'
+import { generateLibroRemuneracionesPDF } from '@/services/libro-remuneraciones-pdf.service'
+import { generateFiniquitoPDF } from '@/services/finiquito-pdf.service'
+import type { FiniquitoPDFData } from '@/services/finiquito-pdf.service'
 import { authService } from '@/services/auth.service'
+import { generatePreviredFile, validatePreviredData, type PreviredEmployee, type PreviredValidation } from '@/services/previred-file.service'
 
 export async function remuneracionesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -1800,5 +1818,611 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       logger.error({ err }, 'Error updating company')
       return reply.send({ source: 'error', success: false })
     }
+  })
+
+  // ── GET /libro-remuneraciones ─────────────────────────────
+  fastify.get('/libro-remuneraciones', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    try {
+      // Build date range for the period
+      const monthStr = String(mes).padStart(2, '0')
+      const lastDay = new Date(year, mes, 0).getDate()
+      const desde = `${year}-${monthStr}-01`
+      const hasta = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
+      const payslips = await odooAccountingAdapter.searchRead(
+        'hr.payslip',
+        [
+          ['company_id', '=', user.company_id],
+          ['state', '=', 'done'],
+          ['date_from', '>=', desde],
+          ['date_to', '<=', hasta],
+        ],
+        ['employee_id', 'number', 'net_wage', 'gross_wage', 'basic_wage', 'line_ids'],
+        { order: 'employee_id asc' },
+      )
+
+      // For each payslip, fetch lines and employee details
+      const registros = []
+      for (const _ps of payslips) {
+        const ps = _ps as Record<string, unknown>
+        const empId = Array.isArray(ps.employee_id) ? (ps.employee_id as unknown[])[0] : ps.employee_id
+        const empName = Array.isArray(ps.employee_id) ? (ps.employee_id as unknown[])[1] : ''
+
+        // Get employee RUT and department
+        const empRows = await odooAccountingAdapter.searchRead(
+          'hr.employee',
+          [['id', '=', empId]],
+          ['identification_id', 'department_id'],
+          { limit: 1 },
+        )
+        const emp = empRows[0] as Record<string, unknown> | undefined
+
+        // Get payslip lines grouped by code/category
+        const lines = await odooHRAdapter.getPayslipLines(ps.id as number)
+
+        const byCode: Record<string, number> = {}
+        const byCategory: Record<string, number> = {}
+        for (const l of lines as any[]) {
+          const code = l.code ?? ''
+          const cat = Array.isArray(l.category_id) ? l.category_id[1] : (l.category_id ?? '')
+          byCode[code] = (byCode[code] ?? 0) + (l.total ?? l.amount ?? 0)
+          byCategory[cat] = (byCategory[cat] ?? 0) + Math.abs(l.total ?? l.amount ?? 0)
+        }
+
+        registros.push({
+          employee_id: empId,
+          employee_name: empName,
+          employee_rut: (emp?.identification_id as string) ?? '',
+          department: Array.isArray(emp?.department_id) ? (emp.department_id as unknown[])[1] : '',
+          dias_trabajados: 30,
+          sueldo_base: byCode['BASIC'] ?? 0,
+          gratificacion: byCode['GRAT'] ?? 0,
+          otros_haberes: (byCode['COLACION'] ?? 0) + (byCode['MOVILIZACION'] ?? 0) + (byCode['BONOASIST'] ?? 0),
+          total_haberes_imp: (ps.gross_wage as number) ?? 0,
+          total_haberes_no_imp: (byCode['COLACION'] ?? 0) + (byCode['MOVILIZACION'] ?? 0),
+          afp: Math.abs(byCode['AFP'] ?? 0),
+          salud: Math.abs(byCode['SALUD'] ?? 0),
+          cesantia: Math.abs(byCode['CESANTIA'] ?? 0),
+          impuesto: Math.abs(byCode['IMPUNICO'] ?? 0),
+          total_descuentos: Math.abs((ps.gross_wage as number) - (ps.net_wage as number)),
+          liquido: (ps.net_wage as number) ?? 0,
+        })
+      }
+
+      // Calculate totals
+      const totales = registros.reduce(
+        (acc, r) => ({
+          sueldo_base: acc.sueldo_base + r.sueldo_base,
+          gratificacion: acc.gratificacion + r.gratificacion,
+          otros_haberes: acc.otros_haberes + r.otros_haberes,
+          total_haberes_imp: acc.total_haberes_imp + r.total_haberes_imp,
+          total_haberes_no_imp: acc.total_haberes_no_imp + r.total_haberes_no_imp,
+          afp: acc.afp + r.afp,
+          salud: acc.salud + r.salud,
+          cesantia: acc.cesantia + r.cesantia,
+          impuesto: acc.impuesto + r.impuesto,
+          total_descuentos: acc.total_descuentos + r.total_descuentos,
+          liquido: acc.liquido + r.liquido,
+        }),
+        {
+          sueldo_base: 0, gratificacion: 0, otros_haberes: 0,
+          total_haberes_imp: 0, total_haberes_no_imp: 0,
+          afp: 0, salud: 0, cesantia: 0, impuesto: 0,
+          total_descuentos: 0, liquido: 0,
+        },
+      )
+
+      return reply.send({
+        source: 'odoo',
+        periodo: { year, mes },
+        registros,
+        totales,
+        total_empleados: registros.length,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error generating libro de remuneraciones')
+      return reply.send({
+        source: 'error',
+        periodo: { year, mes },
+        registros: [],
+        totales: {},
+        total_empleados: 0,
+      })
+    }
+  })
+
+  // ── GET /libro-remuneraciones/pdf ─────────────────────────
+  fastify.get('/libro-remuneraciones/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    try {
+      // Fetch libro data by reusing the same logic via internal inject
+      const libroRes = await fastify.inject({
+        method: 'GET',
+        url: `/libro-remuneraciones?mes=${mes}&year=${year}`,
+        headers: { authorization: req.headers.authorization },
+      })
+      const libroData = JSON.parse(libroRes.body)
+
+      const pdfBuffer = await generateLibroRemuneracionesPDF({
+        company_name: user.company_name ?? '',
+        company_rut: user.company_rut ?? '',
+        periodo: { year, mes },
+        registros: libroData.registros ?? [],
+        totales: libroData.totales ?? {},
+      })
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="LibroRemuneraciones_${year}_${mes}.pdf"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err }, 'Error generating libro remuneraciones PDF')
+      return reply.code(500).send({ error: 'Error generating PDF' })
+    }
+  })
+
+  // ── GET /libro-remuneraciones/csv ─────────────────────────
+  fastify.get('/libro-remuneraciones/csv', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    try {
+      const libroRes = await fastify.inject({
+        method: 'GET',
+        url: `/libro-remuneraciones?mes=${mes}&year=${year}`,
+        headers: { authorization: req.headers.authorization },
+      })
+      const libroData = JSON.parse(libroRes.body)
+
+      const headers = [
+        'N°', 'RUT', 'Nombre', 'Departamento', 'Días', 'Sueldo Base',
+        'Gratificación', 'Otros Haberes', 'Total Hab. Imp.', 'Total Hab. No Imp.',
+        'AFP', 'Salud', 'Cesantía', 'Impuesto', 'Total Desc.', 'Líquido',
+      ]
+      const rows = (libroData.registros ?? []).map((r: any, i: number) =>
+        [
+          i + 1, r.employee_rut, r.employee_name, r.department, r.dias_trabajados,
+          r.sueldo_base, r.gratificacion, r.otros_haberes, r.total_haberes_imp,
+          r.total_haberes_no_imp, r.afp, r.salud, r.cesantia, r.impuesto,
+          r.total_descuentos, r.liquido,
+        ].join(','),
+      )
+
+      const csv = [headers.join(','), ...rows].join('\n')
+
+      reply.header('Content-Type', 'text/csv; charset=utf-8')
+      reply.header('Content-Disposition', `attachment; filename="LibroRemuneraciones_${year}_${mes}.csv"`)
+      return reply.send(csv)
+    } catch (err) {
+      logger.error({ err }, 'Error generating libro remuneraciones CSV')
+      return reply.code(500).send({ error: 'Error generating CSV' })
+    }
+  })
+
+  // ══════════════════════════════════════════════════════════════
+  // FINIQUITOS (Employment Termination / Severance)
+  // ══════════════════════════════════════════════════════════════
+
+  const FINIQUITO_FIELDS = [
+    'name', 'employee_id', 'contract_id', 'company_id',
+    'date_termination', 'reason', 'state',
+    'date_start', 'wage', 'years_service', 'months_service',
+    'avg_wage_3m', 'indemnizacion_anos', 'vacaciones_proporcionales',
+    'feriado_pendiente', 'sueldo_proporcional', 'gratificacion_proporcional',
+    'total_finiquito', 'uf_value',
+  ]
+
+  const REASON_LABELS: Record<string, string> = {
+    necesidades_empresa: 'Necesidades de la Empresa (Art. 161)',
+    renuncia: 'Renuncia Voluntaria (Art. 159 N°2)',
+    acuerdo_partes: 'Mutuo Acuerdo (Art. 159 N°1)',
+    art160: 'Despido Justificado (Art. 160)',
+    vencimiento_plazo: 'Vencimiento del Plazo (Art. 159 N°4)',
+    conclusion_trabajo: 'Conclusión del Trabajo (Art. 159 N°5)',
+  }
+
+  // ── GET /finiquitos ──────────────────────────────────────────
+  fastify.get('/finiquitos', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { page?: string; limit?: string }
+    const page = Number(q.page ?? 1)
+    const limit = Number(q.limit ?? 20)
+    const offset = (page - 1) * limit
+
+    const domain: unknown[][] = [['company_id', '=', user.company_id]]
+
+    try {
+      const [rawFiniquitos, total] = await Promise.all([
+        odooAccountingAdapter.searchRead(
+          'l10n_cl.termination',
+          domain,
+          FINIQUITO_FIELDS,
+          { limit, offset, order: 'date_termination desc' },
+        ),
+        odooAccountingAdapter.searchCount('l10n_cl.termination', domain),
+      ])
+
+      const finiquitos = (rawFiniquitos as any[]).map((f: any) => ({
+        ...f,
+        employee_name: Array.isArray(f.employee_id) ? f.employee_id[1] : '',
+        employee_id: Array.isArray(f.employee_id) ? f.employee_id[0] : f.employee_id,
+        contract_name: Array.isArray(f.contract_id) ? f.contract_id[1] : '',
+        contract_id: Array.isArray(f.contract_id) ? f.contract_id[0] : f.contract_id,
+        reason_label: REASON_LABELS[f.reason] ?? f.reason,
+      }))
+
+      return reply.send({ source: 'odoo', finiquitos, total })
+    } catch (err) {
+      logger.error({ err }, 'Error fetching finiquitos')
+      return reply.send({ source: 'error', finiquitos: [], total: 0 })
+    }
+  })
+
+  // ── POST /finiquitos ─────────────────────────────────────────
+  fastify.post('/finiquitos', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as Record<string, unknown> | undefined
+
+    if (!body || !body['employee_id'] || !body['contract_id'] || !body['date_termination'] || !body['reason']) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: employee_id, contract_id, date_termination, reason',
+      })
+    }
+
+    try {
+      const values: Record<string, unknown> = {
+        employee_id: Number(body.employee_id),
+        contract_id: Number(body.contract_id),
+        company_id: user.company_id,
+        date_termination: body.date_termination,
+        reason: body.reason,
+      }
+      if (body.uf_value) values.uf_value = Number(body.uf_value)
+
+      const id = await odooAccountingAdapter.create('l10n_cl.termination', values)
+      if (!id) {
+        return reply.status(500).send({
+          source: 'error',
+          message: 'Error al crear finiquito en Odoo',
+        })
+      }
+      logger.info({ id, companyId: user.company_id }, 'Finiquito created')
+      return reply.status(201).send({ source: 'odoo', id })
+    } catch (err) {
+      logger.error({ err }, 'Error creating finiquito')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al crear finiquito',
+      })
+    }
+  })
+
+  // ── GET /finiquitos/:id ──────────────────────────────────────
+  fastify.get('/finiquitos/:id', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const finiquitoId = Number(id)
+
+    try {
+      const rows = await odooAccountingAdapter.searchRead(
+        'l10n_cl.termination',
+        [['id', '=', finiquitoId], ['company_id', '=', user.company_id]],
+        FINIQUITO_FIELDS,
+        { limit: 1 },
+      )
+      const raw = (rows[0] as any) ?? null
+      if (!raw) {
+        return reply.status(404).send({ source: 'error', message: 'Finiquito no encontrado' })
+      }
+
+      const finiquito = {
+        ...raw,
+        employee_name: Array.isArray(raw.employee_id) ? raw.employee_id[1] : '',
+        employee_id: Array.isArray(raw.employee_id) ? raw.employee_id[0] : raw.employee_id,
+        contract_name: Array.isArray(raw.contract_id) ? raw.contract_id[1] : '',
+        contract_id: Array.isArray(raw.contract_id) ? raw.contract_id[0] : raw.contract_id,
+        reason_label: REASON_LABELS[raw.reason] ?? raw.reason,
+      }
+
+      return reply.send({ source: 'odoo', finiquito })
+    } catch (err) {
+      logger.error({ err, finiquitoId }, 'Error fetching finiquito detail')
+      return reply.status(500).send({ source: 'error', message: 'Error interno' })
+    }
+  })
+
+  // ── POST /finiquitos/:id/calculate ───────────────────────────
+  fastify.post('/finiquitos/:id/calculate', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const finiquitoId = Number(id)
+
+    try {
+      await odooAccountingAdapter.callMethod('l10n_cl.termination', 'action_calculate', [finiquitoId])
+      logger.info({ finiquitoId }, 'Finiquito calculated')
+      return reply.send({ source: 'odoo', success: true })
+    } catch (err) {
+      logger.error({ err, finiquitoId }, 'Error calculating finiquito')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error al calcular finiquito',
+      })
+    }
+  })
+
+  // ── POST /finiquitos/:id/confirm ─────────────────────────────
+  fastify.post('/finiquitos/:id/confirm', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const finiquitoId = Number(id)
+
+    try {
+      await odooAccountingAdapter.callMethod('l10n_cl.termination', 'action_confirm', [finiquitoId])
+      logger.info({ finiquitoId }, 'Finiquito confirmed')
+      return reply.send({ source: 'odoo', success: true })
+    } catch (err) {
+      logger.error({ err, finiquitoId }, 'Error confirming finiquito')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error al confirmar finiquito',
+      })
+    }
+  })
+
+  // ── GET /finiquitos/:id/pdf ──────────────────────────────────
+  fastify.get('/finiquitos/:id/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const { id } = req.params as { id: string }
+    const finiquitoId = Number(id)
+
+    try {
+      // Fetch finiquito
+      const rows = await odooAccountingAdapter.searchRead(
+        'l10n_cl.termination',
+        [['id', '=', finiquitoId], ['company_id', '=', user.company_id]],
+        FINIQUITO_FIELDS,
+        { limit: 1 },
+      )
+      const f = (rows[0] as any) ?? null
+      if (!f) {
+        return reply.status(404).send({ error: 'Finiquito not found' })
+      }
+
+      // Fetch employee details (RUT)
+      const empId = Array.isArray(f.employee_id) ? f.employee_id[0] : f.employee_id
+      const empRows = await odooAccountingAdapter.searchRead(
+        'hr.employee',
+        [['id', '=', empId]],
+        ['name', 'identification_id', 'department_id', 'job_title'],
+        { limit: 1 },
+      )
+      const emp = (empRows[0] as any) ?? {}
+
+      // Fetch company info
+      const compRows = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', user.company_id]],
+        ['name', 'vat', 'street', 'city'],
+        { limit: 1 },
+      )
+      const comp = (compRows[0] as any) ?? {}
+
+      const pdfData: FiniquitoPDFData = {
+        company_name: comp.name ?? user.company_name ?? '',
+        company_rut: comp.vat ?? user.company_rut ?? '',
+        company_address: comp.street ?? '',
+        company_city: comp.city ?? '',
+
+        employee_name: emp.name ?? '',
+        employee_rut: emp.identification_id ?? '',
+        employee_job_title: emp.job_title ?? '',
+        employee_department: Array.isArray(emp.department_id) ? emp.department_id[1] : '',
+
+        date_start: f.date_start ?? '',
+        date_termination: f.date_termination ?? '',
+        reason: f.reason ?? '',
+        reason_label: REASON_LABELS[f.reason] ?? f.reason,
+
+        years_service: f.years_service ?? 0,
+        months_service: f.months_service ?? 0,
+        wage: f.wage ?? 0,
+        avg_wage_3m: f.avg_wage_3m ?? 0,
+        uf_value: f.uf_value ?? 0,
+
+        indemnizacion_anos: f.indemnizacion_anos ?? 0,
+        vacaciones_proporcionales: f.vacaciones_proporcionales ?? 0,
+        feriado_pendiente: f.feriado_pendiente ?? 0,
+        sueldo_proporcional: f.sueldo_proporcional ?? 0,
+        gratificacion_proporcional: f.gratificacion_proporcional ?? 0,
+        total_finiquito: f.total_finiquito ?? 0,
+      }
+
+      const pdfBuffer = await generateFiniquitoPDF(pdfData)
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `inline; filename="Finiquito_${emp.name ?? finiquitoId}.pdf"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, finiquitoId }, 'Error generating finiquito PDF')
+      return reply.code(500).send({ error: 'Error generating PDF' })
+    }
+  })
+
+  // ── GET /previred ─────────────────────────────────────────
+  fastify.get('/previred', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    try {
+      const monthStr = String(mes).padStart(2, '0')
+      const lastDay = new Date(year, mes, 0).getDate()
+      const desde = `${year}-${monthStr}-01`
+      const hasta = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`
+
+      // Get confirmed payslips for the period
+      const payslips = await odooAccountingAdapter.searchRead(
+        'hr.payslip',
+        [
+          ['company_id', '=', user.company_id],
+          ['state', '=', 'done'],
+          ['date_from', '>=', desde],
+          ['date_to', '<=', hasta],
+        ],
+        ['employee_id', 'net_wage', 'gross_wage', 'basic_wage'],
+        { order: 'employee_id asc' },
+      )
+
+      const employees: PreviredEmployee[] = []
+
+      for (const _ps of payslips) {
+        const ps = _ps as Record<string, unknown>
+        const empId = Array.isArray(ps.employee_id) ? (ps.employee_id as any[])[0] : ps.employee_id
+
+        // Get employee details with AFP/Isapre info
+        const empRows = await odooAccountingAdapter.searchRead(
+          'hr.employee',
+          [['id', '=', empId]],
+          ['identification_id', 'l10n_cl_afp_id', 'l10n_cl_isapre_id', 'l10n_cl_health_plan',
+           'l10n_cl_isapre_cotizacion_uf', 'l10n_cl_apv_amount', 'l10n_cl_apv_regime'],
+          { limit: 1 },
+        )
+        const emp = empRows[0] as Record<string, unknown> | undefined
+
+        // Get AFP previred code
+        let afpCode = ''
+        const afpId = Array.isArray(emp?.l10n_cl_afp_id) ? (emp!.l10n_cl_afp_id as any[])[0] : null
+        if (afpId) {
+          const afpRows = await odooAccountingAdapter.searchRead(
+            'l10n_cl.afp', [['id', '=', afpId]], ['previred_code', 'code'], { limit: 1 },
+          )
+          afpCode = (afpRows[0] as any)?.previred_code ?? (afpRows[0] as any)?.code ?? ''
+        }
+
+        // Get Isapre previred code
+        let isapreCode = '07' // Default FONASA
+        const healthPlan = emp?.l10n_cl_health_plan as string
+        const isapreId = Array.isArray(emp?.l10n_cl_isapre_id) ? (emp!.l10n_cl_isapre_id as any[])[0] : null
+        if (healthPlan === 'isapre' && isapreId) {
+          const isapreRows = await odooAccountingAdapter.searchRead(
+            'l10n_cl.isapre', [['id', '=', isapreId]], ['previred_code', 'code'], { limit: 1 },
+          )
+          isapreCode = (isapreRows[0] as any)?.previred_code ?? (isapreRows[0] as any)?.code ?? '07'
+        }
+
+        // Get payslip lines for amounts
+        const lines = await odooHRAdapter.getPayslipLines(ps.id as number)
+        const byCode: Record<string, number> = {}
+        for (const l of lines as any[]) {
+          byCode[l.code] = (byCode[l.code] ?? 0) + Math.abs(l.total ?? l.amount ?? 0)
+        }
+
+        // Get contract info
+        const contracts = await odooAccountingAdapter.searchRead(
+          'hr.contract',
+          [['employee_id', '=', empId], ['state', '=', 'open'], ['company_id', '=', user.company_id]],
+          ['l10n_cl_tipo_contrato', 'resource_calendar_id'],
+          { limit: 1 },
+        )
+        const contract = contracts[0] as Record<string, unknown> | undefined
+
+        employees.push({
+          rut: (emp?.identification_id as string) ?? '',
+          afp_code: afpCode,
+          isapre_code: isapreCode,
+          renta_imponible: (ps.gross_wage as number) ?? 0,
+          renta_no_imponible: (byCode['COLACION'] ?? 0) + (byCode['MOVILIZACION'] ?? 0),
+          cotiz_afp: byCode['AFP'] ?? 0,
+          sis: byCode['SISEMPL'] ?? byCode['SIS'] ?? 0,
+          cotiz_salud: byCode['SALUD'] ?? 0,
+          salud_adicional: byCode['SALUDADIC'] ?? 0,
+          cesantia_trabajador: byCode['CESANTIA'] ?? 0,
+          cesantia_empleador: byCode['CESEMPL'] ?? 0,
+          mutual: byCode['MUTUAL'] ?? 0,
+          impuesto_unico: byCode['IMPUNICO'] ?? 0,
+          tipo_contrato: (contract?.l10n_cl_tipo_contrato as string) ?? '1',
+          dias_trabajados: 30,
+          tipo_jornada: '1',
+          apv_amount: (emp?.l10n_cl_apv_amount as number) ?? 0,
+        })
+      }
+
+      // Validate
+      const validation = validatePreviredData(employees)
+
+      return reply.send({
+        source: 'odoo',
+        periodo: { year, mes },
+        employees,
+        validation,
+        total: employees.length,
+      })
+    } catch (err) {
+      logger.error({ err }, 'Error generating Previred preview')
+      return reply.send({ source: 'error', employees: [], validation: { valid: false, errors: [] }, total: 0 })
+    }
+  })
+
+  // ── POST /previred/validate ───────────────────────────────
+  fastify.post('/previred/validate', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as { mes?: number; year?: number }
+    const now = new Date()
+    const year = body.year ?? now.getFullYear()
+    const mes = body.mes ?? now.getMonth() + 1
+
+    const previewRes = await fastify.inject({
+      method: 'GET',
+      url: `/api/v1/remuneraciones/previred?mes=${mes}&year=${year}`,
+      headers: { authorization: req.headers.authorization },
+    })
+    const data = JSON.parse(previewRes.body)
+
+    return reply.send({
+      validation: data.validation,
+      total: data.total,
+    })
+  })
+
+  // ── GET /previred/file ────────────────────────────────────
+  fastify.get('/previred/file', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+
+    const previewRes = await fastify.inject({
+      method: 'GET',
+      url: `/api/v1/remuneraciones/previred?mes=${mes}&year=${year}`,
+      headers: { authorization: req.headers.authorization },
+    })
+    const data = JSON.parse(previewRes.body)
+
+    const fileContent = generatePreviredFile({
+      company_rut: user.company_rut ?? '',
+      periodo: { year, mes },
+      employees: data.employees ?? [],
+    })
+
+    reply.header('Content-Type', 'text/plain; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="previred_${year}_${String(mes).padStart(2, '0')}.pre"`)
+    return reply.send(fileContent)
   })
 }

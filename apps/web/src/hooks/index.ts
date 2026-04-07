@@ -692,6 +692,34 @@ export function useCreateJournal() {
   return { crear }
 }
 
+/** Import bank statement file (OFX/CSV) */
+export function useImportBankFile() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/contabilidad/conciliacion/import-file', poster)
+  const importFile = async (payload: { content: string; format: 'ofx' | 'csv'; bank?: string; journal_id: number }) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/conciliacion'))
+    return result
+  }
+  return { importFile, isLoading: isMutating, error }
+}
+
+/** Auto-match bank statement lines with unreconciled journal entries */
+export function useAutoMatch() {
+  const { trigger, isMutating, error, data } = useSWRMutation('/api/v1/contabilidad/conciliacion/auto-match', poster)
+  return { findMatches: trigger, isLoading: isMutating, error, suggestions: data?.suggestions ?? [] }
+}
+
+/** Apply reconciliation matches */
+export function useApplyMatches() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/contabilidad/conciliacion/apply-matches', poster)
+  const apply = async (matches: Array<{ statement_line_id: number; move_line_id: number }>) => {
+    const result = await trigger({ matches })
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/conciliacion'))
+    return result
+  }
+  return { apply, isLoading: isMutating, error }
+}
+
 /** Company accounting setup */
 export function useAccountingSetup() {
   const setup = async (payload: unknown) => {
@@ -700,4 +728,63 @@ export function useAccountingSetup() {
     return result
   }
   return { setup }
+}
+
+// ══════════════════════════════════════════════════════════
+// Cost Center Hooks
+// ══════════════════════════════════════════════════════════
+
+/** List all cost centers (analytic accounts) */
+export function useCostCenters() {
+  const { data, error, isLoading } = useSWR('/api/v1/contabilidad/centros-costo', fetcher)
+  return { centros: data?.centros ?? [], total: data?.total ?? 0, isLoading, error }
+}
+
+/** Cost center report grouped by analytic account for a period */
+export function useCostCenterReport(year: number, mes: number) {
+  const params = new URLSearchParams({ year: String(year), mes: String(mes) })
+  const { data, error, isLoading } = useSWR(`/api/v1/contabilidad/centros-costo/reporte?${params}`, fetcher)
+  return { reporte: data?.reporte ?? [], gran_total: data?.gran_total ?? 0, isLoading, error }
+}
+
+/** Analytic lines (movements) for a specific cost center */
+export function useCostCenterMovements(centroId: number | null, year: number, mes: number) {
+  const params = new URLSearchParams({ year: String(year), mes: String(mes) })
+  const { data, error, isLoading } = useSWR(
+    centroId ? `/api/v1/contabilidad/centros-costo/${centroId}/movimientos?${params}` : null, fetcher,
+  )
+  return { movimientos: data?.movimientos ?? [], total: data?.total ?? 0, isLoading, error }
+}
+
+/** Create a new cost center */
+export function useCreateCostCenter() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/contabilidad/centros-costo', poster)
+  const create = async (payload: { name: string; code?: string }) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/centros-costo'))
+    return result
+  }
+  return { create, isLoading: isMutating, error }
+}
+
+// ══════════════════════════════════════════════════════════
+// Cash Flow Hooks
+// ══════════════════════════════════════════════════════════
+
+/** Cash flow forecast with historical and projected periods */
+export function useCashFlow(months?: number) {
+  const params = months ? new URLSearchParams({ months: String(months) }) : ''
+  const { data, error, isLoading } = useSWR(
+    `/api/v1/contabilidad/flujo-caja?${params}`, fetcher,
+    { refreshInterval: 300_000 },
+  )
+  return {
+    saldo_actual: data?.saldo_actual ?? 0,
+    por_cobrar: data?.por_cobrar ?? 0,
+    por_pagar: data?.por_pagar ?? 0,
+    historico: data?.historico ?? [],
+    proyeccion: data?.proyeccion ?? [],
+    isLoading,
+    error,
+  }
 }

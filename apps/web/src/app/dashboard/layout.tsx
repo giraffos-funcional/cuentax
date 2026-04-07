@@ -58,6 +58,9 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/contabilidad/balance',            icon: Scale,          label: 'Balance General' },
       { href: '/dashboard/contabilidad/resultados',         icon: TrendingUp,     label: 'Estado Resultados' },
       { href: '/dashboard/contabilidad/conciliacion',       icon: ArrowLeftRight, label: 'Conciliación' },
+      { href: '/dashboard/contabilidad/lcv',                icon: BookOpen,       label: 'Libro C/V' },
+      { href: '/dashboard/contabilidad/centros-costo',       icon: Folders,        label: 'Centros Costo' },
+      { href: '/dashboard/contabilidad/flujo-caja',          icon: TrendingUp,     label: 'Flujo de Caja' },
     ],
   },
   {
@@ -72,7 +75,10 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/remuneraciones/ausencias',     icon: CalendarDays,  label: 'Ausencias' },
       { href: '/dashboard/remuneraciones/contratos',     icon: Briefcase,     label: 'Contratos' },
       { href: '/dashboard/remuneraciones/asistencia',    icon: Clock4,        label: 'Asistencia' },
+      { href: '/dashboard/remuneraciones/finiquitos',    icon: FileX,         label: 'Finiquitos' },
       { href: '/dashboard/remuneraciones/indicadores',   icon: Activity,      label: 'Indicadores' },
+      { href: '/dashboard/remuneraciones/libro-remuneraciones', icon: BookText, label: 'Libro Rem.' },
+      { href: '/dashboard/remuneraciones/previred', icon: Send, label: 'Previred' },
     ],
   },
 
@@ -719,6 +725,7 @@ export default function DashboardLayout({
       '/dashboard/remuneraciones/ausencias':     'Ausencias y Vacaciones',
       '/dashboard/remuneraciones/contratos':     'Contratos',
       '/dashboard/remuneraciones/asistencia':    'Asistencia',
+      '/dashboard/remuneraciones/finiquitos':    'Finiquitos',
       '/dashboard/remuneraciones/indicadores':   'Indicadores Previsionales',
     }
     return titles[pathname] ?? 'CUENTAX'

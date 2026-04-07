@@ -1,0 +1,159 @@
+/**
+ * CUENTAX — Bank Statement Import Service
+ * Parses OFX, CSV formats from Chilean banks into standardized statement lines.
+ */
+
+export interface ParsedStatementLine {
+  date: string       // YYYY-MM-DD
+  description: string
+  amount: number     // positive = credit, negative = debit
+  reference: string  // transaction reference
+}
+
+export interface ParseResult {
+  lines: ParsedStatementLine[]
+  bank: string
+  format: string
+  errors: string[]
+}
+
+/** Parse OFX/QFX file content */
+export function parseOFX(content: string): ParseResult {
+  // OFX format: XML-like with STMTTRN tags
+  const lines: ParsedStatementLine[] = []
+  const errors: string[] = []
+
+  // Extract transactions between <STMTTRN> tags
+  const txRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi
+  let match: RegExpExecArray | null
+
+  while ((match = txRegex.exec(content)) !== null) {
+    const block = match[1]
+
+    const getField = (name: string): string => {
+      const fieldMatch = new RegExp(`<${name}>([^<\\n]+)`, 'i').exec(block)
+      return fieldMatch ? fieldMatch[1].trim() : ''
+    }
+
+    const dtposted = getField('DTPOSTED')   // YYYYMMDD or YYYYMMDDHHMMSS
+    const trnamt = getField('TRNAMT')        // Amount with sign
+    const name = getField('NAME') || getField('MEMO')
+    const fitid = getField('FITID')          // Unique transaction ID
+
+    if (!dtposted || !trnamt) {
+      errors.push(`Transaction missing date or amount: ${fitid}`)
+      continue
+    }
+
+    // Parse date: YYYYMMDD -> YYYY-MM-DD
+    const dateStr = `${dtposted.slice(0, 4)}-${dtposted.slice(4, 6)}-${dtposted.slice(6, 8)}`
+
+    lines.push({
+      date: dateStr,
+      description: name,
+      amount: parseFloat(trnamt),
+      reference: fitid,
+    })
+  }
+
+  return { lines, bank: 'OFX', format: 'ofx', errors }
+}
+
+/** Bank-specific CSV column mappings */
+interface CSVMapping {
+  date: number        // Column index for date
+  description: number // Column index for description
+  amount: number      // Column index for amount (single column, signed)
+  debit?: number      // Column index for debit (if separate)
+  credit?: number     // Column index for credit (if separate)
+  reference?: number  // Column index for reference
+  dateFormat: 'DD/MM/YYYY' | 'YYYY-MM-DD' | 'DD-MM-YYYY'
+  separator: string   // CSV separator (usually ',' or ';')
+  skipHeader: boolean
+}
+
+const BANK_MAPPINGS: Record<string, CSVMapping> = {
+  bancoestado: {
+    date: 0, description: 1, amount: -1, debit: 3, credit: 4, reference: 2,
+    dateFormat: 'DD/MM/YYYY', separator: ';', skipHeader: true,
+  },
+  bci: {
+    date: 0, description: 2, amount: 3, reference: 1,
+    dateFormat: 'DD/MM/YYYY', separator: ';', skipHeader: true,
+  },
+  santander: {
+    date: 0, description: 1, amount: -1, debit: 2, credit: 3, reference: 4,
+    dateFormat: 'DD/MM/YYYY', separator: ',', skipHeader: true,
+  },
+  generic: {
+    date: 0, description: 1, amount: 2, reference: 3,
+    dateFormat: 'DD/MM/YYYY', separator: ',', skipHeader: true,
+  },
+}
+
+/** Parse date string to YYYY-MM-DD */
+function parseDate(raw: string, format: string): string {
+  const clean = raw.trim().replace(/"/g, '')
+  if (format === 'DD/MM/YYYY' || format === 'DD-MM-YYYY') {
+    const sep = format === 'DD/MM/YYYY' ? '/' : '-'
+    const parts = clean.split(sep)
+    if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+  }
+  if (format === 'YYYY-MM-DD') return clean
+  return clean // Fallback
+}
+
+/** Parse numeric amount from Chilean format: 1.234.567 or -1.234.567 */
+function parseAmount(raw: string): number {
+  const clean = raw.trim().replace(/"/g, '').replace(/\$/g, '').replace(/\s/g, '')
+  // Chilean: dots as thousands, comma as decimal
+  const normalized = clean.replace(/\./g, '').replace(',', '.')
+  return parseFloat(normalized) || 0
+}
+
+/** Parse CSV bank statement */
+export function parseCSV(content: string, bank: string = 'generic'): ParseResult {
+  const mapping = BANK_MAPPINGS[bank] ?? BANK_MAPPINGS.generic
+  const lines: ParsedStatementLine[] = []
+  const errors: string[] = []
+
+  const rows = content.split('\n').filter(r => r.trim())
+  const startIdx = mapping.skipHeader ? 1 : 0
+
+  for (let i = startIdx; i < rows.length; i++) {
+    const cols = rows[i].split(mapping.separator).map(c => c.trim().replace(/^"|"$/g, ''))
+
+    if (cols.length < 3) continue // Skip malformed rows
+
+    const dateStr = parseDate(cols[mapping.date] ?? '', mapping.dateFormat)
+    const description = cols[mapping.description] ?? ''
+
+    let amount = 0
+    if (mapping.amount >= 0) {
+      amount = parseAmount(cols[mapping.amount] ?? '0')
+    } else if (mapping.debit !== undefined && mapping.credit !== undefined) {
+      const debit = parseAmount(cols[mapping.debit] ?? '0')
+      const credit = parseAmount(cols[mapping.credit] ?? '0')
+      amount = credit - debit
+    }
+
+    const reference = mapping.reference !== undefined ? (cols[mapping.reference] ?? '') : ''
+
+    if (!dateStr || amount === 0) {
+      if (description) errors.push(`Row ${i + 1}: could not parse date or amount`)
+      continue
+    }
+
+    lines.push({ date: dateStr, description, amount, reference })
+  }
+
+  return { lines, bank, format: 'csv', errors }
+}
+
+/** Auto-detect format and parse */
+export function parseStatement(content: string, format: 'ofx' | 'csv', bank?: string): ParseResult {
+  if (format === 'ofx') return parseOFX(content)
+  return parseCSV(content, bank)
+}
+
+export { BANK_MAPPINGS }

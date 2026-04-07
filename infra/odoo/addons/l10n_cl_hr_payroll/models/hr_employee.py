@@ -46,3 +46,8 @@ class HrEmployee(models.Model):
         ],
         string="Régimen APV",
     )
+    l10n_cl_portal_pin = fields.Char(
+        string="Portal PIN",
+        size=6,
+        help="PIN for employee self-service portal access.",
+    )

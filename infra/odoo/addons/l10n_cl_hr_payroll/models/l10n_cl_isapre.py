@@ -19,6 +19,11 @@ class L10nClIsapre(models.Model):
         string="Código",
         required=True,
     )
+    previred_code = fields.Char(
+        string="Código Previred",
+        size=3,
+        help="Código numérico para archivo Previred.",
+    )
     active = fields.Boolean(
         default=True,
     )

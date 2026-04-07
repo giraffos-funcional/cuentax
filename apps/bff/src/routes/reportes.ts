@@ -12,6 +12,7 @@ import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { dteRepository } from '@/repositories/dte.repository'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
+import { generateLCVPDF } from '@/services/lcv-pdf.service'
 
 export async function reportesRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -84,6 +85,88 @@ export async function reportesRoutes(fastify: FastifyInstance) {
       registros: filtered,
       totales,
     })
+  })
+
+  // ── GET /lcv/pdf ──────────────────────────────────────────
+  fastify.get('/lcv/pdf', async (req, reply) => {
+    const user = (req as any).user
+    const q = req.query as { mes?: string; year?: string; libro?: string }
+    const now = new Date()
+    const year = Number(q.year ?? now.getFullYear())
+    const mes = Number(q.mes ?? now.getMonth() + 1)
+    const libro = (q.libro ?? 'ventas') as 'ventas' | 'compras'
+
+    // Get LCV data (reuse existing logic — try Odoo, fallback to local)
+    let registros: any[] = []
+    try {
+      registros = await odooAccountingAdapter.getLCVData(user.company_id, year, mes, libro)
+    } catch (err) {
+      logger.warn({ err }, 'Odoo LCV unavailable for PDF, falling back to local')
+    }
+
+    // Fallback to local DB if Odoo returned nothing
+    if (registros.length === 0) {
+      try {
+        const localCompanyId = await getLocalCompanyId(user.company_id)
+        const monthStr = String(mes).padStart(2, '0')
+        const desde = `${year}-${monthStr}-01`
+        const hasta = `${year}-${monthStr}-31`
+
+        const { data } = await dteRepository.findMany({
+          company_id: localCompanyId,
+          desde,
+          hasta,
+          limit: 500,
+        })
+
+        const VENTAS_TIPOS = [33, 39, 41, 56, 61]
+        const filtered = libro === 'ventas'
+          ? data.filter(d => VENTAS_TIPOS.includes(d.tipo_dte))
+          : data
+
+        registros = filtered.map(d => ({
+          tipo_dte: String(d.tipo_dte ?? ''),
+          folio: String(d.folio ?? ''),
+          fecha: d.fecha_emision ?? '',
+          rut_receptor: d.rut_receptor ?? '',
+          razon_social_receptor: d.razon_social_receptor ?? '',
+          neto: d.monto_neto ?? 0,
+          iva: d.monto_iva ?? 0,
+          total: d.monto_total ?? 0,
+        }))
+      } catch (localErr) {
+        logger.warn({ err: localErr }, 'Local DB fallback failed for LCV PDF')
+      }
+    }
+
+    const totales = registros.reduce((acc, r) => ({
+      neto: acc.neto + (r.neto ?? r.monto_neto ?? 0),
+      iva: acc.iva + (r.iva ?? r.monto_iva ?? 0),
+      total: acc.total + (r.total ?? r.monto_total ?? 0),
+    }), { neto: 0, iva: 0, total: 0 })
+
+    const pdfBuffer = await generateLCVPDF({
+      company_name: user.company_name ?? '',
+      company_rut: user.company_rut ?? '',
+      company_address: '',
+      libro,
+      periodo: { year, mes },
+      registros: registros.map(r => ({
+        tipo_dte: r.tipo_dte ?? String(r.tipo ?? ''),
+        folio: r.folio ?? String(r.l10n_latam_document_number ?? ''),
+        fecha: r.fecha_emision ?? r.fecha ?? '',
+        rut_receptor: r.rut_receptor ?? r.rut ?? '',
+        razon_social_receptor: r.razon_social_receptor ?? r.receptor ?? '',
+        neto: r.monto_neto ?? r.neto ?? r.amount_untaxed ?? 0,
+        iva: r.monto_iva ?? r.iva ?? r.amount_tax ?? 0,
+        total: r.monto_total ?? r.total ?? r.amount_total ?? 0,
+      })),
+      totales,
+    })
+
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `inline; filename="LCV_${libro}_${year}_${mes}.pdf"`)
+    return reply.send(pdfBuffer)
   })
 
   // ── GET /f29 ──────────────────────────────────────────────

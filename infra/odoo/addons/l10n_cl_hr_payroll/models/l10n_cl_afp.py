@@ -36,6 +36,11 @@ class L10nClAfp(models.Model):
         default=1.53,
         help="Seguro de Invalidez y Sobrevivencia, pagado por el empleador.",
     )
+    previred_code = fields.Char(
+        string="Código Previred",
+        size=3,
+        help="Código numérico para archivo Previred (ej: 33=Capital, 29=Habitat).",
+    )
     active = fields.Boolean(
         default=True,
     )

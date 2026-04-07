@@ -35,6 +35,7 @@ import { contabilidadRoutes } from '@/routes/contabilidad'
 import { remuneracionesRoutes } from '@/routes/remuneraciones'
 import { indicatorsRoutes } from '@/routes/indicators'
 import { certificationRoutes } from '@/routes/certification'
+import { portalRoutes } from '@/routes/portal'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -356,6 +357,7 @@ async function bootstrap() {
   await fastify.register(remuneracionesRoutes, { prefix: '/api/v1/remuneraciones' })
   await fastify.register(indicatorsRoutes, { prefix: '/api/v1/indicators' })
   await fastify.register(certificationRoutes, { prefix: '/api/v1/certification' })
+  await fastify.register(portalRoutes, { prefix: '/api/v1/portal' })
 
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {

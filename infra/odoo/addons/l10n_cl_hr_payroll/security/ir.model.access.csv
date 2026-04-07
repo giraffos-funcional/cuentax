@@ -5,3 +5,5 @@ access_l10n_cl_isapre_manager,l10n_cl.isapre.manager,model_l10n_cl_isapre,payrol
 access_l10n_cl_isapre_user,l10n_cl.isapre.user,model_l10n_cl_isapre,base.group_user,1,0,0,0
 access_l10n_cl_indicators_manager,l10n_cl.indicators.manager,model_l10n_cl_indicators,payroll.group_payroll_manager,1,1,1,1
 access_l10n_cl_indicators_user,l10n_cl.indicators.user,model_l10n_cl_indicators,base.group_user,1,0,0,0
+access_l10n_cl_termination_manager,l10n_cl.termination.manager,model_l10n_cl_termination,payroll.group_payroll_manager,1,1,1,1
+access_l10n_cl_termination_user,l10n_cl.termination.user,model_l10n_cl_termination,base.group_user,1,1,1,1
