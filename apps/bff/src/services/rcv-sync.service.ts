@@ -239,73 +239,71 @@ async function fetchDetalleViaUI(
     // Wait for Angular to be ready
     await page.waitForTimeout(2000)
 
-    // Use Angular's internal $http or injector to make the API call with proper reCAPTCHA.
-    // The Angular app stores its injector on the root element.
-    // We trigger the call via the Angular app's own service layer.
+    // Discover the Angular service name and use $http with Angular's reCAPTCHA interceptor.
     const triggered = await page.evaluate(async ({ rut, dv, periodo, operacion, tipoDoc, detalleEndpoint }) => {
-      // Try to access Angular's $injector to call the service directly
       // @ts-expect-error: Angular global
-      const injector = globalThis.angular?.element('[ng-app]')?.injector?.() ??
-        // @ts-expect-error: Angular global
-        globalThis.angular?.element('[data-ng-app]')?.injector?.()
-      if (!injector) return { method: 'none', error: 'Angular injector not found' }
+      const ng = globalThis.angular
+      if (!ng) return { method: 'none', error: 'angular not found' }
+
+      const injector = ng.element('[ng-app]')?.injector?.() ?? ng.element('body')?.injector?.()
+      if (!injector) return { method: 'none', error: 'injector not found' }
+
+      // List available services that contain 'facade' or 'detalle' (for debugging)
+      const services: string[] = []
+      try {
+        const providerCache = (injector as Record<string, unknown>)._providerCache || {}
+        for (const key of Object.keys(providerCache)) {
+          if (/facade|detalle|rcv|dcv|service/i.test(key)) services.push(key)
+        }
+      } catch { /* ignore */ }
 
       try {
         const $http = injector.get('$http')
-        const facadeService = injector.get('facadeService')
-
-        if (facadeService && typeof facadeService[detalleEndpoint] === 'function') {
-          // Call the Angular service method directly — it handles reCAPTCHA internally
-          await facadeService[detalleEndpoint]({
-            rutEmisor: rut,
-            dvEmisor: dv,
-            ptributario: periodo,
-            estadoContab: 'REGISTRO',
-            operacion,
-            codTipoDoc: tipoDoc,
-          })
-          return { method: 'facadeService', error: null }
-        }
-
-        if ($http) {
-          // Fall back to $http — the Angular interceptors will add reCAPTCHA
-          const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${detalleEndpoint}`
-          await $http.post(`/consdcvinternetui/services/data/facadeService/${detalleEndpoint}`, {
+        // Use $http.post — Angular's interceptors (including reCAPTCHA) are applied automatically
+        const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${detalleEndpoint}`
+        const resp = await new Promise((resolve, reject) => {
+          $http.post(`/consdcvinternetui/services/data/facadeService/${detalleEndpoint}`, {
             metaData: { namespace, conversationId: '', transactionId: '0', page: null },
             data: {
               rutEmisor: rut, dvEmisor: dv, ptributario: periodo,
               estadoContab: 'REGISTRO', operacion, codTipoDoc: tipoDoc,
             },
-          })
-          return { method: '$http', error: null }
-        }
-
-        return { method: 'none', error: 'No $http or facadeService found' }
+          }).then((r: { data: unknown }) => resolve(r.data), (e: { data?: unknown; statusText?: string }) => reject(new Error(e.statusText ?? 'request failed')))
+        })
+        return { method: '$http', error: null, services, directData: resp }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        return { method: 'attempted', error: msg }
+        return { method: '$http-failed', error: msg, services }
       }
     }, { rut, dv, periodo, operacion, tipoDoc, detalleEndpoint })
 
-    logger.info({ tipoDoc, operacion, triggered }, 'Angular UI trigger result')
+    logger.info({ tipoDoc, operacion, method: triggered.method, error: triggered.error, services: (triggered as any).services }, 'Angular UI trigger result')
 
+    // If $http worked and returned data directly, use it
+    if (triggered.method === '$http' && (triggered as any).directData) {
+      const result = (triggered as any).directData
+      const docs = Array.isArray(result?.data) ? result.data : []
+      logger.info({ tipoDoc, operacion, count: docs.length, respEstado: result?.respEstado }, 'Detalle fetched via $http')
+      return docs
+    }
+
+    // If Angular wasn't found, try clicking through the UI
     if (triggered.method === 'none') {
-      // Angular injector not available — try clicking through the UI
       return await fetchDetalleViaClicks(page, operacion, periodo, tipoDoc)
     }
 
-    // Wait for the intercepted response (with timeout)
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000))
+    // Check if we caught anything via the response interceptor
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000))
     const result = await Promise.race([responsePromise, timeoutPromise]) as any
 
-    if (!result) {
-      logger.warn({ tipoDoc, operacion }, 'Timeout waiting for detalle response from Angular app')
-      return []
+    if (result) {
+      const docs = Array.isArray(result?.data) ? result.data : []
+      logger.info({ tipoDoc, operacion, count: docs.length }, 'Detalle caught via response interceptor')
+      return docs
     }
 
-    const docs = Array.isArray(result?.data) ? result.data : []
-    logger.info({ tipoDoc, operacion, count: docs.length, respEstado: result?.respEstado }, 'Detalle fetched via Angular UI')
-    return docs
+    logger.warn({ tipoDoc, operacion }, 'All detalle methods failed, falling back to UI clicks')
+    return await fetchDetalleViaClicks(page, operacion, periodo, tipoDoc)
   } finally {
     await page.close()
   }
