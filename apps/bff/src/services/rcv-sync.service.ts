@@ -180,16 +180,20 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
     await page.goto('https://www4.sii.cl/consdcvinternetui/#/index', { waitUntil: 'networkidle', timeout: 30_000 })
 
     const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
-      // If this call requires recaptcha, get a real token from the Angular app's grecaptcha instance
-      const w = globalThis as Record<string, unknown>
-      if (data.accionRecaptcha && w.grecaptcha) {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- runs in browser via Playwright
+      // @ts-expect-error: document/globalThis.grecaptcha exist in the browser context
+      if (data.accionRecaptcha && globalThis.grecaptcha) {
         try {
-          const gc = w.grecaptcha as { execute: (key: string, opts: { action: string }) => Promise<string> }
-          const siteKey = (w.RECAPTCHA_SITE_KEY as string) ||
-            document.querySelector('[data-sitekey]')?.getAttribute('data-sitekey') ||
-            document.querySelector('script[src*="recaptcha"]')?.getAttribute('src')?.match(/render=([^&]+)/)?.[1] || ''
+          // @ts-expect-error: browser globals
+          const gc = globalThis.grecaptcha
+          // @ts-expect-error: browser globals
+          const el1 = document.querySelector('[data-sitekey]')
+          // @ts-expect-error: browser globals
+          const el2 = document.querySelector('script[src*="recaptcha"]')
+          // @ts-expect-error: browser globals
+          const siteKey = globalThis.RECAPTCHA_SITE_KEY || el1?.getAttribute('data-sitekey') || el2?.getAttribute('src')?.match(/render=([^&]+)/)?.[1] || ''
           if (siteKey) {
-            const recaptchaToken = await gc.execute(siteKey, { action: data.accionRecaptcha as string })
+            const recaptchaToken = await gc.execute(siteKey, { action: data.accionRecaptcha })
             data.tokenRecaptcha = recaptchaToken
           }
         } catch { /* fall back to dummy token */ }
