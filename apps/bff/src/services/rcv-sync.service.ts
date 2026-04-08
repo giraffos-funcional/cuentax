@@ -202,167 +202,14 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
 }
 
 /**
- * Fetch RCV detalles by driving the Angular UI with Playwright.
- * The SII requires a valid reCAPTCHA v3 token for getDetalleCompra/Venta,
- * which only the Angular app can generate. We navigate the UI, trigger the
- * Angular app's own API call, and intercept the network response.
- */
-async function fetchDetalleViaUI(
-  session: SIISession,
-  rut: string,
-  dv: string,
-  periodo: string,
-  operacion: 'COMPRA' | 'VENTA',
-  tipoDoc: number,
-): Promise<unknown[]> {
-  const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
-  const page = await session.context.newPage()
-
-  try {
-    // Set up response interceptor BEFORE navigating
-    let detalleResponse: unknown = null
-    const responsePromise = new Promise<unknown>((resolve) => {
-      page.on('response', async (response) => {
-        if (response.url().includes(`facadeService/${detalleEndpoint}`)) {
-          try {
-            const json = await response.json()
-            detalleResponse = json
-            resolve(json)
-          } catch { resolve(null) }
-        }
-      })
-    })
-
-    // Navigate to the RCV Angular app
-    await page.goto('https://www4.sii.cl/consdcvinternetui/#/index', { waitUntil: 'networkidle', timeout: 30_000 })
-
-    // Wait for Angular to be ready
-    await page.waitForTimeout(2000)
-
-    // Discover the Angular service name and use $http with Angular's reCAPTCHA interceptor.
-    const triggered = await page.evaluate(async ({ rut, dv, periodo, operacion, tipoDoc, detalleEndpoint }) => {
-      // @ts-expect-error: Angular global
-      const ng = globalThis.angular
-      if (!ng) return { method: 'none', error: 'angular not found' }
-
-      const injector = ng.element('[ng-app]')?.injector?.() ?? ng.element('body')?.injector?.()
-      if (!injector) return { method: 'none', error: 'injector not found' }
-
-      // List available services that contain 'facade' or 'detalle' (for debugging)
-      const services: string[] = []
-      try {
-        const providerCache = (injector as Record<string, unknown>)._providerCache || {}
-        for (const key of Object.keys(providerCache)) {
-          if (/facade|detalle|rcv|dcv|service/i.test(key)) services.push(key)
-        }
-      } catch { /* ignore */ }
-
-      try {
-        const $http = injector.get('$http')
-        // Use $http.post — Angular's interceptors (including reCAPTCHA) are applied automatically
-        const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${detalleEndpoint}`
-        const resp = await new Promise((resolve, reject) => {
-          $http.post(`/consdcvinternetui/services/data/facadeService/${detalleEndpoint}`, {
-            metaData: { namespace, conversationId: '', transactionId: '0', page: null },
-            data: {
-              rutEmisor: rut, dvEmisor: dv, ptributario: periodo,
-              estadoContab: 'REGISTRO', operacion, codTipoDoc: tipoDoc,
-            },
-          }).then((r: { data: unknown }) => resolve(r.data), (e: { data?: unknown; statusText?: string }) => reject(new Error(e.statusText ?? 'request failed')))
-        })
-        return { method: '$http', error: null, services, directData: resp }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return { method: '$http-failed', error: msg, services }
-      }
-    }, { rut, dv, periodo, operacion, tipoDoc, detalleEndpoint })
-
-    logger.info({ tipoDoc, operacion, method: triggered.method, error: triggered.error, services: (triggered as any).services }, 'Angular UI trigger result')
-
-    // If $http worked and returned data directly, use it
-    if (triggered.method === '$http' && (triggered as any).directData) {
-      const result = (triggered as any).directData
-      const docs = Array.isArray(result?.data) ? result.data : []
-      logger.info({ tipoDoc, operacion, count: docs.length, respEstado: result?.respEstado }, 'Detalle fetched via $http')
-      return docs
-    }
-
-    // If Angular wasn't found, try clicking through the UI
-    if (triggered.method === 'none') {
-      return await fetchDetalleViaClicks(page, operacion, periodo, tipoDoc)
-    }
-
-    // Check if we caught anything via the response interceptor
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000))
-    const result = await Promise.race([responsePromise, timeoutPromise]) as any
-
-    if (result) {
-      const docs = Array.isArray(result?.data) ? result.data : []
-      logger.info({ tipoDoc, operacion, count: docs.length }, 'Detalle caught via response interceptor')
-      return docs
-    }
-
-    logger.warn({ tipoDoc, operacion }, 'All detalle methods failed, falling back to UI clicks')
-    return await fetchDetalleViaClicks(page, operacion, periodo, tipoDoc)
-  } finally {
-    await page.close()
-  }
-}
-
-/**
- * Fallback: fetch detalles by clicking through the RCV UI.
- * Navigates to the correct section, selects period/document type, and
- * waits for the table data to load.
- */
-async function fetchDetalleViaClicks(
-  page: import('playwright').Page,
-  operacion: 'COMPRA' | 'VENTA',
-  periodo: string,
-  tipoDoc: number,
-): Promise<unknown[]> {
-  logger.info({ operacion, periodo, tipoDoc }, 'Attempting detalle fetch via UI clicks')
-
-  const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
-
-  // Set up response interceptor
-  const captured: unknown[] = []
-  page.on('response', async (response) => {
-    if (response.url().includes(`facadeService/${detalleEndpoint}`)) {
-      try {
-        const json = await response.json()
-        if (Array.isArray(json?.data)) captured.push(...json.data)
-      } catch { /* ignore */ }
-    }
-  })
-
-  try {
-    // Click the compras or ventas tab
-    const tabText = operacion === 'COMPRA' ? 'Compras' : 'Ventas'
-    const tab = page.locator(`a:has-text("${tabText}"), button:has-text("${tabText}"), li:has-text("${tabText}")`).first()
-    if (await tab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tab.click()
-      await page.waitForTimeout(2000)
-    }
-
-    // Look for a document type row/link matching our tipoDoc and click it
-    const tipoDocLink = page.locator(`tr:has-text("${tipoDoc}") a, td:has-text("${tipoDoc}")`).first()
-    if (await tipoDocLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tipoDocLink.click()
-      await page.waitForTimeout(5000) // Wait for data to load
-    }
-
-    logger.info({ operacion, tipoDoc, capturedCount: captured.length }, 'UI click detalle result')
-    return captured
-  } catch (err) {
-    logger.warn({ err: (err as Error).message, operacion, tipoDoc }, 'UI click detalle failed')
-    return []
-  }
-}
-
-/**
  * Fetch RCV data (compras or ventas) for a specific period.
- * Uses direct API for resumen (no reCAPTCHA needed), then Angular UI
- * automation for detalles (requires valid reCAPTCHA token).
+ * First gets the resumen to know what document types exist,
+ * then fetches detalles for each type via direct API.
+ *
+ * SII API params discovered from the Angular RCV app's network calls:
+ * - accionRecaptcha: "RCV_DETC" (compras) / "RCV_DETV" (ventas)
+ * - tokenRecaptcha: "t-o-k-e-n-web" (fixed string, not a real reCAPTCHA token)
+ * - codTipoDoc: string (e.g. "33"), not number
  */
 async function fetchRCVData(
   session: SIISession,
@@ -377,7 +224,7 @@ async function fetchRCVData(
   const operacion = tipo === 'compras' ? 'COMPRA' : 'VENTA'
   const periodo = `${year}${String(mes).padStart(2, '0')}`
 
-  // Step 1: Get resumen via direct API (no reCAPTCHA needed)
+  // Step 1: Get resumen to see which document types have data
   let resumen: any
   try {
     resumen = await callSIIApi(session, 'getResumen', {
@@ -398,7 +245,7 @@ async function fetchRCVData(
 
   if (resumenData.length === 0) return []
 
-  // Step 2: For each document type, fetch detalles via Angular UI automation
+  // Step 2: For each document type with data, fetch detalles
   const allDocuments: SIIDocumento[] = []
 
   for (const rsm of resumenData) {
@@ -407,27 +254,39 @@ async function fetchRCVData(
     if (!tipoDoc || totalDocs === 0) continue
 
     try {
-      const docs = await fetchDetalleViaUI(session, rut, dv, periodo, operacion, tipoDoc)
+      const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
+      const accionRecaptcha = operacion === 'COMPRA' ? 'RCV_DETC' : 'RCV_DETV'
+      const detalle = await callSIIApi(session, detalleEndpoint, {
+        rutEmisor: rut,
+        dvEmisor: dv,
+        ptributario: periodo,
+        estadoContab: 'REGISTRO',
+        operacion,
+        codTipoDoc: String(tipoDoc),
+        accionRecaptcha,
+        tokenRecaptcha: 't-o-k-e-n-web',
+      }) as any
+
+      const docs = Array.isArray(detalle?.data) ? detalle.data : []
 
       for (const doc of docs) {
-        const d = doc as Record<string, unknown>
         allDocuments.push({
           detTipoDoc: tipoDoc,
-          detNroDoc: (d.detNroDoc ?? d.folio ?? 0) as number,
-          detFchDoc: (d.detFchDoc ?? d.fechaEmision ?? '') as string,
-          detRutDoc: d.detRutDoc ? `${d.detRutDoc}-${d.detDvDoc ?? ''}` : '',
-          detRznSoc: (d.detRznSoc ?? d.razonSocial ?? '') as string,
-          detMntNeto: (d.detMntNeto ?? 0) as number,
-          detMntExe: (d.detMntExe ?? 0) as number,
-          detMntIVA: (d.detMntIVA ?? 0) as number,
-          detMntTotal: (d.detMntTotal ?? 0) as number,
-          detMntIVANoRec: (d.detMntIVANoRec ?? 0) as number,
+          detNroDoc: doc.detNroDoc ?? doc.folio ?? 0,
+          detFchDoc: doc.detFchDoc ?? doc.fechaEmision ?? '',
+          detRutDoc: doc.detRutDoc ? `${doc.detRutDoc}-${doc.detDvDoc ?? ''}` : '',
+          detRznSoc: doc.detRznSoc ?? doc.razonSocial ?? '',
+          detMntNeto: doc.detMntNeto ?? 0,
+          detMntExe: doc.detMntExe ?? 0,
+          detMntIVA: doc.detMntIVA ?? 0,
+          detMntTotal: doc.detMntTotal ?? 0,
+          detMntIVANoRec: doc.detMntIVANoRec ?? 0,
           estado: 'REGISTRO',
-          ...d,
+          ...doc,
         })
       }
 
-      logger.debug({ tipoDoc, count: docs.length, periodo }, 'Fetched RCV detalles')
+      logger.info({ tipoDoc, count: docs.length, periodo }, 'Fetched RCV detalles')
     } catch (err) {
       logger.warn({ tipoDoc, periodo, err: (err as Error).message }, 'Failed to fetch RCV detalles for type')
     }
