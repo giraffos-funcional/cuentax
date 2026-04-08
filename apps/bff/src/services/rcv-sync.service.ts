@@ -90,7 +90,14 @@ export interface SIISession {
 export async function createSIISession(rutEmpresa: string, siiUser: string, siiPassword: string): Promise<SIISession> {
   logger.info({ siiUser, rutEmpresa }, 'Authenticating with SII via headless browser')
 
-  const browser = await chromium.launch({ headless: true })
+  let browser: Browser
+  try {
+    browser = await chromium.launch({ headless: true })
+  } catch (launchErr) {
+    const msg = launchErr instanceof Error ? launchErr.message : String(launchErr)
+    logger.error({ err: msg }, 'Failed to launch Chromium — is Playwright browser installed?')
+    throw new Error(`Chromium not available: ${msg}. Run "npx playwright install chromium" on the server.`)
+  }
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     locale: 'es-CL',
