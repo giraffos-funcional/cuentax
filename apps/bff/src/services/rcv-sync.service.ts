@@ -15,6 +15,7 @@
  * calls backend APIs that return JSON. We call those APIs directly.
  */
 
+import crypto from 'node:crypto'
 import { chromium } from 'playwright'
 import type { Browser, BrowserContext } from 'playwright'
 import { eq, and, inArray } from 'drizzle-orm'
@@ -169,10 +170,12 @@ export async function closeSIISession(session: SIISession): Promise<void> {
 async function callSIIApi(session: SIISession, endpoint: string, data: Record<string, unknown>): Promise<unknown> {
   const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${endpoint}`
   const url = `${SII_RCV_API}/${endpoint}`
+  // Generate UUID in Node.js context (crypto.randomUUID not available in headless shell)
+  const transactionId = crypto.randomUUID()
 
   const page = await session.context.newPage()
   try {
-    const result = await page.evaluate(async ({ url, namespace, token, data }) => {
+    const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
       const response = await fetch(url, {
         method: 'POST',
         credentials: 'include',
@@ -184,7 +187,7 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
           metaData: {
             namespace,
             conversationId: token,
-            transactionId: crypto.randomUUID(),
+            transactionId,
             page: null,
           },
           data,
@@ -192,7 +195,7 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
       })
       if (!response.ok) throw new Error(`SII API ${response.status}`)
       return response.json()
-    }, { url, namespace, token: session.token, data })
+    }, { url, namespace, token: session.token, transactionId, data })
 
     return result
   } finally {
