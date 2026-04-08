@@ -185,7 +185,7 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
         },
         body: JSON.stringify({
           metaData: {
