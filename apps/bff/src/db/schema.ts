@@ -29,6 +29,10 @@ export const formaPagoEnum = pgEnum('forma_pago', ['contado', 'credito', '30dias
 
 export const ambienteEnum = pgEnum('ambiente_sii', ['certificacion', 'produccion'])
 
+export const rcvTipoEnum = pgEnum('rcv_tipo', ['compras', 'ventas'])
+
+export const rcvSyncStatusEnum = pgEnum('rcv_sync_status', ['pendiente', 'sincronizado', 'error'])
+
 // ══════════════════════════════════════════════════════════════
 // EMPRESAS (Multi-tenant base)
 // ══════════════════════════════════════════════════════════════
@@ -48,6 +52,11 @@ export const companies = pgTable('companies', {
   ambiente_sii:     ambienteEnum('ambiente_sii').default('certificacion'),
   cert_vence:       timestamp('cert_vence', { withTimezone: true }),
   cert_cargado:     boolean('cert_cargado').default(false),
+  // SII Web Credentials (for RCV sync)
+  sii_user:         varchar('sii_user', { length: 50 }),
+  sii_password_enc: text('sii_password_enc'),  // AES-256 encrypted
+  sii_rcv_auto_sync: boolean('sii_rcv_auto_sync').default(false),
+  sii_rcv_last_sync: timestamp('sii_rcv_last_sync', { withTimezone: true }),
   // Plan
   plan:             varchar('plan', { length: 20 }).default('starter'),
   activo:           boolean('activo').default(true),
@@ -248,6 +257,63 @@ export const auditLog = pgTable('audit_log', {
   actionIdx:      index('audit_action_idx').on(t.action),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// RCV REGISTROS (Registro de Compras y Ventas — monthly sync)
+// ══════════════════════════════════════════════════════════════
+export const rcvRegistros = pgTable('rcv_registros', {
+  id:               serial('id').primaryKey(),
+  company_id:       integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  tipo:             rcvTipoEnum('tipo').notNull(),
+  mes:              integer('mes').notNull(),            // 1-12
+  year:             integer('year').notNull(),
+  // Totals
+  total_neto:       bigint('total_neto', { mode: 'number' }).default(0),
+  total_iva:        bigint('total_iva', { mode: 'number' }).default(0),
+  total_exento:     bigint('total_exento', { mode: 'number' }).default(0),
+  total_registros:  integer('total_registros').default(0),
+  // Sync tracking
+  sync_status:      rcvSyncStatusEnum('sync_status').default('pendiente'),
+  sync_date:        timestamp('sync_date', { withTimezone: true }),
+  sync_error:       text('sync_error'),
+  // Audit
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:       timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyPeriodIdx: uniqueIndex('rcv_company_period_idx').on(t.company_id, t.tipo, t.year, t.mes),
+}))
+
+// ══════════════════════════════════════════════════════════════
+// RCV DETALLES (Line items from SII RCV)
+// ══════════════════════════════════════════════════════════════
+export const rcvDetalles = pgTable('rcv_detalles', {
+  id:               serial('id').primaryKey(),
+  rcv_id:           integer('rcv_id').notNull().references(() => rcvRegistros.id, { onDelete: 'cascade' }),
+  company_id:       integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  // Document identification
+  tipo_dte:         integer('tipo_dte').notNull(),
+  folio:            integer('folio').notNull(),
+  fecha_emision:    text('fecha_emision').notNull(),     // YYYY-MM-DD
+  rut_contraparte:  varchar('rut_contraparte', { length: 15 }).notNull(),
+  razon_social:     text('razon_social'),
+  // Amounts
+  neto:             bigint('neto', { mode: 'number' }).default(0),
+  exento:           bigint('exento', { mode: 'number' }).default(0),
+  iva:              bigint('iva', { mode: 'number' }).default(0),
+  total:            bigint('total', { mode: 'number' }).default(0),
+  iva_no_recuperable: bigint('iva_no_recuperable', { mode: 'number' }).default(0),
+  // Reconciliation with local DTEs
+  dte_document_id:  integer('dte_document_id').references(() => dteDocuments.id),
+  odoo_move_id:     integer('odoo_move_id'),
+  // SII metadata
+  estado_rcv:       varchar('estado_rcv', { length: 20 }),  // REGISTRO, PENDIENTE, RECLAMADO, etc.
+  detalle_json:     jsonb('detalle_json'),
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  rcvIdx:          index('rcv_detalle_rcv_idx').on(t.rcv_id),
+  companyIdx:      index('rcv_detalle_company_idx').on(t.company_id),
+  folioIdx:        uniqueIndex('rcv_detalle_folio_idx').on(t.rcv_id, t.tipo_dte, t.folio),
+}))
+
 // ── Relations ─────────────────────────────────────────────────
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
@@ -257,6 +323,18 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   cafs: many(cafConfigs),
   apiKeys: many(apiKeys),
   webhooks: many(webhookEndpoints),
+  rcvRegistros: many(rcvRegistros),
+}))
+
+export const rcvRegistrosRelations = relations(rcvRegistros, ({ one, many }) => ({
+  company: one(companies, { fields: [rcvRegistros.company_id], references: [companies.id] }),
+  detalles: many(rcvDetalles),
+}))
+
+export const rcvDetallesRelations = relations(rcvDetalles, ({ one }) => ({
+  registro: one(rcvRegistros, { fields: [rcvDetalles.rcv_id], references: [rcvRegistros.id] }),
+  company: one(companies, { fields: [rcvDetalles.company_id], references: [companies.id] }),
+  dteDocument: one(dteDocuments, { fields: [rcvDetalles.dte_document_id], references: [dteDocuments.id] }),
 }))
 
 export const dteDocumentsRelations = relations(dteDocuments, ({ one }) => ({

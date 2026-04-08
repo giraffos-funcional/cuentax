@@ -7,7 +7,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2, Shield, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { useUpdateCompany } from '@/hooks/use-remuneraciones'
 import { useAuthStore } from '@/stores/auth.store'
 import { apiClient } from '@/lib/api-client'
@@ -249,6 +249,218 @@ export default function EmpresaPage() {
             <input value={form.website} onChange={e => set('website', e.target.value)} className="input-field text-sm w-full" placeholder="https://empresa.cl" />
           </div>
         </div>
+      </div>
+
+      {/* SII Credentials */}
+      <SIICredentialsCard />
+    </div>
+  )
+}
+
+// ── SII Credentials Card ────────────────────────────────────
+
+function SIICredentialsCard() {
+  const [siiUser, setSiiUser] = useState('')
+  const [siiPassword, setSiiPassword] = useState('')
+  const [autoSync, setAutoSync] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [credStatus, setCredStatus] = useState<{
+    sii_user: string | null
+    has_password: boolean
+    auto_sync: boolean
+    last_sync: string | null
+  } | null>(null)
+
+  // Fetch current credential status
+  const fetchStatus = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get('/api/v1/rcv/credentials')
+      setCredStatus(data)
+      setSiiUser(data.sii_user ?? '')
+      setAutoSync(data.auto_sync ?? false)
+      setSiiPassword('') // Never pre-fill password
+    } catch {
+      // RCV routes may not exist yet — non-critical
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchStatus() }, [fetchStatus])
+
+  const handleSave = async () => {
+    if (!siiUser.trim()) {
+      setMsg({ type: 'error', text: 'Ingresa el RUT del usuario SII' })
+      setTimeout(() => setMsg(null), 3000)
+      return
+    }
+    // Only require password on first setup
+    if (!credStatus?.has_password && !siiPassword.trim()) {
+      setMsg({ type: 'error', text: 'Ingresa la clave tributaria' })
+      setTimeout(() => setMsg(null), 3000)
+      return
+    }
+
+    setSaving(true)
+    setMsg(null)
+    try {
+      const body: Record<string, unknown> = {
+        sii_user: siiUser.trim(),
+        auto_sync: autoSync,
+      }
+      // Only send password if user entered one
+      if (siiPassword.trim()) {
+        body.sii_password = siiPassword.trim()
+      }
+      await apiClient.put('/api/v1/rcv/credentials', body)
+      setMsg({ type: 'ok', text: 'Credenciales SII guardadas correctamente' })
+      setSiiPassword('')
+      await fetchStatus()
+    } catch {
+      setMsg({ type: 'error', text: 'Error al guardar las credenciales' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setMsg(null), 4000)
+    }
+  }
+
+  const handleTest = async () => {
+    setTesting(true)
+    setMsg(null)
+    try {
+      const { data } = await apiClient.post('/api/v1/rcv/test-credentials')
+      setMsg({ type: 'ok', text: data.message ?? 'Conexion exitosa con el SII' })
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error ?? 'Error al probar la conexion'
+      setMsg({ type: 'error', text: errorMsg })
+    } finally {
+      setTesting(false)
+      setTimeout(() => setMsg(null), 5000)
+    }
+  }
+
+  if (loading) return null
+
+  return (
+    <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Shield size={16} className="text-[var(--cx-active-icon)]" />
+        <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider">
+          Credenciales SII — Sincronizacion RCV
+        </h3>
+      </div>
+
+      <p className="text-xs text-[var(--cx-text-muted)] mb-4">
+        Ingresa las credenciales del SII para sincronizar automaticamente el Registro de Compras y Ventas.
+        La clave se almacena encriptada (AES-256).
+      </p>
+
+      {/* Status badges */}
+      {credStatus && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {credStatus.has_password ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border border-[var(--cx-status-ok-border)]">
+              <Wifi size={11} /> Credenciales configuradas
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[var(--cx-status-warn-bg)] text-[var(--cx-status-warn-text)] border border-[var(--cx-status-warn-border)]">
+              <WifiOff size={11} /> Sin credenciales
+            </span>
+          )}
+          {credStatus.auto_sync && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[var(--cx-active-bg)] text-[var(--cx-active-text)] border border-[var(--cx-active-border)]">
+              <RefreshCw size={11} /> Sync automatico activo
+            </span>
+          )}
+          {credStatus.last_sync && (
+            <span className="text-[11px] text-[var(--cx-text-muted)]">
+              Ultima sync: {new Date(credStatus.last_sync).toLocaleString('es-CL')}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Feedback */}
+      {msg && (
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm border mb-4 ${
+          msg.type === 'ok'
+            ? 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border-[var(--cx-status-ok-border)]'
+            : 'bg-[var(--cx-status-error-bg)] text-[var(--cx-status-error-text)] border-[var(--cx-status-error-border)]'
+        }`}>
+          {msg.type === 'ok' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+          {msg.text}
+        </div>
+      )}
+
+      {/* Form */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT Usuario SII *</label>
+          <input
+            value={siiUser}
+            onChange={e => setSiiUser(e.target.value)}
+            className="input-field text-sm w-full"
+            placeholder="12345678-9"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">
+            Clave Tributaria {credStatus?.has_password ? '(dejar vacio para mantener)' : '*'}
+          </label>
+          <input
+            type="password"
+            value={siiPassword}
+            onChange={e => setSiiPassword(e.target.value)}
+            className="input-field text-sm w-full"
+            placeholder={credStatus?.has_password ? '••••••••' : 'Clave tributaria'}
+          />
+        </div>
+      </div>
+
+      {/* Auto-sync toggle */}
+      <div className="flex items-center gap-3 mt-4">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={autoSync}
+          onClick={() => setAutoSync(!autoSync)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            autoSync ? 'bg-[var(--cx-active-icon)]' : 'bg-[var(--cx-border-light)]'
+          }`}
+        >
+          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+            autoSync ? 'translate-x-4' : 'translate-x-0.5'
+          }`} />
+        </button>
+        <div>
+          <span className="text-sm text-[var(--cx-text-primary)]">Sincronizacion automatica diaria</span>
+          <p className="text-[11px] text-[var(--cx-text-muted)]">Sincroniza compras y ventas automaticamente a las 01:00 AM</p>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 mt-5">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="btn-primary flex items-center gap-2 text-sm"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          Guardar Credenciales
+        </button>
+        {credStatus?.has_password && (
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="btn-secondary flex items-center gap-2 text-sm"
+          >
+            {testing ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
+            Probar Conexion
+          </button>
+        )}
       </div>
     </div>
   )

@@ -36,10 +36,12 @@ import { remuneracionesRoutes } from '@/routes/remuneraciones'
 import { indicatorsRoutes } from '@/routes/indicators'
 import { certificationRoutes } from '@/routes/certification'
 import { portalRoutes } from '@/routes/portal'
+import { rcvRoutes } from '@/routes/rcv'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
 import { startPreviredScraper, stopPreviredScraper, getPreviredQueue } from '@/jobs/previred-scraper'
+import { startRCVSync, stopRCVSync, getRCVSyncQueue } from '@/jobs/rcv-sync'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -358,12 +360,14 @@ async function bootstrap() {
   await fastify.register(indicatorsRoutes, { prefix: '/api/v1/indicators' })
   await fastify.register(certificationRoutes, { prefix: '/api/v1/certification' })
   await fastify.register(portalRoutes, { prefix: '/api/v1/portal' })
+  await fastify.register(rcvRoutes, { prefix: '/api/v1/rcv' })
 
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {
     const queues = [
       { name: 'dte-status-polling', queue: getDTEStatusQueue() },
       { name: 'previred-sync', queue: getPreviredQueue() },
+      { name: 'rcv-sync', queue: getRCVSyncQueue() },
     ]
 
     const status = await Promise.all(
@@ -438,6 +442,7 @@ async function bootstrap() {
     // ── Background Jobs (BullMQ) ────────────────────────────────
     await startDTEStatusPoller()
     await startPreviredScraper()
+    await startRCVSync()
   } catch (err) {
     logger.error(err, 'Error al iniciar BFF')
     process.exit(1)
@@ -451,6 +456,7 @@ const shutdown = async (signal: string) => {
   await Promise.all([
     stopDTEStatusPoller(),
     stopPreviredScraper(),
+    stopRCVSync(),
   ])
   await fastify.close()
   await redis.quit()

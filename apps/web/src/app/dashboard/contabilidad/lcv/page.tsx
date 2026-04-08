@@ -6,13 +6,15 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Download, FileText, Loader2, AlertCircle,
   BookOpen, FileSpreadsheet, Printer, ArrowUpRight,
+  RefreshCw, CheckCircle2, Clock, XCircle, Shield,
 } from 'lucide-react'
 import { useLCV } from '@/hooks'
 import { formatCLP, MONTHS } from '@/lib/formatters'
+import { apiClient } from '@/lib/api-client'
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -240,6 +242,194 @@ export default function LibroComprasVentasPage() {
           Los datos del Libro de {libro === 'ventas' ? 'Ventas' : 'Compras'} deben ser verificados antes de presentar al SII.
         </span>
       </div>
+
+      {/* RCV Sync section */}
+      <RCVSyncCard currentMonth={month} currentYear={year} />
+    </div>
+  )
+}
+
+// ── Summary Cards ────────────────────────────────────────────
+
+// ── RCV Sync Card ───────────────────────────────────────────
+
+function RCVSyncCard({ currentMonth, currentYear }: { currentMonth: number; currentYear: number }) {
+  const [syncMonth, setSyncMonth] = useState(currentMonth)
+  const [syncYear, setSyncYear] = useState(currentYear)
+  const [syncing, setSyncing] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [status, setStatus] = useState<{
+    credentials: { configured: boolean; auto_sync: boolean; last_sync: string | null }
+    registros: Array<{
+      tipo: string; mes: number; year: number; total_registros: number
+      total_neto: number; total_iva: number; sync_status: string
+      sync_date: string | null; sync_error: string | null
+    }>
+  } | null>(null)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get('/api/v1/rcv/status')
+      setStatus(data)
+    } catch {
+      // RCV not available — non-critical
+    }
+  }, [])
+
+  useEffect(() => { fetchStatus() }, [fetchStatus])
+  useEffect(() => { setSyncMonth(currentMonth); setSyncYear(currentYear) }, [currentMonth, currentYear])
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setMsg(null)
+    try {
+      const { data } = await apiClient.post('/api/v1/rcv/sync', { mes: syncMonth, year: syncYear })
+      setMsg({ type: 'ok', text: data.message ?? `Sincronizacion ${syncMonth}/${syncYear} iniciada` })
+      // Refresh status after a delay to let the job process
+      setTimeout(fetchStatus, 3000)
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error ?? 'Error al iniciar sincronizacion'
+      setMsg({ type: 'error', text: errorMsg })
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setMsg(null), 5000)
+    }
+  }
+
+  const handleQuickSync = async (type: 'current' | 'previous') => {
+    const now = new Date()
+    const m = type === 'current' ? now.getMonth() + 1 : (now.getMonth() === 0 ? 12 : now.getMonth())
+    const y = type === 'current' ? now.getFullYear() : (now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear())
+    setSyncMonth(m)
+    setSyncYear(y)
+    setSyncing(true)
+    setMsg(null)
+    try {
+      const { data } = await apiClient.post('/api/v1/rcv/sync', { mes: m, year: y })
+      setMsg({ type: 'ok', text: data.message ?? `Sincronizacion ${m}/${y} iniciada` })
+      setTimeout(fetchStatus, 3000)
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.response?.data?.error ?? 'Error al sincronizar' })
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setMsg(null), 5000)
+    }
+  }
+
+  if (!status?.credentials?.configured) {
+    return (
+      <div className="card border border-[var(--cx-border-light)] rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <Shield size={16} className="text-[var(--cx-text-muted)]" />
+          <h3 className="text-sm font-semibold text-[var(--cx-text-primary)]">Sincronizacion RCV desde SII</h3>
+        </div>
+        <p className="text-xs text-[var(--cx-text-muted)]">
+          Configura tus credenciales del SII en{' '}
+          <a href="/dashboard/empresa" className="text-[var(--cx-active-text)] underline">Mi Empresa</a>
+          {' '}para sincronizar automaticamente el Registro de Compras y Ventas.
+        </p>
+      </div>
+    )
+  }
+
+  // Recent syncs for display
+  const recentSyncs = status.registros.slice(0, 6)
+
+  return (
+    <div className="card border border-[var(--cx-border-light)] rounded-2xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <RefreshCw size={16} className="text-[var(--cx-active-icon)]" />
+          <h3 className="text-sm font-semibold text-[var(--cx-text-primary)]">Sincronizacion RCV desde SII</h3>
+        </div>
+        {status.credentials.last_sync && (
+          <span className="text-[11px] text-[var(--cx-text-muted)]">
+            Ultima sync: {new Date(status.credentials.last_sync).toLocaleString('es-CL')}
+          </span>
+        )}
+      </div>
+
+      {/* Feedback */}
+      {msg && (
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs border ${
+          msg.type === 'ok'
+            ? 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border-[var(--cx-status-ok-border)]'
+            : 'bg-[var(--cx-status-error-bg)] text-[var(--cx-status-error-text)] border-[var(--cx-status-error-border)]'
+        }`}>
+          {msg.type === 'ok' ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+          {msg.text}
+        </div>
+      )}
+
+      {/* Quick sync buttons */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => handleQuickSync('current')}
+          disabled={syncing}
+          className="btn-primary flex items-center gap-2 text-xs py-2 px-3"
+        >
+          {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          Sync Mes Actual
+        </button>
+        <button
+          onClick={() => handleQuickSync('previous')}
+          disabled={syncing}
+          className="btn-secondary flex items-center gap-2 text-xs py-2 px-3"
+        >
+          <Clock size={12} /> Sync Mes Anterior
+        </button>
+
+        {/* Custom month sync */}
+        <div className="flex items-center gap-1 ml-auto">
+          <select
+            value={syncMonth}
+            onChange={e => setSyncMonth(Number(e.target.value))}
+            className="input-field py-1.5 text-xs w-auto"
+          >
+            {MESES_SHORT.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </select>
+          <select
+            value={syncYear}
+            onChange={e => setSyncYear(Number(e.target.value))}
+            className="input-field py-1.5 text-xs w-auto"
+          >
+            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="btn-secondary flex items-center gap-1.5 text-xs py-1.5 px-3"
+          >
+            {syncing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+            Sync
+          </button>
+        </div>
+      </div>
+
+      {/* Recent sync history */}
+      {recentSyncs.length > 0 && (
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-[var(--cx-text-muted)] font-semibold mb-2">Ultimas sincronizaciones</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {recentSyncs.map((r, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--cx-border-light)] text-xs">
+                {r.sync_status === 'sincronizado' ? (
+                  <CheckCircle2 size={12} className="text-[var(--cx-status-ok-text)] shrink-0" />
+                ) : r.sync_status === 'error' ? (
+                  <XCircle size={12} className="text-[var(--cx-status-error-text)] shrink-0" />
+                ) : (
+                  <Clock size={12} className="text-[var(--cx-text-muted)] shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <span className="text-[var(--cx-text-primary)] font-medium capitalize">{r.tipo}</span>
+                  <span className="text-[var(--cx-text-muted)]"> {r.mes}/{r.year}</span>
+                  <span className="text-[var(--cx-text-muted)] ml-1">({r.total_registros} docs)</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
