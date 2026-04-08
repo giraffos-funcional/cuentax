@@ -368,12 +368,19 @@ async function matchAndCreateDTEs(
     const existingDteId = existingMap.get(key)
 
     if (existingDteId) {
-      // Match: link rcv_detalle → existing DTE
+      // Match: link rcv_detalle → existing DTE and update fecha if needed
       matched++
       if (detalleId) {
         await db.update(rcvDetalles)
           .set({ dte_document_id: existingDteId })
           .where(eq(rcvDetalles.id, detalleId))
+      }
+      // Update fecha_emision to ISO format if it was stored in SII format
+      const isoDate = toISO(doc.detFchDoc)
+      if (isoDate) {
+        await db.update(dteDocuments)
+          .set({ fecha_emision: isoDate })
+          .where(eq(dteDocuments.id, existingDteId))
       }
     } else {
       // Create missing DTE from RCV data
