@@ -15,10 +15,8 @@
  * calls backend APIs that return JSON. We call those APIs directly.
  */
 
-import axios from 'axios'
-import type { AxiosInstance } from 'axios'
-import { wrapper } from 'axios-cookiejar-support'
-import { CookieJar } from 'tough-cookie'
+import { chromium } from 'playwright'
+import type { Browser, BrowserContext } from 'playwright'
 import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { companies, rcvRegistros, rcvDetalles, dteDocuments } from '@/db/schema'
@@ -67,139 +65,217 @@ interface SIIDocumento {
 }
 
 // ---------------------------------------------------------------------------
-// SII Auth + API Client
+// SII Auth + API via Playwright (headless browser)
+// ---------------------------------------------------------------------------
+// The SII uses Queue-it, session cookies (TOKEN, CSESSIONID), and complex
+// redirect chains that block simple HTTP requests. We use a headless browser
+// to authenticate through the real login form, then extract data from the
+// Angular RCV app's internal API.
 // ---------------------------------------------------------------------------
 
-const SII_AUTH_URL = 'https://zeusr.sii.cl/cgi_AUT2000/CAutInClient.cgi'
-const SII_RCV_BASE = 'https://www4.sii.cl/consdcvinternetui/services'
+const SII_LOGIN_URL = 'https://zeusr.sii.cl/AUT2000/InicioAutenticacion/IngresoRutClave.html?https://www4.sii.cl/consdcvinternetui/'
+const SII_RCV_API = 'https://www4.sii.cl/consdcvinternetui/services/data/facadeService'
 
-/**
- * Create an authenticated SII session.
- * Returns an axios instance with SII session cookies.
- */
-async function createSIISession(rutEmpresa: string, siiUser: string, siiPassword: string): Promise<AxiosInstance> {
-  const jar = new CookieJar()
-  const wrappedAxios = wrapper(axios as any)
-  const client: AxiosInstance = wrappedAxios.create({
-    withCredentials: true,
-    timeout: 30_000,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'application/json, text/html, */*',
-      'Accept-Language': 'es-CL,es;q=0.9',
-    },
-    maxRedirects: 10,
-    jar,
-  } as any)
-
-  // Step 1: Authenticate with SII
-  const loginParams = new URLSearchParams({
-    rut: siiUser.split('-')[0].replace(/\./g, ''),
-    dv: siiUser.split('-')[1] || '',
-    referencia: 'https://www4.sii.cl/consdcvinternetui/',
-    411: '',
-    rutcntr: siiUser.split('-')[0].replace(/\./g, ''),
-    dvcntr: siiUser.split('-')[1] || '',
-    cession: siiPassword,
-  })
-
-  logger.info({ siiUser, rutEmpresa }, 'Authenticating with SII for RCV sync')
-
-  const authResponse = await client.post(SII_AUTH_URL, loginParams.toString(), {
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    maxRedirects: 10,
-    validateStatus: (s) => s < 500, // Accept redirects
-  })
-
-  // Check if login was successful by looking for error indicators
-  const responseText = typeof authResponse.data === 'string' ? authResponse.data : ''
-  if (responseText.includes('Clave Tributaria incorrecta') || responseText.includes('ERR_AUTENTICACION')) {
-    throw new Error('SII authentication failed: invalid credentials')
-  }
-
-  logger.info('SII authentication successful')
-  return client as AxiosInstance
+export interface SIISession {
+  context: BrowserContext
+  browser: Browser
+  token: string
+  cookies: string
 }
 
-export { createSIISession }
+/**
+ * Create an authenticated SII session using headless Playwright.
+ * Logs in through the real SII web form to get proper session cookies.
+ */
+export async function createSIISession(rutEmpresa: string, siiUser: string, siiPassword: string): Promise<SIISession> {
+  logger.info({ siiUser, rutEmpresa }, 'Authenticating with SII via headless browser')
+
+  const browser = await chromium.launch({ headless: true })
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    locale: 'es-CL',
+  })
+  const page = await context.newPage()
+
+  try {
+    // Navigate to login page
+    await page.goto(SII_LOGIN_URL, { waitUntil: 'networkidle', timeout: 60_000 })
+
+    // Fill in RUT and password
+    const rutClean = siiUser.replace(/\./g, '')
+    await page.locator('#rutcntr').fill(rutClean)
+    await page.locator('#clave').fill(siiPassword)
+
+    // Click login button and wait for navigation
+    await Promise.all([
+      page.waitForNavigation({ timeout: 30_000, waitUntil: 'networkidle' }).catch(() => {}),
+      page.locator('#bt_ingresar').click(),
+    ])
+
+    // Wait a bit for any Queue-it redirects
+    await page.waitForTimeout(3000)
+
+    // Check if login failed
+    const pageContent = await page.content()
+    if (pageContent.includes('Transaccion Rechazada') || pageContent.includes('Clave Tributaria incorrecta')) {
+      throw new Error('SII authentication failed: invalid credentials')
+    }
+
+    // Extract TOKEN cookie
+    const cookies = await context.cookies()
+    const tokenCookie = cookies.find(c => c.name === 'TOKEN')
+    if (!tokenCookie) {
+      throw new Error('SII authentication failed: no TOKEN cookie received')
+    }
+
+    logger.info({ token: tokenCookie.value.substring(0, 8) + '...' }, 'SII authentication successful')
+
+    await page.close()
+
+    return {
+      context,
+      browser,
+      token: tokenCookie.value,
+      cookies: cookies.map(c => `${c.name}=${c.value}`).join('; '),
+    }
+  } catch (err) {
+    await browser.close()
+    throw err
+  }
+}
 
 /**
- * Fetch RCV data from the SII API.
- * The SII RCV API returns JSON with purchase/sale documents.
+ * Close the SII session and browser.
+ */
+export async function closeSIISession(session: SIISession): Promise<void> {
+  try {
+    await session.browser.close()
+  } catch {
+    // Ignore cleanup errors
+  }
+}
+
+/**
+ * Call the SII RCV facadeService API using the authenticated session.
+ * Uses the conversationId (TOKEN) that the Angular app expects.
+ */
+async function callSIIApi(session: SIISession, endpoint: string, data: Record<string, unknown>): Promise<unknown> {
+  const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${endpoint}`
+  const url = `${SII_RCV_API}/${endpoint}`
+
+  const page = await session.context.newPage()
+  try {
+    const result = await page.evaluate(async ({ url, namespace, token, data }) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          metaData: {
+            namespace,
+            conversationId: token,
+            transactionId: crypto.randomUUID(),
+            page: null,
+          },
+          data,
+        }),
+      })
+      if (!response.ok) throw new Error(`SII API ${response.status}`)
+      return response.json()
+    }, { url, namespace, token: session.token, data })
+
+    return result
+  } finally {
+    await page.close()
+  }
+}
+
+/**
+ * Fetch RCV data (compras or ventas) for a specific period.
+ * First gets the resumen to know what document types exist,
+ * then fetches detalles for each type.
  */
 async function fetchRCVData(
-  client: AxiosInstance,
+  session: SIISession,
   rutEmpresa: string,
   mes: number,
   year: number,
   tipo: 'compras' | 'ventas',
 ): Promise<SIIDocumento[]> {
-  // Clean RUT for API: "76673985-7" → "76673985" and "7"
   const rutParts = rutEmpresa.replace(/\./g, '').split('-')
   const rut = rutParts[0]
   const dv = rutParts[1]
-
-  // SII RCV API endpoint
-  // operacion: COMPRA or VENTA
-  // estado: REGISTRO (registered), PENDIENTE, RECLAMADO, etc.
   const operacion = tipo === 'compras' ? 'COMPRA' : 'VENTA'
   const periodo = `${year}${String(mes).padStart(2, '0')}`
 
-  const allDocuments: SIIDocumento[] = []
-
-  // Fetch from the RCV consultation API
-  // The SII API returns paginated results for different DTE types
-  const dteTypes = tipo === 'compras'
-    ? [30, 33, 34, 43, 46, 56, 61] // Facturas compra, factura, exenta, etc.
-    : [33, 34, 39, 41, 56, 61, 110] // Facturas venta, boletas, NC, ND, etc.
-
-  for (const tipoDoc of dteTypes) {
-    try {
-      const url = `${SII_RCV_BASE}/data/facadeService/getDetalleRegistroCompraVenta`
-      const response = await client.get(url, {
-        params: {
-          rut,
-          dv,
-          ptributario: periodo,
-          operacion,
-          codTipoDoc: tipoDoc,
-          estado: 'REGISTRO',
-          pagina: 1,
-          tamanioPagina: 1000,
-        },
-        headers: {
-          'Accept': 'application/json',
-          'Referer': 'https://www4.sii.cl/consdcvinternetui/',
-        },
-      })
-
-      if (response.data?.data) {
-        const docs = Array.isArray(response.data.data)
-          ? response.data.data
-          : []
-        allDocuments.push(...docs)
-        logger.debug({ tipoDoc, count: docs.length, periodo }, 'Fetched RCV documents')
-      }
-    } catch (err) {
-      // Some DTE types may not exist for the period — non-critical
-      logger.debug({ tipoDoc, periodo, err: (err as Error).message }, 'No RCV data for DTE type')
-    }
+  // Step 1: Get resumen to see which document types have data
+  let resumen: any
+  try {
+    resumen = await callSIIApi(session, 'getResumen', {
+      rutEmisor: rut,
+      dvEmisor: dv,
+      ptributario: periodo,
+      estadoContab: 'REGISTRO',
+      operacion,
+      busquedaInicial: true,
+    })
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, periodo, operacion }, 'Failed to get RCV resumen')
+    return []
   }
 
-  // Also try the resumen endpoint for totals validation
-  try {
-    const resumenUrl = `${SII_RCV_BASE}/data/facadeService/getResumenRegistroCompraVenta`
-    const resumen = await client.get(resumenUrl, {
-      params: { rut, dv, ptributario: periodo, operacion },
-      headers: { 'Accept': 'application/json', 'Referer': 'https://www4.sii.cl/consdcvinternetui/' },
-    })
-    if (resumen.data) {
-      logger.info({ periodo, operacion, resumen: resumen.data }, 'RCV resumen from SII')
+  const resumenData = Array.isArray(resumen?.data) ? resumen.data : []
+  logger.info({ periodo, operacion, tiposDoc: resumenData.length, totalDocs: resumenData.reduce((s: number, r: any) => s + (r.rsmnTotDoc ?? 0), 0) }, 'RCV resumen fetched')
+
+  if (resumenData.length === 0) return []
+
+  // Step 2: For each document type with data, fetch detalles
+  const allDocuments: SIIDocumento[] = []
+
+  for (const rsm of resumenData) {
+    const tipoDoc = rsm.rsmnTipoDocInteger
+    const totalDocs = rsm.rsmnTotDoc ?? 0
+    if (!tipoDoc || totalDocs === 0) continue
+
+    try {
+      const detalle = await callSIIApi(session, 'getDetalle', {
+        rutEmisor: rut,
+        dvEmisor: dv,
+        ptributario: periodo,
+        estadoContab: 'REGISTRO',
+        operacion,
+        codTipoDoc: tipoDoc,
+        pagina: 1,
+        tamanioPagina: 2000,
+      }) as any
+
+      const docs = Array.isArray(detalle?.data) ? detalle.data : []
+
+      // Normalize field names to match our SIIDocumento interface
+      for (const doc of docs) {
+        allDocuments.push({
+          detTipoDoc: tipoDoc,
+          detNroDoc: doc.detNroDoc ?? doc.folio ?? 0,
+          detFchDoc: doc.detFchDoc ?? doc.fechaEmision ?? '',
+          detRutDoc: doc.detRutDoc ? `${doc.detRutDoc}-${doc.detDvDoc ?? ''}` : '',
+          detRznSoc: doc.detRznSoc ?? doc.razonSocial ?? '',
+          detMntNeto: doc.detMntNeto ?? 0,
+          detMntExe: doc.detMntExe ?? 0,
+          detMntIVA: doc.detMntIVA ?? 0,
+          detMntTotal: doc.detMntTotal ?? 0,
+          detMntIVANoRec: doc.detMntIVANoRec ?? 0,
+          estado: 'REGISTRO',
+          ...doc, // Keep all original fields in the spread
+        })
+      }
+
+      logger.debug({ tipoDoc, count: docs.length, periodo }, 'Fetched RCV detalles')
+    } catch (err) {
+      logger.warn({ tipoDoc, periodo, err: (err as Error).message }, 'Failed to fetch RCV detalles for type')
     }
-  } catch {
-    // Non-critical
   }
 
   return allDocuments
@@ -334,8 +410,10 @@ async function matchAndCreateDTEs(
  * Sync RCV for a specific company + period + type.
  * This function never throws — returns a result object.
  */
-export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
-  const { companyId, mes, year, tipo } = opts
+export async function syncRCV(opts: RCVSyncOptions & { session?: SIISession }): Promise<RCVSyncResult> {
+  const { companyId, mes, year, tipo, session: externalSession } = opts
+  let session: SIISession | null = null
+  const ownsSession = !externalSession // We only close sessions we create
 
   try {
     // 1. Get company credentials
@@ -351,13 +429,16 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       return { success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0, totalExento: 0, dtesMatched: 0, dtesCreated: 0, error: 'SII credentials not configured' }
     }
 
-    const siiPassword = decrypt(company.sii_password_enc)
-
-    // 2. Authenticate with SII
-    const siiClient = await createSIISession(company.rut, company.sii_user, siiPassword)
+    // 2. Authenticate with SII (or reuse existing session)
+    if (externalSession) {
+      session = externalSession
+    } else {
+      const siiPassword = decrypt(company.sii_password_enc)
+      session = await createSIISession(company.rut, company.sii_user, siiPassword)
+    }
 
     // 3. Fetch RCV data
-    const documents = await fetchRCVData(siiClient, company.rut, mes, year, tipo)
+    const documents = await fetchRCVData(session, company.rut, mes, year, tipo)
 
     logger.info({ companyId, mes, year, tipo, documentCount: documents.length }, 'RCV data fetched from SII')
 
@@ -503,6 +584,11 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       dtesCreated: 0,
       error: message,
     }
+  } finally {
+    // Always close the browser if we own the session
+    if (session && ownsSession) {
+      await closeSIISession(session)
+    }
   }
 }
 
@@ -513,7 +599,36 @@ export async function syncRCVFull(companyId: number, mes: number, year: number):
   compras: RCVSyncResult
   ventas: RCVSyncResult
 }> {
-  const compras = await syncRCV({ companyId, mes, year, tipo: 'compras' })
-  const ventas = await syncRCV({ companyId, mes, year, tipo: 'ventas' })
-  return { compras, ventas }
+  // Create a single browser session and reuse it for both compras + ventas
+  const [company] = await db.select().from(companies)
+    .where(eq(companies.id, companyId))
+    .limit(1)
+
+  if (!company?.sii_user || !company?.sii_password_enc) {
+    const errResult: RCVSyncResult = {
+      success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0,
+      totalExento: 0, dtesMatched: 0, dtesCreated: 0,
+      error: 'SII credentials not configured',
+    }
+    return { compras: errResult, ventas: errResult }
+  }
+
+  let session: SIISession | null = null
+  try {
+    const siiPassword = decrypt(company.sii_password_enc)
+    session = await createSIISession(company.rut, company.sii_user, siiPassword)
+
+    const compras = await syncRCV({ companyId, mes, year, tipo: 'compras', session })
+    const ventas = await syncRCV({ companyId, mes, year, tipo: 'ventas', session })
+    return { compras, ventas }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    const errResult: RCVSyncResult = {
+      success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0,
+      totalExento: 0, dtesMatched: 0, dtesCreated: 0, error: message,
+    }
+    return { compras: errResult, ventas: errResult }
+  } finally {
+    if (session) await closeSIISession(session)
+  }
 }

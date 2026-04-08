@@ -20,7 +20,7 @@ import { companies, rcvRegistros, rcvDetalles } from '@/db/schema'
 import { encrypt, decrypt } from '@/core/crypto'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
-import { syncRCVFull, createSIISession } from '@/services/rcv-sync.service'
+import { syncRCVFull, createSIISession, type SIISession } from '@/services/rcv-sync.service'
 import { triggerManualRCVSync } from '@/jobs/rcv-sync'
 
 // ── Schemas ─────────────────────────────────────────────────────
@@ -114,9 +114,10 @@ export async function rcvRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({ error: 'SII credentials not configured' })
     }
 
+    let session: SIISession | null = null
     try {
       const siiPassword = decrypt(company.sii_password_enc)
-      await createSIISession(company.rut, company.sii_user, siiPassword)
+      session = await createSIISession(company.rut, company.sii_user, siiPassword)
 
       return reply.send({ success: true, message: 'Conexion exitosa con el SII' })
     } catch (err) {
@@ -127,6 +128,10 @@ export async function rcvRoutes(fastify: FastifyInstance) {
           ? 'Clave tributaria incorrecta'
           : `Error de conexion: ${message}`,
       })
+    } finally {
+      if (session) {
+        try { await session.browser.close() } catch { /* ignore */ }
+      }
     }
   })
 
