@@ -8,6 +8,13 @@
       "when": 1774667284367,
       "tag": "0000_tiny_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775660000325,
+      "tag": "0001_bizarre_the_call",
+      "breakpoints": true
     }
   ]
 }

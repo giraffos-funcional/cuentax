@@ -7,7 +7,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2, Shield, Wifi, WifiOff, RefreshCw } from 'lucide-react'
+import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2, Shield, Wifi, WifiOff, RefreshCw, Moon } from 'lucide-react'
 import { useUpdateCompany } from '@/hooks/use-remuneraciones'
 import { useAuthStore } from '@/stores/auth.store'
 import { apiClient } from '@/lib/api-client'
@@ -420,24 +420,44 @@ function SIICredentialsCard() {
         </div>
       </div>
 
-      {/* Auto-sync toggle */}
-      <div className="flex items-center gap-3 mt-4">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={autoSync}
-          onClick={() => setAutoSync(!autoSync)}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-            autoSync ? 'bg-[var(--cx-active-icon)]' : 'bg-[var(--cx-border-light)]'
-          }`}
-        >
-          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-            autoSync ? 'translate-x-4' : 'translate-x-0.5'
-          }`} />
-        </button>
-        <div>
-          <span className="text-sm text-[var(--cx-text-primary)]">Sincronizacion automatica diaria</span>
-          <p className="text-[11px] text-[var(--cx-text-muted)]">Sincroniza compras y ventas automaticamente a las 01:00 AM</p>
+      {/* Nocturnal sync card */}
+      <div className={`mt-4 rounded-xl border p-4 transition-colors ${
+        autoSync
+          ? 'bg-[var(--cx-active-bg)] border-[var(--cx-active-border)]'
+          : 'bg-[var(--cx-bg-elevated)] border-[var(--cx-border-light)]'
+      }`}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+              autoSync ? 'bg-[var(--cx-active-icon)] text-white' : 'bg-[var(--cx-border-light)] text-[var(--cx-text-muted)]'
+            }`}>
+              <Moon size={18} />
+            </div>
+            <div>
+              <span className="text-sm font-semibold text-[var(--cx-text-primary)]">Sincronizacion Nocturna</span>
+              <p className="text-xs text-[var(--cx-text-secondary)] mt-0.5">
+                Cada noche a las 01:00 AM se sincronizan automaticamente las compras y ventas del mes actual y el anterior desde el SII.
+              </p>
+              <p className="text-[11px] text-[var(--cx-text-muted)] mt-1">
+                {autoSync
+                  ? 'Al llegar en la manana, tus datos estaran actualizados.'
+                  : 'Activa para tener tus datos listos cada manana sin hacer nada.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoSync}
+            onClick={() => setAutoSync(!autoSync)}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+              autoSync ? 'bg-[var(--cx-active-icon)]' : 'bg-[var(--cx-border-light)]'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              autoSync ? 'translate-x-5.5' : 'translate-x-0.5'
+            }`} />
+          </button>
         </div>
       </div>
 
