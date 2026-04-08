@@ -175,6 +175,9 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
 
   const page = await session.context.newPage()
   try {
+    // Navigate to SII domain first so cookies and CORS work
+    await page.goto('https://www4.sii.cl/consdcvinternetui/', { waitUntil: 'domcontentloaded', timeout: 30_000 })
+
     const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
       const response = await fetch(url, {
         method: 'POST',
