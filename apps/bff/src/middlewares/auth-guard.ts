@@ -39,14 +39,16 @@ export async function authGuard(
   const internalToken = request.headers['x-internal-token'] as string | undefined
   if (internalToken && internalToken === config.INTERNAL_SECRET) {
     const rut = (request.headers['x-company-rut'] as string) || ''
+    const companyIdHeader = request.headers['x-company-id'] as string | undefined
+    const companyId = companyIdHeader ? parseInt(companyIdHeader, 10) : 0
     request.user = {
       uid: 0,
       email: 'internal@cuentax.cl',
       name: 'Internal Service',
-      company_id: 0,
+      company_id: companyId,
       company_name: 'Internal',
       company_rut: rut,
-      company_ids: [],
+      company_ids: companyId ? [companyId] : [],
       jti: 'internal',
     }
     return
