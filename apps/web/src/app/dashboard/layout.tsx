@@ -616,7 +616,7 @@ function Sidebar({ collapsed, onToggle, siiStatus, ambiente }: SidebarProps) {
               await apiClient.post('/api/v1/auth/logout')
             } catch {}
             useAuthStore.getState().clearAuth()
-            window.location.href = '/'
+            window.location.href = '/login'
           }}
           className={`
             flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm
