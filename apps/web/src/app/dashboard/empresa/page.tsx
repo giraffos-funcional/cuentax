@@ -398,13 +398,14 @@ function SIICredentialsCard() {
       {/* Form */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT Usuario SII *</label>
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT para login SII *</label>
           <input
             value={siiUser}
             onChange={e => setSiiUser(e.target.value)}
             className="input-field text-sm w-full"
-            placeholder="12345678-9"
+            placeholder="76673985-7"
           />
+          <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">RUT de la empresa o del representante legal</p>
         </div>
         <div>
           <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">
@@ -417,6 +418,7 @@ function SIICredentialsCard() {
             className="input-field text-sm w-full"
             placeholder={credStatus?.has_password ? '••••••••' : 'Clave tributaria'}
           />
+          <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">La misma clave que usas para entrar a sii.cl</p>
         </div>
       </div>
 
