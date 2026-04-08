@@ -164,41 +164,18 @@ export async function closeSIISession(session: SIISession): Promise<void> {
 }
 
 /**
- * Call the SII RCV facadeService API using the authenticated session.
- * Uses the conversationId (TOKEN) that the Angular app expects.
+ * Call the SII RCV facadeService API directly (for endpoints that don't need reCAPTCHA).
  */
 async function callSIIApi(session: SIISession, endpoint: string, data: Record<string, unknown>): Promise<unknown> {
   const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${endpoint}`
   const url = `${SII_RCV_API}/${endpoint}`
-  // Generate UUID in Node.js context (crypto.randomUUID not available in headless shell)
   const transactionId = crypto.randomUUID()
 
   const page = await session.context.newPage()
   try {
-    // Navigate to SII RCV Angular app so cookies are set and CORS works.
-    // The Angular app at this URL sets up session state needed for API calls.
     await page.goto('https://www4.sii.cl/consdcvinternetui/#/index', { waitUntil: 'networkidle', timeout: 30_000 })
 
     const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- runs in browser via Playwright
-      // @ts-expect-error: document/globalThis.grecaptcha exist in the browser context
-      if (data.accionRecaptcha && globalThis.grecaptcha) {
-        try {
-          // @ts-expect-error: browser globals
-          const gc = globalThis.grecaptcha
-          // @ts-expect-error: browser globals
-          const el1 = document.querySelector('[data-sitekey]')
-          // @ts-expect-error: browser globals
-          const el2 = document.querySelector('script[src*="recaptcha"]')
-          // @ts-expect-error: browser globals
-          const siteKey = globalThis.RECAPTCHA_SITE_KEY || el1?.getAttribute('data-sitekey') || el2?.getAttribute('src')?.match(/render=([^&]+)/)?.[1] || ''
-          if (siteKey) {
-            const recaptchaToken = await gc.execute(siteKey, { action: data.accionRecaptcha })
-            data.tokenRecaptcha = recaptchaToken
-          }
-        } catch { /* fall back to dummy token */ }
-      }
-
       const response = await fetch(url, {
         method: 'POST',
         credentials: 'include',
@@ -207,12 +184,7 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
           'Accept': 'application/json, text/plain, */*',
         },
         body: JSON.stringify({
-          metaData: {
-            namespace,
-            conversationId: token,
-            transactionId,
-            page: null,
-          },
+          metaData: { namespace, conversationId: token, transactionId, page: null },
           data,
         }),
       })
@@ -230,9 +202,169 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
 }
 
 /**
+ * Fetch RCV detalles by driving the Angular UI with Playwright.
+ * The SII requires a valid reCAPTCHA v3 token for getDetalleCompra/Venta,
+ * which only the Angular app can generate. We navigate the UI, trigger the
+ * Angular app's own API call, and intercept the network response.
+ */
+async function fetchDetalleViaUI(
+  session: SIISession,
+  rut: string,
+  dv: string,
+  periodo: string,
+  operacion: 'COMPRA' | 'VENTA',
+  tipoDoc: number,
+): Promise<unknown[]> {
+  const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
+  const page = await session.context.newPage()
+
+  try {
+    // Set up response interceptor BEFORE navigating
+    let detalleResponse: unknown = null
+    const responsePromise = new Promise<unknown>((resolve) => {
+      page.on('response', async (response) => {
+        if (response.url().includes(`facadeService/${detalleEndpoint}`)) {
+          try {
+            const json = await response.json()
+            detalleResponse = json
+            resolve(json)
+          } catch { resolve(null) }
+        }
+      })
+    })
+
+    // Navigate to the RCV Angular app
+    await page.goto('https://www4.sii.cl/consdcvinternetui/#/index', { waitUntil: 'networkidle', timeout: 30_000 })
+
+    // Wait for Angular to be ready
+    await page.waitForTimeout(2000)
+
+    // Use Angular's internal $http or injector to make the API call with proper reCAPTCHA.
+    // The Angular app stores its injector on the root element.
+    // We trigger the call via the Angular app's own service layer.
+    const triggered = await page.evaluate(async ({ rut, dv, periodo, operacion, tipoDoc, detalleEndpoint }) => {
+      // Try to access Angular's $injector to call the service directly
+      // @ts-expect-error: Angular global
+      const injector = globalThis.angular?.element('[ng-app]')?.injector?.() ??
+        // @ts-expect-error: Angular global
+        globalThis.angular?.element('[data-ng-app]')?.injector?.()
+      if (!injector) return { method: 'none', error: 'Angular injector not found' }
+
+      try {
+        const $http = injector.get('$http')
+        const facadeService = injector.get('facadeService')
+
+        if (facadeService && typeof facadeService[detalleEndpoint] === 'function') {
+          // Call the Angular service method directly — it handles reCAPTCHA internally
+          await facadeService[detalleEndpoint]({
+            rutEmisor: rut,
+            dvEmisor: dv,
+            ptributario: periodo,
+            estadoContab: 'REGISTRO',
+            operacion,
+            codTipoDoc: tipoDoc,
+          })
+          return { method: 'facadeService', error: null }
+        }
+
+        if ($http) {
+          // Fall back to $http — the Angular interceptors will add reCAPTCHA
+          const namespace = `cl.sii.sdi.lob.diii.consdcv.data.api.interfaces.FacadeService/${detalleEndpoint}`
+          await $http.post(`/consdcvinternetui/services/data/facadeService/${detalleEndpoint}`, {
+            metaData: { namespace, conversationId: '', transactionId: '0', page: null },
+            data: {
+              rutEmisor: rut, dvEmisor: dv, ptributario: periodo,
+              estadoContab: 'REGISTRO', operacion, codTipoDoc: tipoDoc,
+            },
+          })
+          return { method: '$http', error: null }
+        }
+
+        return { method: 'none', error: 'No $http or facadeService found' }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return { method: 'attempted', error: msg }
+      }
+    }, { rut, dv, periodo, operacion, tipoDoc, detalleEndpoint })
+
+    logger.info({ tipoDoc, operacion, triggered }, 'Angular UI trigger result')
+
+    if (triggered.method === 'none') {
+      // Angular injector not available — try clicking through the UI
+      return await fetchDetalleViaClicks(page, operacion, periodo, tipoDoc)
+    }
+
+    // Wait for the intercepted response (with timeout)
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000))
+    const result = await Promise.race([responsePromise, timeoutPromise]) as any
+
+    if (!result) {
+      logger.warn({ tipoDoc, operacion }, 'Timeout waiting for detalle response from Angular app')
+      return []
+    }
+
+    const docs = Array.isArray(result?.data) ? result.data : []
+    logger.info({ tipoDoc, operacion, count: docs.length, respEstado: result?.respEstado }, 'Detalle fetched via Angular UI')
+    return docs
+  } finally {
+    await page.close()
+  }
+}
+
+/**
+ * Fallback: fetch detalles by clicking through the RCV UI.
+ * Navigates to the correct section, selects period/document type, and
+ * waits for the table data to load.
+ */
+async function fetchDetalleViaClicks(
+  page: import('playwright').Page,
+  operacion: 'COMPRA' | 'VENTA',
+  periodo: string,
+  tipoDoc: number,
+): Promise<unknown[]> {
+  logger.info({ operacion, periodo, tipoDoc }, 'Attempting detalle fetch via UI clicks')
+
+  const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
+
+  // Set up response interceptor
+  const captured: unknown[] = []
+  page.on('response', async (response) => {
+    if (response.url().includes(`facadeService/${detalleEndpoint}`)) {
+      try {
+        const json = await response.json()
+        if (Array.isArray(json?.data)) captured.push(...json.data)
+      } catch { /* ignore */ }
+    }
+  })
+
+  try {
+    // Click the compras or ventas tab
+    const tabText = operacion === 'COMPRA' ? 'Compras' : 'Ventas'
+    const tab = page.locator(`a:has-text("${tabText}"), button:has-text("${tabText}"), li:has-text("${tabText}")`).first()
+    if (await tab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await tab.click()
+      await page.waitForTimeout(2000)
+    }
+
+    // Look for a document type row/link matching our tipoDoc and click it
+    const tipoDocLink = page.locator(`tr:has-text("${tipoDoc}") a, td:has-text("${tipoDoc}")`).first()
+    if (await tipoDocLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await tipoDocLink.click()
+      await page.waitForTimeout(5000) // Wait for data to load
+    }
+
+    logger.info({ operacion, tipoDoc, capturedCount: captured.length }, 'UI click detalle result')
+    return captured
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, operacion, tipoDoc }, 'UI click detalle failed')
+    return []
+  }
+}
+
+/**
  * Fetch RCV data (compras or ventas) for a specific period.
- * First gets the resumen to know what document types exist,
- * then fetches detalles for each type.
+ * Uses direct API for resumen (no reCAPTCHA needed), then Angular UI
+ * automation for detalles (requires valid reCAPTCHA token).
  */
 async function fetchRCVData(
   session: SIISession,
@@ -247,7 +379,7 @@ async function fetchRCVData(
   const operacion = tipo === 'compras' ? 'COMPRA' : 'VENTA'
   const periodo = `${year}${String(mes).padStart(2, '0')}`
 
-  // Step 1: Get resumen to see which document types have data
+  // Step 1: Get resumen via direct API (no reCAPTCHA needed)
   let resumen: any
   try {
     resumen = await callSIIApi(session, 'getResumen', {
@@ -268,7 +400,7 @@ async function fetchRCVData(
 
   if (resumenData.length === 0) return []
 
-  // Step 2: For each document type with data, fetch detalles
+  // Step 2: For each document type, fetch detalles via Angular UI automation
   const allDocuments: SIIDocumento[] = []
 
   for (const rsm of resumenData) {
@@ -277,37 +409,23 @@ async function fetchRCVData(
     if (!tipoDoc || totalDocs === 0) continue
 
     try {
-      const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
-      const accionRecaptcha = operacion === 'COMPRA' ? 'RCV_DDETC' : 'RCV_DDETV'
-      const detalle = await callSIIApi(session, detalleEndpoint, {
-        rutEmisor: rut,
-        dvEmisor: dv,
-        ptributario: periodo,
-        estadoContab: 'REGISTRO',
-        operacion,
-        codTipoDoc: tipoDoc,
-        accionRecaptcha,
-        tokenRecaptcha: 'c3',
-      }) as any
+      const docs = await fetchDetalleViaUI(session, rut, dv, periodo, operacion, tipoDoc)
 
-      logger.info({ tipoDoc, periodo, dataIsNull: detalle?.data === null, dataType: typeof detalle?.data, dataLength: Array.isArray(detalle?.data) ? detalle.data.length : 'not-array', respEstado: detalle?.respEstado }, 'RCV detalle response')
-      const docs = Array.isArray(detalle?.data) ? detalle.data : []
-
-      // Normalize field names to match our SIIDocumento interface
       for (const doc of docs) {
+        const d = doc as Record<string, unknown>
         allDocuments.push({
           detTipoDoc: tipoDoc,
-          detNroDoc: doc.detNroDoc ?? doc.folio ?? 0,
-          detFchDoc: doc.detFchDoc ?? doc.fechaEmision ?? '',
-          detRutDoc: doc.detRutDoc ? `${doc.detRutDoc}-${doc.detDvDoc ?? ''}` : '',
-          detRznSoc: doc.detRznSoc ?? doc.razonSocial ?? '',
-          detMntNeto: doc.detMntNeto ?? 0,
-          detMntExe: doc.detMntExe ?? 0,
-          detMntIVA: doc.detMntIVA ?? 0,
-          detMntTotal: doc.detMntTotal ?? 0,
-          detMntIVANoRec: doc.detMntIVANoRec ?? 0,
+          detNroDoc: (d.detNroDoc ?? d.folio ?? 0) as number,
+          detFchDoc: (d.detFchDoc ?? d.fechaEmision ?? '') as string,
+          detRutDoc: d.detRutDoc ? `${d.detRutDoc}-${d.detDvDoc ?? ''}` : '',
+          detRznSoc: (d.detRznSoc ?? d.razonSocial ?? '') as string,
+          detMntNeto: (d.detMntNeto ?? 0) as number,
+          detMntExe: (d.detMntExe ?? 0) as number,
+          detMntIVA: (d.detMntIVA ?? 0) as number,
+          detMntTotal: (d.detMntTotal ?? 0) as number,
+          detMntIVANoRec: (d.detMntIVANoRec ?? 0) as number,
           estado: 'REGISTRO',
-          ...doc, // Keep all original fields in the spread
+          ...d,
         })
       }
 
