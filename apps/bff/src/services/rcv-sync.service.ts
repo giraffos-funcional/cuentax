@@ -259,13 +259,16 @@ async function fetchRCVData(
 
     try {
       const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
+      const accionRecaptcha = operacion === 'COMPRA' ? 'RCV_DDETC' : 'RCV_DDETV'
       const detalle = await callSIIApi(session, detalleEndpoint, {
         rutEmisor: rut,
         dvEmisor: dv,
         ptributario: periodo,
         estadoContab: 'REGISTRO',
         operacion,
-        codTipoDoc: tipoDoc,
+        codTipoDoc: String(tipoDoc),
+        accionRecaptcha,
+        tokenRecaptcha: 'c3',
       }) as any
 
       logger.info({ tipoDoc, periodo, detalleKeys: detalle ? Object.keys(detalle) : 'null', dataType: typeof detalle?.data, dataLength: Array.isArray(detalle?.data) ? detalle.data.length : 'not-array', rawSample: JSON.stringify(detalle)?.substring(0, 500) }, 'RCV detalle raw response')
