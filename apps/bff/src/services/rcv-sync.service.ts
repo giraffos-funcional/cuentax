@@ -398,8 +398,16 @@ async function matchAndCreateDTEs(
           monto_total: total,
           fecha_emision: toISO(doc.detFchDoc),
           observaciones: `Importado desde RCV SII (${tipo})`,
-        }).onConflictDoNothing() // Skip if company_id+tipo_dte+folio already exists
-          .returning({ id: dteDocuments.id })
+        }).onConflictDoUpdate({
+          target: [dteDocuments.company_id, dteDocuments.tipo_dte, dteDocuments.folio],
+          set: {
+            fecha_emision: toISO(doc.detFchDoc),
+            monto_neto: neto,
+            monto_exento: exento,
+            monto_iva: iva,
+            monto_total: total,
+          },
+        }).returning({ id: dteDocuments.id })
 
         if (newDte) {
           created++
