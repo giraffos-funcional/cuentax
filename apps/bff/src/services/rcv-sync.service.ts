@@ -268,6 +268,7 @@ async function fetchRCVData(
         codTipoDoc: tipoDoc,
       }) as any
 
+      logger.info({ tipoDoc, periodo, detalleKeys: detalle ? Object.keys(detalle) : 'null', dataType: typeof detalle?.data, dataLength: Array.isArray(detalle?.data) ? detalle.data.length : 'not-array', rawSample: JSON.stringify(detalle)?.substring(0, 500) }, 'RCV detalle raw response')
       const docs = Array.isArray(detalle?.data) ? detalle.data : []
 
       // Normalize field names to match our SIIDocumento interface
