@@ -258,20 +258,17 @@ async function fetchRCVData(
     if (!tipoDoc || totalDocs === 0) continue
 
     try {
-      const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
-      const accionRecaptcha = operacion === 'COMPRA' ? 'RCV_DDETC' : 'RCV_DDETV'
+      const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompraExport' : 'getDetalleVentaExport'
       const detalle = await callSIIApi(session, detalleEndpoint, {
         rutEmisor: rut,
         dvEmisor: dv,
         ptributario: periodo,
         estadoContab: 'REGISTRO',
         operacion,
-        codTipoDoc: String(tipoDoc),
-        accionRecaptcha,
-        tokenRecaptcha: 'c3',
+        codTipoDoc: tipoDoc,
       }) as any
 
-      logger.info({ tipoDoc, periodo, detalleKeys: detalle ? Object.keys(detalle) : 'null', dataType: typeof detalle?.data, dataLength: Array.isArray(detalle?.data) ? detalle.data.length : 'not-array', rawSample: JSON.stringify(detalle)?.substring(0, 500) }, 'RCV detalle raw response')
+      logger.info({ tipoDoc, periodo, dataIsNull: detalle?.data === null, dataType: typeof detalle?.data, dataLength: Array.isArray(detalle?.data) ? detalle.data.length : 'not-array', respEstado: detalle?.respEstado }, 'RCV detalle response')
       const docs = Array.isArray(detalle?.data) ? detalle.data : []
 
       // Normalize field names to match our SIIDocumento interface
