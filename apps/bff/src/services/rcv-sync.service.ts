@@ -181,13 +181,15 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
 
     const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
       // If this call requires recaptcha, get a real token from the Angular app's grecaptcha instance
-      if (data.accionRecaptcha && (window as any).grecaptcha) {
+      const w = globalThis as Record<string, unknown>
+      if (data.accionRecaptcha && w.grecaptcha) {
         try {
-          const siteKey = (window as any).RECAPTCHA_SITE_KEY ||
+          const gc = w.grecaptcha as { execute: (key: string, opts: { action: string }) => Promise<string> }
+          const siteKey = (w.RECAPTCHA_SITE_KEY as string) ||
             document.querySelector('[data-sitekey]')?.getAttribute('data-sitekey') ||
             document.querySelector('script[src*="recaptcha"]')?.getAttribute('src')?.match(/render=([^&]+)/)?.[1] || ''
           if (siteKey) {
-            const recaptchaToken = await (window as any).grecaptcha.execute(siteKey, { action: data.accionRecaptcha })
+            const recaptchaToken = await gc.execute(siteKey, { action: data.accionRecaptcha as string })
             data.tokenRecaptcha = recaptchaToken
           }
         } catch { /* fall back to dummy token */ }
