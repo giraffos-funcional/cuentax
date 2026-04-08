@@ -111,6 +111,27 @@ export async function authRoutes(fastify: FastifyInstance) {
     return reply.status(200).send({ message: 'Sesión cerrada correctamente' })
   })
 
+  // ── POST /switch-company ────────────────────────────────────
+  fastify.post('/switch-company', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const body = z.object({ company_id: z.number().int().positive() }).parse(request.body)
+    const user = (request as any).user
+
+    const tokens = await authService.switchCompany(
+      { sub: user.sub, email: user.email, name: user.name, company_ids: user.company_ids },
+      body.company_id,
+    )
+
+    if (!tokens) {
+      return reply.status(403).send({ error: 'forbidden', message: 'No tienes acceso a esa empresa' })
+    }
+
+    return reply.send({
+      access_token: tokens.access_token,
+      expires_in: tokens.expires_in,
+      user: tokens.user,
+    })
+  })
+
   // ── GET /me ────────────────────────────────────────────────
   fastify.get('/me', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     return reply.send({ user: (request as any).user })
