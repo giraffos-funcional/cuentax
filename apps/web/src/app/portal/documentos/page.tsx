@@ -6,9 +6,13 @@
 'use client'
 
 import { useState } from 'react'
-import { downloadCertificadoLaboral } from '@/hooks/use-portal'
 import {
-  FileText, Download, Loader2, Award,
+  downloadCertificadoLaboral,
+  downloadCertificadoAntiguedad,
+  downloadConstanciaEmpleo,
+} from '@/hooks/use-portal'
+import {
+  FileText, Download, Loader2, Award, Clock, BadgeCheck,
   CheckCircle, AlertCircle,
 } from 'lucide-react'
 
@@ -28,6 +32,20 @@ const DOCUMENT_TYPES: DocumentType[] = [
     description: 'Indica cargo, antigüedad, tipo de contrato y remuneración bruta. Útil para trámites bancarios, arriendo, y otros.',
     icon: Award,
     downloadFn: downloadCertificadoLaboral,
+  },
+  {
+    id: 'certificado-antiguedad',
+    title: 'Certificado de Antigüedad',
+    description: 'Acredita tiempo de servicio en la empresa. Útil para postulaciones y trámites legales.',
+    icon: Clock,
+    downloadFn: downloadCertificadoAntiguedad,
+  },
+  {
+    id: 'constancia-empleo',
+    title: 'Constancia de Empleo',
+    description: 'Confirma que actualmente trabajas en la empresa, tu cargo y fecha de ingreso.',
+    icon: BadgeCheck,
+    downloadFn: downloadConstanciaEmpleo,
   },
 ]
 

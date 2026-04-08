@@ -368,6 +368,58 @@ export async function downloadCertificadoLaboral(): Promise<void> {
   window.URL.revokeObjectURL(url)
 }
 
+// ── Certificado de Antigüedad Download ────────────────────────
+export async function downloadCertificadoAntiguedad(): Promise<void> {
+  const token = usePortalAuthStore.getState().accessToken
+  if (!token) {
+    window.location.href = '/portal/login'
+    return
+  }
+
+  const response = await portalApi.get('/api/v1/portal/documentos/certificado-antiguedad', {
+    responseType: 'blob',
+  })
+
+  const contentDisposition = response.headers['content-disposition'] ?? ''
+  const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/)
+  const filename = filenameMatch?.[1] ?? 'certificado-antiguedad.pdf'
+
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+// ── Constancia de Empleo Download ─────────────────────────────
+export async function downloadConstanciaEmpleo(): Promise<void> {
+  const token = usePortalAuthStore.getState().accessToken
+  if (!token) {
+    window.location.href = '/portal/login'
+    return
+  }
+
+  const response = await portalApi.get('/api/v1/portal/documentos/constancia-empleo', {
+    responseType: 'blob',
+  })
+
+  const contentDisposition = response.headers['content-disposition'] ?? ''
+  const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/)
+  const filename = filenameMatch?.[1] ?? 'constancia-empleo.pdf'
+
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 // ── Contract PDF Download ──────────────────────────────────────
 export async function downloadContractPDF(): Promise<void> {
   const token = usePortalAuthStore.getState().accessToken

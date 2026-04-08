@@ -13,6 +13,8 @@
  * GET  /api/v1/portal/asistencia
  * GET  /api/v1/portal/ausencias
  * GET  /api/v1/portal/documentos/certificado-laboral
+ * GET  /api/v1/portal/documentos/certificado-antiguedad
+ * GET  /api/v1/portal/documentos/constancia-empleo
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
@@ -1155,6 +1157,355 @@ export async function portalRoutes(fastify: FastifyInstance) {
     } catch (err) {
       logger.error({ err, employeeId: portal.employee_id }, 'Error generating certificado laboral')
       return reply.status(500).send({ error: 'Error al generar certificado laboral' })
+    }
+  })
+
+  // ── GET /documentos/certificado-antiguedad ─────────────────
+  fastify.get('/documentos/certificado-antiguedad', { preHandler: [portalGuard] }, async (request, reply) => {
+    const portal = request.portalUser!
+
+    try {
+      // 1. Fetch employee
+      const empResults = await odooAccountingAdapter.searchRead(
+        'hr.employee',
+        [['id', '=', portal.employee_id]],
+        ['name', 'identification_id', 'job_title', 'department_id', 'company_id'],
+        { limit: 1 },
+      )
+      const emp = empResults[0] as Record<string, unknown> | undefined
+      if (!emp) {
+        return reply.status(404).send({ error: 'Empleado no encontrado' })
+      }
+
+      // Try to get date_start separately (may not exist in all Odoo configs)
+      let empDateStart = ''
+      try {
+        const ds = await odooAccountingAdapter.searchRead(
+          'hr.employee', [['id', '=', portal.employee_id]], ['date_start'], { limit: 1 },
+        )
+        empDateStart = String((ds[0] as Record<string, unknown>)?.date_start ?? '')
+      } catch { /* field not available */ }
+
+      // 2. Fetch active contract
+      const contractResults = await odooAccountingAdapter.searchRead(
+        'hr.contract',
+        [
+          ['employee_id', '=', portal.employee_id],
+          ['state', '=', 'open'],
+        ],
+        ['date_start'],
+        { limit: 1, order: 'date_start asc' },
+      )
+      const contract = contractResults[0] as Record<string, unknown> | undefined
+      if (!contract) {
+        return reply.status(404).send({ error: 'No se encontro contrato activo' })
+      }
+
+      // 3. Fetch company
+      const companyId = Array.isArray(emp.company_id)
+        ? (emp.company_id as [number, string])[0]
+        : Number(emp.company_id ?? portal.company_id)
+
+      const companyResults = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', companyId]],
+        ['name', 'vat', 'street', 'city', 'logo'],
+        { limit: 1 },
+      )
+      const company = companyResults[0] as Record<string, unknown> | undefined
+
+      // 4. Calculate seniority
+      const dateStart = String(contract.date_start ?? empDateStart ?? '')
+      const startDate = dateStart ? new Date(dateStart + 'T12:00:00') : new Date()
+      const now = new Date()
+      let years = now.getFullYear() - startDate.getFullYear()
+      let months = now.getMonth() - startDate.getMonth()
+      if (months < 0) { years--; months += 12 }
+
+      // 5. Build PDF using PDFKit
+      const PDFDocument = (await import('pdfkit')).default
+      const chunks: Buffer[] = []
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margins: { top: 72, bottom: 72, left: 72, right: 72 },
+        info: { Title: `Certificado de Antigüedad - ${emp.name ?? portal.name}`, Author: String(company?.name ?? '') },
+      })
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk))
+
+      const pdfDone = new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => resolve(Buffer.concat(chunks)))
+        doc.on('error', reject)
+      })
+
+      const W = 612 - 144
+      const L = 72
+      const BOLD = 'Helvetica-Bold'
+      const REG = 'Helvetica'
+
+      const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+      const fmtDate = (s: string) => {
+        if (!s) return '-'
+        const d = new Date(s + 'T12:00:00')
+        return `${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`
+      }
+
+      // Header
+      let y = 72
+      if (company?.logo) {
+        try {
+          doc.image(Buffer.from(String(company.logo), 'base64'), L, y, { width: 60, height: 60 })
+          doc.font(BOLD).fontSize(11).text(String(company.name ?? ''), L + 75, y + 8)
+          doc.font(REG).fontSize(8).text(`RUT: ${company.vat ?? '-'}`, L + 75, y + 22)
+          doc.text(String(company.street ?? ''), L + 75, y + 32)
+          y += 70
+        } catch {
+          doc.font(BOLD).fontSize(11).text(String(company?.name ?? ''), L, y)
+          y += 20
+        }
+      } else {
+        doc.font(BOLD).fontSize(11).text(String(company?.name ?? ''), L, y)
+        doc.font(REG).fontSize(8).text(`RUT: ${company?.vat ?? '-'}`, L, y + 14)
+        y += 30
+      }
+
+      y += 10
+      doc.moveTo(L, y).lineTo(L + W, y).lineWidth(1).stroke('#7c3aed')
+      y += 35
+
+      // Title
+      doc.font(BOLD).fontSize(16).text('CERTIFICADO DE ANTIGÜEDAD', L, y, { align: 'center', width: W })
+      y += 50
+
+      // Body
+      const employeeName = String(emp.name ?? portal.name)
+      const employeeRut = String(emp.identification_id ?? portal.rut)
+      const jobTitle = String(emp.job_title ?? '-')
+      const companyName = String(company?.name ?? '-')
+      const seniorityText = years > 0
+        ? `${years} año${years > 1 ? 's' : ''} y ${months} mes${months !== 1 ? 'es' : ''}`
+        : `${months} mes${months !== 1 ? 'es' : ''}`
+
+      const today = new Date()
+      const todayStr = today.toISOString().slice(0, 10)
+      const todayFormatted = `${today.getDate()} de ${MONTHS[today.getMonth()]} de ${today.getFullYear()}`
+
+      doc.font(REG).fontSize(11).text(
+        `Por medio del presente, ${companyName} (RUT: ${company?.vat ?? '-'}), certifica que:`,
+        L, y, { width: W, lineGap: 4 },
+      )
+      y += 40
+
+      doc.font(BOLD).fontSize(11).text(employeeName, L + 20, y, { width: W - 40 })
+      y += 18
+      doc.font(REG).fontSize(11).text(`RUT: ${employeeRut}`, L + 20, y, { width: W - 40 })
+      y += 18
+      doc.font(REG).fontSize(11).text(`Cargo: ${jobTitle}`, L + 20, y, { width: W - 40 })
+      y += 30
+
+      doc.font(REG).fontSize(11).text(
+        `Se desempeña en nuestra empresa desde el ${fmtDate(dateStart)}, acumulando una antigüedad de ${seniorityText} a la fecha de emisión de este certificado.`,
+        L, y, { width: W, lineGap: 4 },
+      )
+      y += 55
+
+      doc.font(REG).fontSize(11).text(
+        'Se extiende el presente certificado a solicitud del interesado, para los fines que estime convenientes.',
+        L, y, { width: W, lineGap: 4 },
+      )
+      y += 55
+
+      doc.font(REG).fontSize(10).text(todayFormatted, L, y, { width: W, align: 'right' })
+      y += 50
+
+      // Signature block
+      doc.moveTo(L + W - 200, y).lineTo(L + W, y).lineWidth(0.5).stroke('#333')
+      y += 8
+      doc.font(BOLD).fontSize(9).text('Firma y Timbre', L + W - 200, y, { width: 200, align: 'center' })
+      y += 12
+      doc.font(REG).fontSize(8).text(companyName, L + W - 200, y, { width: 200, align: 'center' })
+
+      doc.end()
+      const pdfBuffer = await pdfDone
+
+      const safeName = employeeName
+        .replace(/[^a-zA-Z0-9\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00c1\u00c9\u00cd\u00d3\u00da\u00d1 ]/g, '')
+        .replace(/\s+/g, '-')
+      const filename = `certificado-antiguedad-${safeName}.pdf`
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, employeeId: portal.employee_id }, 'Error generating certificado antiguedad')
+      return reply.status(500).send({ error: 'Error al generar certificado de antigüedad' })
+    }
+  })
+
+  // ── GET /documentos/constancia-empleo ──────────────────────
+  fastify.get('/documentos/constancia-empleo', { preHandler: [portalGuard] }, async (request, reply) => {
+    const portal = request.portalUser!
+
+    try {
+      // 1. Fetch employee
+      const empResults = await odooAccountingAdapter.searchRead(
+        'hr.employee',
+        [['id', '=', portal.employee_id]],
+        ['name', 'identification_id', 'job_title', 'department_id', 'company_id'],
+        { limit: 1 },
+      )
+      const emp = empResults[0] as Record<string, unknown> | undefined
+      if (!emp) {
+        return reply.status(404).send({ error: 'Empleado no encontrado' })
+      }
+
+      // Try to get date_start separately (may not exist in all Odoo configs)
+      let empDateStart = ''
+      try {
+        const ds = await odooAccountingAdapter.searchRead(
+          'hr.employee', [['id', '=', portal.employee_id]], ['date_start'], { limit: 1 },
+        )
+        empDateStart = String((ds[0] as Record<string, unknown>)?.date_start ?? '')
+      } catch { /* field not available */ }
+
+      // 2. Fetch active contract
+      const contractResults = await odooAccountingAdapter.searchRead(
+        'hr.contract',
+        [
+          ['employee_id', '=', portal.employee_id],
+          ['state', '=', 'open'],
+        ],
+        ['date_start'],
+        { limit: 1, order: 'date_start asc' },
+      )
+      const contract = contractResults[0] as Record<string, unknown> | undefined
+      if (!contract) {
+        return reply.status(404).send({ error: 'No se encontro contrato activo' })
+      }
+
+      // 3. Fetch company
+      const companyId = Array.isArray(emp.company_id)
+        ? (emp.company_id as [number, string])[0]
+        : Number(emp.company_id ?? portal.company_id)
+
+      const companyResults = await odooAccountingAdapter.searchRead(
+        'res.company',
+        [['id', '=', companyId]],
+        ['name', 'vat', 'street', 'city', 'logo'],
+        { limit: 1 },
+      )
+      const company = companyResults[0] as Record<string, unknown> | undefined
+
+      // 4. Build PDF using PDFKit
+      const PDFDocument = (await import('pdfkit')).default
+      const chunks: Buffer[] = []
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margins: { top: 72, bottom: 72, left: 72, right: 72 },
+        info: { Title: `Constancia de Empleo - ${emp.name ?? portal.name}`, Author: String(company?.name ?? '') },
+      })
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk))
+
+      const pdfDone = new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => resolve(Buffer.concat(chunks)))
+        doc.on('error', reject)
+      })
+
+      const W = 612 - 144
+      const L = 72
+      const BOLD = 'Helvetica-Bold'
+      const REG = 'Helvetica'
+
+      const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+      const fmtDate = (s: string) => {
+        if (!s) return '-'
+        const d = new Date(s + 'T12:00:00')
+        return `${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`
+      }
+
+      const employeeName = String(emp.name ?? portal.name)
+      const employeeRut = String(emp.identification_id ?? portal.rut)
+      const jobTitle = String(emp.job_title ?? '-')
+      const department = Array.isArray(emp.department_id)
+        ? String((emp.department_id as [number, string])[1])
+        : ''
+      const companyName = String(company?.name ?? '-')
+      const dateStart = String(contract.date_start ?? empDateStart ?? '')
+
+      const today = new Date()
+      const todayStr = today.toISOString().slice(0, 10)
+      const todayFormatted = `${today.getDate()} de ${MONTHS[today.getMonth()]} de ${today.getFullYear()}`
+
+      // Header
+      let y = 72
+      if (company?.logo) {
+        try {
+          doc.image(Buffer.from(String(company.logo), 'base64'), L, y, { width: 60, height: 60 })
+          doc.font(BOLD).fontSize(11).text(String(company.name ?? ''), L + 75, y + 8)
+          doc.font(REG).fontSize(8).text(`RUT: ${company.vat ?? '-'}`, L + 75, y + 22)
+          doc.text(String(company.street ?? ''), L + 75, y + 32)
+          y += 70
+        } catch {
+          doc.font(BOLD).fontSize(11).text(String(company?.name ?? ''), L, y)
+          y += 20
+        }
+      } else {
+        doc.font(BOLD).fontSize(11).text(String(company?.name ?? ''), L, y)
+        doc.font(REG).fontSize(8).text(`RUT: ${company?.vat ?? '-'}`, L, y + 14)
+        y += 30
+      }
+
+      y += 10
+      doc.moveTo(L, y).lineTo(L + W, y).lineWidth(1).stroke('#7c3aed')
+      y += 35
+
+      // Title
+      doc.font(BOLD).fontSize(16).text('CONSTANCIA DE EMPLEO', L, y, { align: 'center', width: W })
+      y += 50
+
+      // Body
+      doc.font(REG).fontSize(11).text(
+        `Por medio de la presente, ${companyName} (RUT: ${company?.vat ?? '-'}), con domicilio en ${company?.street ?? '-'}, ${company?.city ?? ''}, hace constar que:`,
+        L, y, { width: W, lineGap: 4 },
+      )
+      y += 50
+
+      const deptText = department ? `, en el departamento de ${department}` : ''
+      doc.font(REG).fontSize(11).text(
+        `Don(a) ${employeeName}, RUT ${employeeRut}, se desempeña actualmente en nuestra empresa desde el ${fmtDate(dateStart)}, ocupando el cargo de ${jobTitle}${deptText}.`,
+        L, y, { width: W, lineGap: 4 },
+      )
+      y += 60
+
+      doc.font(REG).fontSize(11).text(
+        'Se extiende la presente constancia a solicitud del interesado, para los fines que estime convenientes.',
+        L, y, { width: W, lineGap: 4 },
+      )
+      y += 55
+
+      doc.font(REG).fontSize(10).text(todayFormatted, L, y, { width: W, align: 'right' })
+      y += 50
+
+      // Signature block
+      doc.moveTo(L + W - 200, y).lineTo(L + W, y).lineWidth(0.5).stroke('#333')
+      y += 8
+      doc.font(BOLD).fontSize(9).text('Firma y Timbre', L + W - 200, y, { width: 200, align: 'center' })
+      y += 12
+      doc.font(REG).fontSize(8).text(companyName, L + W - 200, y, { width: 200, align: 'center' })
+
+      doc.end()
+      const pdfBuffer = await pdfDone
+
+      const safeName = employeeName
+        .replace(/[^a-zA-Z0-9\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1\u00c1\u00c9\u00cd\u00d3\u00da\u00d1 ]/g, '')
+        .replace(/\s+/g, '-')
+      const filename = `constancia-empleo-${safeName}.pdf`
+
+      reply.header('Content-Type', 'application/pdf')
+      reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+      return reply.send(pdfBuffer)
+    } catch (err) {
+      logger.error({ err, employeeId: portal.employee_id }, 'Error generating constancia de empleo')
+      return reply.status(500).send({ error: 'Error al generar constancia de empleo' })
     }
   })
 }

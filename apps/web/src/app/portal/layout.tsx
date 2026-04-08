@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { href: '/portal/documentos', icon: FileText,     label: 'Documentos' },
   { href: '/portal/asistencia', icon: Clock4,       label: 'Asistencia' },
   { href: '/portal/ausencias',  icon: CalendarDays, label: 'Ausencias' },
+  { href: '/portal/perfil',     icon: User,         label: 'Mi Perfil' },
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -76,7 +77,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 </div>
               )}
               <div className="flex flex-col">
-                <span className="text-slate-800 text-sm font-semibold tracking-tight leading-none">
+                <span className="text-slate-800 text-sm font-semibold tracking-tight leading-none max-w-[180px] truncate" title={profile?.company_name ?? ''}>
                   {profile?.company_name || <>CUENTA<span className="text-violet-600">X</span></>}
                 </span>
                 <span className="text-[10px] text-slate-400 leading-none mt-0.5">
