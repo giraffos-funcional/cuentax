@@ -77,6 +77,13 @@ interface SIIDocumento {
 const SII_LOGIN_URL = 'https://zeusr.sii.cl/AUT2000/InicioAutenticacion/IngresoRutClave.html?https://www4.sii.cl/consdcvinternetui/'
 const SII_RCV_API = 'https://www4.sii.cl/consdcvinternetui/services/data/facadeService'
 
+/** Convert SII date format (dd/mm/yyyy) to ISO (yyyy-mm-dd). */
+function toISO(siiDate?: string): string {
+  if (!siiDate) return ''
+  const m = siiDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : siiDate
+}
+
 export interface SIISession {
   context: BrowserContext
   browser: Browser
@@ -389,7 +396,7 @@ async function matchAndCreateDTEs(
           monto_exento: exento,
           monto_iva: iva,
           monto_total: total,
-          fecha_emision: doc.detFchDoc ?? '',
+          fecha_emision: toISO(doc.detFchDoc),
           observaciones: `Importado desde RCV SII (${tipo})`,
         }).onConflictDoNothing() // Skip if company_id+tipo_dte+folio already exists
           .returning({ id: dteDocuments.id })
