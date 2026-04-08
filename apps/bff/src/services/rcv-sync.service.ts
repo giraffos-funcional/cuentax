@@ -8,6 +8,8 @@
  * 1. POST to SII auth endpoint → get session cookie
  * 2. GET RCV data via the consulta DCV API (JSON)
  * 3. Parse and store in rcv_registros + rcv_detalles
+ * 4. Match RCV detalles with existing DTEs (by company_id + tipo_dte + folio)
+ * 5. Create missing DTEs from RCV data (estado = 'aceptado' since SII confirmed them)
  *
  * The SII RCV Angular app at https://www4.sii.cl/consdcvinternetui/
  * calls backend APIs that return JSON. We call those APIs directly.
@@ -17,9 +19,9 @@ import axios from 'axios'
 import type { AxiosInstance } from 'axios'
 import { wrapper } from 'axios-cookiejar-support'
 import { CookieJar } from 'tough-cookie'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { companies, rcvRegistros, rcvDetalles } from '@/db/schema'
+import { companies, rcvRegistros, rcvDetalles, dteDocuments } from '@/db/schema'
 import { decrypt } from '@/core/crypto'
 import { logger } from '@/core/logger'
 
@@ -41,6 +43,8 @@ export interface RCVSyncResult {
   totalNeto: number
   totalIva: number
   totalExento: number
+  dtesMatched: number
+  dtesCreated: number
   error?: string
 }
 
@@ -202,6 +206,127 @@ async function fetchRCVData(
 }
 
 // ---------------------------------------------------------------------------
+// RCV → DTE matching & creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Match RCV detalles with existing DTEs and create missing ones.
+ * - For ventas: matches documents WE emitted (already in dte_documents)
+ * - For compras: creates DTEs for documents RECEIVED (usually missing)
+ * DTEs created from RCV get estado='aceptado' since SII already confirmed them.
+ */
+async function matchAndCreateDTEs(
+  companyId: number,
+  registroId: number,
+  documents: SIIDocumento[],
+  tipo: 'compras' | 'ventas',
+): Promise<{ matched: number; created: number }> {
+  if (documents.length === 0) return { matched: 0, created: 0 }
+
+  let matched = 0
+  let created = 0
+
+  // Get all detalles we just inserted for this registro
+  const detalles = await db.select({ id: rcvDetalles.id, tipo_dte: rcvDetalles.tipo_dte, folio: rcvDetalles.folio })
+    .from(rcvDetalles)
+    .where(eq(rcvDetalles.rcv_id, registroId))
+
+  // Build a lookup map: "tipoDte-folio" → detalleId
+  const detalleMap = new Map<string, number>()
+  for (const d of detalles) {
+    detalleMap.set(`${d.tipo_dte}-${d.folio}`, d.id)
+  }
+
+  // Get existing DTEs for this company that could match (by tipo_dte + folio)
+  const folios = documents.map(d => d.detNroDoc ?? 0).filter(f => f > 0)
+  const tiposDte = [...new Set(documents.map(d => d.detTipoDoc ?? 0).filter(t => t > 0))]
+
+  if (folios.length === 0 || tiposDte.length === 0) return { matched: 0, created: 0 }
+
+  const existingDTEs = await db.select({
+    id: dteDocuments.id,
+    tipo_dte: dteDocuments.tipo_dte,
+    folio: dteDocuments.folio,
+  })
+    .from(dteDocuments)
+    .where(and(
+      eq(dteDocuments.company_id, companyId),
+      inArray(dteDocuments.tipo_dte, tiposDte),
+    ))
+
+  // Build lookup: "tipoDte-folio" → dteId
+  const existingMap = new Map<string, number>()
+  for (const dte of existingDTEs) {
+    if (dte.folio) existingMap.set(`${dte.tipo_dte}-${dte.folio}`, dte.id)
+  }
+
+  // Process each document: match or create
+  for (const doc of documents) {
+    const tipoDte = doc.detTipoDoc ?? 0
+    const folio = doc.detNroDoc ?? 0
+    if (tipoDte === 0 || folio === 0) continue
+
+    const key = `${tipoDte}-${folio}`
+    const detalleId = detalleMap.get(key)
+    const existingDteId = existingMap.get(key)
+
+    if (existingDteId) {
+      // Match: link rcv_detalle → existing DTE
+      matched++
+      if (detalleId) {
+        await db.update(rcvDetalles)
+          .set({ dte_document_id: existingDteId })
+          .where(eq(rcvDetalles.id, detalleId))
+      }
+    } else {
+      // Create missing DTE from RCV data
+      try {
+        const rutContraparte = doc.detRutDoc ?? ''
+        const razonSocial = doc.detRznSoc ?? rutContraparte
+        const neto = doc.detMntNeto ?? 0
+        const exento = doc.detMntExe ?? 0
+        const iva = doc.detMntIVA ?? 0
+        const total = doc.detMntTotal ?? (neto + exento + iva)
+
+        const [newDte] = await db.insert(dteDocuments).values({
+          company_id: companyId,
+          tipo_dte: tipoDte,
+          folio,
+          estado: 'aceptado', // SII already confirmed this document
+          rut_receptor: rutContraparte,
+          razon_social_receptor: razonSocial || 'Sin razon social',
+          monto_neto: neto,
+          monto_exento: exento,
+          monto_iva: iva,
+          monto_total: total,
+          fecha_emision: doc.detFchDoc ?? '',
+          observaciones: `Importado desde RCV SII (${tipo})`,
+        }).onConflictDoNothing() // Skip if company_id+tipo_dte+folio already exists
+          .returning({ id: dteDocuments.id })
+
+        if (newDte) {
+          created++
+          // Link rcv_detalle → new DTE
+          if (detalleId) {
+            await db.update(rcvDetalles)
+              .set({ dte_document_id: newDte.id })
+              .where(eq(rcvDetalles.id, detalleId))
+          }
+          // Also add to existingMap to avoid duplicates within same batch
+          existingMap.set(key, newDte.id)
+        }
+      } catch (err) {
+        // Non-critical: log and continue with next document
+        logger.warn({ tipoDte, folio, err: (err as Error).message }, 'Failed to create DTE from RCV')
+      }
+    }
+  }
+
+  logger.info({ companyId, registroId, tipo, matched, created }, 'RCV→DTE matching completed')
+  return { matched, created }
+}
+
+// ---------------------------------------------------------------------------
 // Main sync function
 // ---------------------------------------------------------------------------
 
@@ -219,11 +344,11 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       .limit(1)
 
     if (!company) {
-      return { success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0, totalExento: 0, error: 'Company not found' }
+      return { success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0, totalExento: 0, dtesMatched: 0, dtesCreated: 0, error: 'Company not found' }
     }
 
     if (!company.sii_user || !company.sii_password_enc) {
-      return { success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0, totalExento: 0, error: 'SII credentials not configured' }
+      return { success: false, totalRegistros: 0, totalNeto: 0, totalIva: 0, totalExento: 0, dtesMatched: 0, dtesCreated: 0, error: 'SII credentials not configured' }
     }
 
     const siiPassword = decrypt(company.sii_password_enc)
@@ -316,7 +441,10 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       }
     }
 
-    // 6. Update company last sync timestamp
+    // 6. Match RCV detalles with existing DTEs + create missing ones
+    const { matched, created } = await matchAndCreateDTEs(companyId, registroId, documents, tipo)
+
+    // 7. Update company last sync timestamp
     await db.update(companies)
       .set({ sii_rcv_last_sync: new Date() })
       .where(eq(companies.id, companyId))
@@ -326,6 +454,8 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       totalRegistros: documents.length,
       totalNeto: totals.neto,
       totalIva: totals.iva,
+      dtesMatched: matched,
+      dtesCreated: created,
     }, 'RCV sync completed')
 
     return {
@@ -335,6 +465,8 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       totalNeto: totals.neto,
       totalIva: totals.iva,
       totalExento: totals.exento,
+      dtesMatched: matched,
+      dtesCreated: created,
     }
 
   } catch (error) {
@@ -367,6 +499,8 @@ export async function syncRCV(opts: RCVSyncOptions): Promise<RCVSyncResult> {
       totalNeto: 0,
       totalIva: 0,
       totalExento: 0,
+      dtesMatched: 0,
+      dtesCreated: 0,
       error: message,
     }
   }

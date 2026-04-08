@@ -42,7 +42,9 @@ async function processRCVSync(job: Job): Promise<void> {
 
   // If manual trigger with specific period, use that
   if (job.data?.companyId && job.data?.mes && job.data?.year) {
+    await job.updateProgress({ step: 'auth', pct: 10, label: 'Autenticando con SII...' })
     const result = await syncRCVFull(job.data.companyId, job.data.mes, job.data.year)
+    await job.updateProgress({ step: 'done', pct: 100, label: 'Sincronizacion completada', result })
     logger.info({ companyId: job.data.companyId, result }, 'Manual RCV sync completed')
     return
   }
@@ -58,15 +60,24 @@ async function processRCVSync(job: Job): Promise<void> {
 
   if (companiesWithSync.length === 0) {
     logger.info('No companies with RCV auto-sync enabled — skipping')
+    await job.updateProgress({ step: 'done', pct: 100, label: 'Sin empresas con sync activo' })
     return
   }
 
   logger.info({ companyCount: companiesWithSync.length }, 'Starting RCV auto-sync for all enabled companies')
+  const totalSteps = companiesWithSync.length * 2 // current + prev month per company
+  let completedSteps = 0
 
   for (const company of companiesWithSync) {
     try {
       // Sync current month
+      await job.updateProgress({
+        step: 'sync',
+        pct: Math.round((completedSteps / totalSteps) * 100),
+        label: `${company.razon_social}: compras y ventas ${currentMonth}/${currentYear}`,
+      })
       const currentResult = await syncRCVFull(company.id, currentMonth, currentYear)
+      completedSteps++
       logger.info({
         companyId: company.id,
         rut: company.rut,
@@ -76,7 +87,13 @@ async function processRCVSync(job: Job): Promise<void> {
       }, 'RCV sync current month done')
 
       // Sync previous month (to catch late documents)
+      await job.updateProgress({
+        step: 'sync',
+        pct: Math.round((completedSteps / totalSteps) * 100),
+        label: `${company.razon_social}: compras y ventas ${prevMonth}/${prevYear}`,
+      })
       const prevResult = await syncRCVFull(company.id, prevMonth, prevYear)
+      completedSteps++
       logger.info({
         companyId: company.id,
         period: `${prevYear}-${prevMonth}`,
@@ -84,11 +101,12 @@ async function processRCVSync(job: Job): Promise<void> {
         ventas: prevResult.ventas.totalRegistros,
       }, 'RCV sync previous month done')
     } catch (err) {
-      // Don't fail the entire job for one company
+      completedSteps += 2 // Skip both months for failed company
       logger.error({ err, companyId: company.id }, 'RCV sync failed for company — continuing with next')
     }
   }
 
+  await job.updateProgress({ step: 'done', pct: 100, label: 'Sincronizacion nocturna completada' })
   logger.info({ companyCount: companiesWithSync.length }, 'RCV auto-sync completed for all companies')
 }
 

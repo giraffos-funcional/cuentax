@@ -20,7 +20,7 @@ import {
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
-  Wrench, ShieldCheck
+  Wrench, ShieldCheck, RefreshCw
 } from 'lucide-react'
 
 // ── Navigation structure ─────────────────────────────────────
@@ -88,6 +88,7 @@ const NAV: NavEntry[] = [
     icon: Wrench,
     collapsible: true,
     items: [
+      { href: '/dashboard/herramientas/tareas',        icon: RefreshCw,   label: 'Tareas Automaticas' },
       { href: '/dashboard/herramientas/certificacion', icon: ShieldCheck, label: 'Certificación SII' },
       { href: '/dashboard/folios',                     icon: Folders,     label: 'Folios (CAF)' },
     ],
