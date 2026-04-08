@@ -271,7 +271,8 @@ async function fetchRCVData(
 
       for (const doc of docs) {
         allDocuments.push({
-          detTipoDoc: tipoDoc,
+          ...doc, // Spread first so our explicit values take precedence
+          detTipoDoc: tipoDoc, // SII returns detTipoDoc:null in detalle, override with resumen value
           detNroDoc: doc.detNroDoc ?? doc.folio ?? 0,
           detFchDoc: doc.detFchDoc ?? doc.fechaEmision ?? '',
           detRutDoc: doc.detRutDoc ? `${doc.detRutDoc}-${doc.detDvDoc ?? ''}` : '',
@@ -282,7 +283,6 @@ async function fetchRCVData(
           detMntTotal: doc.detMntTotal ?? 0,
           detMntIVANoRec: doc.detMntIVANoRec ?? 0,
           estado: 'REGISTRO',
-          ...doc,
         })
       }
 
