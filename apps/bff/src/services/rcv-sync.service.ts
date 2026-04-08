@@ -266,8 +266,6 @@ async function fetchRCVData(
         estadoContab: 'REGISTRO',
         operacion,
         codTipoDoc: tipoDoc,
-        pagina: 1,
-        tamanioPagina: 2000,
       }) as any
 
       const docs = Array.isArray(detalle?.data) ? detalle.data : []
