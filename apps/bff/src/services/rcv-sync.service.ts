@@ -175,8 +175,9 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
 
   const page = await session.context.newPage()
   try {
-    // Navigate to SII domain first so cookies and CORS work
-    await page.goto('https://www4.sii.cl/consdcvinternetui/', { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    // Navigate to SII RCV Angular app so cookies are set and CORS works.
+    // The Angular app at this URL sets up session state needed for API calls.
+    await page.goto('https://www4.sii.cl/consdcvinternetui/#/index', { waitUntil: 'networkidle', timeout: 30_000 })
 
     const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
       const response = await fetch(url, {
@@ -196,7 +197,10 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
           data,
         }),
       })
-      if (!response.ok) throw new Error(`SII API ${response.status}`)
+      if (!response.ok) {
+        const body = await response.text().catch(() => '')
+        throw new Error(`SII API ${response.status}: ${body.substring(0, 500)}`)
+      }
       return response.json()
     }, { url, namespace, token: session.token, transactionId, data })
 
