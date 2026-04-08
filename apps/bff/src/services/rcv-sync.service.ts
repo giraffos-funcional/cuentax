@@ -180,6 +180,19 @@ async function callSIIApi(session: SIISession, endpoint: string, data: Record<st
     await page.goto('https://www4.sii.cl/consdcvinternetui/#/index', { waitUntil: 'networkidle', timeout: 30_000 })
 
     const result = await page.evaluate(async ({ url, namespace, token, transactionId, data }) => {
+      // If this call requires recaptcha, get a real token from the Angular app's grecaptcha instance
+      if (data.accionRecaptcha && (window as any).grecaptcha) {
+        try {
+          const siteKey = (window as any).RECAPTCHA_SITE_KEY ||
+            document.querySelector('[data-sitekey]')?.getAttribute('data-sitekey') ||
+            document.querySelector('script[src*="recaptcha"]')?.getAttribute('src')?.match(/render=([^&]+)/)?.[1] || ''
+          if (siteKey) {
+            const recaptchaToken = await (window as any).grecaptcha.execute(siteKey, { action: data.accionRecaptcha })
+            data.tokenRecaptcha = recaptchaToken
+          }
+        } catch { /* fall back to dummy token */ }
+      }
+
       const response = await fetch(url, {
         method: 'POST',
         credentials: 'include',
