@@ -258,7 +258,8 @@ async function fetchRCVData(
     if (!tipoDoc || totalDocs === 0) continue
 
     try {
-      const detalle = await callSIIApi(session, 'getDetalle', {
+      const detalleEndpoint = operacion === 'COMPRA' ? 'getDetalleCompra' : 'getDetalleVenta'
+      const detalle = await callSIIApi(session, detalleEndpoint, {
         rutEmisor: rut,
         dvEmisor: dv,
         ptributario: periodo,
