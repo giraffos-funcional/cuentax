@@ -70,6 +70,10 @@ class SetPruebasCase:
     _ref_caso_sub: Optional[int] = None
     # Global discount on afectos (percentage)
     descuento_global_pct: Decimal = Decimal("0")
+    # True when this case is an ND (tipo 56) voiding a text-correction NC.
+    # Forces CodRef=3 (Corrige Montos) instead of 1 (Anula) to avoid
+    # SII REF-2-780 "Anulación presenta diff. de monto con doc. referenciado".
+    _nd_voids_text_nc: bool = False
 
 
 @dataclass
@@ -397,6 +401,10 @@ class SetPruebasParser:
                     # factura (the one the NC referenced). NDs must have positive amounts.
                     # The text-correction NC itself has MntTotal=0, but the ND needs real
                     # amounts from the factura to pass SII DTE validation.
+                    # Flag this case so to_payloads() forces CodRef=3 (Corrige Montos)
+                    # instead of 1 (Anula). With CodRef=1, SII raises REF-2-780
+                    # "Anulación presenta diff. de monto" because ND.MntTotal != NC.MntTotal (0).
+                    case._nd_voids_text_nc = True
                     orig_case = by_sub.get(ref_case._ref_caso_sub) if ref_case._ref_caso_sub else None
                     if orig_case and orig_case.items:
                         src_item = orig_case.items[0]
@@ -580,7 +588,12 @@ class SetPruebasParser:
                 payload["ref_folio"] = 0  # Resolved during batch emission
                 payload["ref_fecha"] = ""  # Set to fecha_emision during emission
                 payload["ref_motivo"] = case.referencia.razon_ref
-                payload["ref_cod_ref"] = self._derive_cod_ref(case.referencia.razon_ref)
+                # ND voiding text-correction NC: override to CodRef=3 (Corrige Montos)
+                # to avoid SII REF-2-780 monto-diff reparo. See SetPruebasCase._nd_voids_text_nc.
+                if case._nd_voids_text_nc:
+                    payload["ref_cod_ref"] = 3
+                else:
+                    payload["ref_cod_ref"] = self._derive_cod_ref(case.referencia.razon_ref)
                 payload["_ref_caso_sub"] = case._ref_caso_sub
 
             payloads.append(payload)
