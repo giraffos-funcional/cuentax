@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   ArrowLeftRight, Plus, Loader2, AlertCircle, ChevronUp, ChevronDown,
@@ -114,7 +114,7 @@ function EmptyState({ hasAccount }: { hasAccount: boolean }) {
 
 // ── Main Page ───────────────────────────────────────────────
 
-export default function TransaccionesPage() {
+function TransaccionesContent() {
   const searchParams = useSearchParams()
   const initialAccount = searchParams.get('cuenta') ? Number(searchParams.get('cuenta')) : null
 
@@ -491,5 +491,13 @@ export default function TransaccionesPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function TransaccionesPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 size={20} className="animate-spin text-[var(--cx-active-icon)]" /></div>}>
+      <TransaccionesContent />
+    </Suspense>
   )
 }
