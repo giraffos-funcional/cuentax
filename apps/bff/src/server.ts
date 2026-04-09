@@ -40,6 +40,7 @@ import { rcvRoutes } from '@/routes/rcv'
 import { jobsRoutes } from '@/routes/jobs'
 import { cotizacionesRoutes } from '@/routes/cotizaciones'
 import { comprasRoutes } from '@/routes/compras'
+import { bankRoutes } from '@/routes/bank'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -357,6 +358,46 @@ async function bootstrap() {
 
       // Cleanup disabled — was causing issues. Companies managed via UI only.
 
+      // ── Bank module enums & tables ────────────────────────────
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE bank_account_type AS ENUM('corriente','vista','ahorro','rut'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE bank_sync_status AS ENUM('pendiente','sincronizado','error'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE bank_reconcile_status AS ENUM('sin_conciliar','conciliado','descartado'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "bank_accounts" (
+        "id" serial PRIMARY KEY, "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+        "nombre" text NOT NULL, "banco" varchar(50) NOT NULL,
+        "tipo_cuenta" bank_account_type DEFAULT 'corriente',
+        "numero_cuenta" varchar(30) NOT NULL, "moneda" varchar(5) DEFAULT 'CLP',
+        "saldo" bigint DEFAULT 0, "saldo_fecha" text,
+        "bank_user" varchar(100), "bank_password_enc" text,
+        "scraping_enabled" boolean DEFAULT false,
+        "last_sync" timestamptz, "sync_status" bank_sync_status DEFAULT 'pendiente',
+        "sync_error" text, "activo" boolean DEFAULT true,
+        "created_at" timestamptz DEFAULT now(), "updated_at" timestamptz DEFAULT now()
+      )`)
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "bank_transactions" (
+        "id" serial PRIMARY KEY,
+        "bank_account_id" integer NOT NULL REFERENCES "bank_accounts"("id") ON DELETE CASCADE,
+        "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+        "fecha" text NOT NULL, "descripcion" text NOT NULL,
+        "referencia" varchar(100), "monto" bigint NOT NULL,
+        "tipo" varchar(10) NOT NULL, "saldo" bigint,
+        "source" varchar(20) DEFAULT 'manual', "external_id" varchar(100),
+        "reconcile_status" bank_reconcile_status DEFAULT 'sin_conciliar',
+        "dte_document_id" integer, "reconcile_note" text,
+        "reconciled_at" timestamptz,
+        "created_at" timestamptz DEFAULT now()
+      )`)
+
+      // Indexes for bank tables
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_acc_company_idx" ON "bank_accounts"("company_id")`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "bank_acc_company_num_idx" ON "bank_accounts"("company_id","banco","numero_cuenta")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_tx_account_idx" ON "bank_transactions"("bank_account_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_tx_company_idx" ON "bank_transactions"("company_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_tx_fecha_idx" ON "bank_transactions"("fecha")`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "bank_tx_external_idx" ON "bank_transactions"("bank_account_id","external_id")`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
@@ -381,6 +422,7 @@ async function bootstrap() {
   await fastify.register(jobsRoutes, { prefix: '/api/v1/jobs' })
   await fastify.register(cotizacionesRoutes, { prefix: '/api/v1/cotizaciones' })
   await fastify.register(comprasRoutes, { prefix: '/api/v1/compras/pedidos' })
+  await fastify.register(bankRoutes, { prefix: '/api/v1/bank' })
 
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {

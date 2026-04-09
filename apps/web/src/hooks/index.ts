@@ -900,6 +900,99 @@ export function useDeletePedidoCompra() {
   return { remove }
 }
 
+// ══════════════════════════════════════════════════════════
+// Bank Module Hooks
+// ══════════════════════════════════════════════════════════
+
+/** Bank Accounts */
+export function useBankAccounts() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/bank/accounts', fetcher, { refreshInterval: 60_000 })
+  return { accounts: data?.data ?? [], isLoading, error, mutate }
+}
+
+/** Bank Transactions for a specific account */
+export function useBankTransactions(accountId: number | null, filters?: { fecha_desde?: string; fecha_hasta?: string; page?: number }) {
+  const params = new URLSearchParams()
+  if (filters?.fecha_desde) params.set('fecha_desde', filters.fecha_desde)
+  if (filters?.fecha_hasta) params.set('fecha_hasta', filters.fecha_hasta)
+  if (filters?.page) params.set('page', String(filters.page))
+  const { data, error, isLoading, mutate } = useSWR(
+    accountId ? `/api/v1/bank/accounts/${accountId}/transactions?${params}` : null, fetcher, { refreshInterval: 60_000 })
+  return { transactions: data?.data ?? [], total: data?.total ?? 0, saldo: data?.saldo ?? 0, isLoading, error, mutate }
+}
+
+/** Create bank account */
+export function useCreateBankAccount() {
+  const crear = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/bank/accounts', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+    return result
+  }
+  return { crear }
+}
+
+/** Delete bank account (soft) */
+export function useDeleteBankAccount() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/bank/accounts/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+  }
+  return { remove }
+}
+
+/** Add manual bank transaction */
+export function useCreateBankTransaction() {
+  const crear = async (accountId: number, payload: unknown) => {
+    const result = await apiClient.post(`/api/v1/bank/accounts/${accountId}/transactions`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+    return result
+  }
+  return { crear }
+}
+
+/** Delete bank transaction */
+export function useDeleteBankTransaction() {
+  const remove = async (txId: number) => {
+    await apiClient.delete(`/api/v1/bank/transactions/${txId}`)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+  }
+  return { remove }
+}
+
+/** Save bank credentials */
+export function useSaveBankCredentials() {
+  const save = async (accountId: number, payload: { bank_user: string; bank_password: string; scraping_enabled?: boolean }) => {
+    const result = await apiClient.put(`/api/v1/bank/accounts/${accountId}/credentials`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+    return result
+  }
+  return { save }
+}
+
+/** Reconcile bank transaction with DTE */
+export function useReconcileBankTx() {
+  const reconcile = async (accountId: number, txId: number, dteDocumentId: number, note?: string) => {
+    const result = await apiClient.post(`/api/v1/bank/accounts/${accountId}/reconcile`, {
+      tx_id: txId, dte_document_id: dteDocumentId, note,
+    }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+    return result
+  }
+  return { reconcile }
+}
+
+/** Unreconcile bank transaction */
+export function useUnreconcileBankTx() {
+  const unreconcile = async (accountId: number, txId: number) => {
+    const result = await apiClient.post(`/api/v1/bank/accounts/${accountId}/unreconcile`, {
+      tx_id: txId,
+    }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/api/v1/bank/'))
+    return result
+  }
+  return { unreconcile }
+}
+
 /** Cash flow forecast with historical and projected periods */
 export function useCashFlow(months?: number) {
   const params = months ? new URLSearchParams({ months: String(months) }) : ''

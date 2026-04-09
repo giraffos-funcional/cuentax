@@ -16,7 +16,7 @@ import {
   LayoutDashboard, FileText, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
-  Building2, Bell, Search, Menu, Star,
+  Building2, Bell, Search, Menu, Star, Landmark,
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart, ShoppingCart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
@@ -56,6 +56,17 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/compras',               icon: ShoppingCart,   label: 'Resumen Compras' },
       { href: '/dashboard/compras/solicitudes',    icon: FileText,      label: 'Solicitudes' },
       { href: '/dashboard/compras/pedidos',        icon: ClipboardList, label: 'Pedidos de Compra' },
+    ],
+  },
+
+  // Banco section
+  {
+    section: 'Banco',
+    icon: Landmark,
+    collapsible: true,
+    items: [
+      { href: '/dashboard/banco',               icon: Landmark,        label: 'Cuentas' },
+      { href: '/dashboard/banco/transacciones',  icon: ArrowLeftRight,  label: 'Transacciones' },
     ],
   },
   {

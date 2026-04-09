@@ -348,6 +348,70 @@ export const rcvDetalles = pgTable('rcv_detalles', {
   folioIdx:        uniqueIndex('rcv_detalle_folio_idx').on(t.rcv_id, t.tipo_dte, t.folio),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// CUENTAS BANCARIAS
+// ══════════════════════════════════════════════════════════════
+
+export const bankAccountTypeEnum = pgEnum('bank_account_type', [
+  'corriente', 'vista', 'ahorro', 'rut',
+])
+
+export const bankSyncStatusEnum = pgEnum('bank_sync_status', [
+  'pendiente', 'sincronizado', 'error',
+])
+
+export const bankReconcileStatusEnum = pgEnum('bank_reconcile_status', [
+  'sin_conciliar', 'conciliado', 'descartado',
+])
+
+export const bankAccounts = pgTable('bank_accounts', {
+  id:               serial('id').primaryKey(),
+  company_id:       integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  nombre:           text('nombre').notNull(),
+  banco:            varchar('banco', { length: 50 }).notNull(),
+  tipo_cuenta:      bankAccountTypeEnum('tipo_cuenta').default('corriente'),
+  numero_cuenta:    varchar('numero_cuenta', { length: 30 }).notNull(),
+  moneda:           varchar('moneda', { length: 5 }).default('CLP'),
+  saldo:            bigint('saldo', { mode: 'number' }).default(0),
+  saldo_fecha:      text('saldo_fecha'),
+  bank_user:        varchar('bank_user', { length: 100 }),
+  bank_password_enc: text('bank_password_enc'),
+  scraping_enabled: boolean('scraping_enabled').default(false),
+  last_sync:        timestamp('last_sync', { withTimezone: true }),
+  sync_status:      bankSyncStatusEnum('sync_status').default('pendiente'),
+  sync_error:       text('sync_error'),
+  activo:           boolean('activo').default(true),
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:       timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx:    index('bank_acc_company_idx').on(t.company_id),
+  companyNumIdx: uniqueIndex('bank_acc_company_num_idx').on(t.company_id, t.banco, t.numero_cuenta),
+}))
+
+export const bankTransactions = pgTable('bank_transactions', {
+  id:               serial('id').primaryKey(),
+  bank_account_id:  integer('bank_account_id').notNull().references(() => bankAccounts.id, { onDelete: 'cascade' }),
+  company_id:       integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  fecha:            text('fecha').notNull(),
+  descripcion:      text('descripcion').notNull(),
+  referencia:       varchar('referencia', { length: 100 }),
+  monto:            bigint('monto', { mode: 'number' }).notNull(),
+  tipo:             varchar('tipo', { length: 10 }).notNull(), // 'debito' | 'credito'
+  saldo:            bigint('saldo', { mode: 'number' }),
+  source:           varchar('source', { length: 20 }).default('manual'), // 'scraping' | 'csv' | 'manual'
+  external_id:      varchar('external_id', { length: 100 }),
+  reconcile_status: bankReconcileStatusEnum('reconcile_status').default('sin_conciliar'),
+  dte_document_id:  integer('dte_document_id'),
+  reconcile_note:   text('reconcile_note'),
+  reconciled_at:    timestamp('reconciled_at', { withTimezone: true }),
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  accountIdx:  index('bank_tx_account_idx').on(t.bank_account_id),
+  companyIdx:  index('bank_tx_company_idx').on(t.company_id),
+  fechaIdx:    index('bank_tx_fecha_idx').on(t.fecha),
+  externalIdx: uniqueIndex('bank_tx_external_idx').on(t.bank_account_id, t.external_id),
+}))
+
 // ── Relations ─────────────────────────────────────────────────
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
@@ -359,6 +423,7 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   apiKeys: many(apiKeys),
   webhooks: many(webhookEndpoints),
   rcvRegistros: many(rcvRegistros),
+  bankAccounts: many(bankAccounts),
 }))
 
 export const purchaseOrdersRelations = relations(purchaseOrders, ({ one }) => ({
@@ -382,4 +447,14 @@ export const dteDocumentsRelations = relations(dteDocuments, ({ one }) => ({
 
 export const quotationsRelations = relations(quotations, ({ one }) => ({
   company: one(companies, { fields: [quotations.company_id], references: [companies.id] }),
+}))
+
+export const bankAccountsRelations = relations(bankAccounts, ({ one, many }) => ({
+  company: one(companies, { fields: [bankAccounts.company_id], references: [companies.id] }),
+  transactions: many(bankTransactions),
+}))
+
+export const bankTransactionsRelations = relations(bankTransactions, ({ one }) => ({
+  bankAccount: one(bankAccounts, { fields: [bankTransactions.bank_account_id], references: [bankAccounts.id] }),
+  company: one(companies, { fields: [bankTransactions.company_id], references: [companies.id] }),
 }))
