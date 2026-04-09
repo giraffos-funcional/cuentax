@@ -30,6 +30,7 @@ import { bankAccounts, bankTransactions } from '@/db/schema'
 import { encrypt, decrypt } from '@/core/crypto'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
+import { syncItauAccount } from '@/services/itau-scraper.service'
 
 // ── Validation Schemas ─────────────────────────────────────────
 
@@ -430,5 +431,126 @@ export async function bankRoutes(fastify: FastifyInstance) {
 
     logger.info({ txId: parse.data.tx_id }, 'Bank transaction unreconciled')
     return reply.send({ success: true, transaction: updated })
+  })
+
+  // ── POST /accounts/:id/sync — Scrape bank transactions ────
+  fastify.post<{ Params: { id: string } }>('/accounts/:id/sync', async (req, reply) => {
+    const accountId = Number(req.params.id)
+    const user = (req as any).user
+    const companyId = await getLocalCompanyId(user.company_id)
+    const body = z.object({
+      mes: z.number().int().min(1).max(12),
+      year: z.number().int().min(2020).max(2030),
+    }).parse(req.body)
+
+    // Get account with credentials
+    const [account] = await db.select().from(bankAccounts)
+      .where(and(eq(bankAccounts.id, accountId), eq(bankAccounts.company_id, companyId)))
+      .limit(1)
+
+    if (!account) return reply.status(404).send({ error: 'Cuenta no encontrada' })
+    if (!account.bank_user || !account.bank_password_enc) {
+      return reply.status(400).send({ error: 'Credenciales bancarias no configuradas' })
+    }
+
+    const bankPassword = decrypt(account.bank_password_enc)
+
+    // Update sync status
+    await db.update(bankAccounts)
+      .set({ sync_status: 'pendiente', sync_error: null })
+      .where(eq(bankAccounts.id, accountId))
+
+    try {
+      // Only Itaú supported for now
+      if (account.banco.toLowerCase() !== 'itau') {
+        return reply.status(400).send({ error: `Scraping no soportado para banco: ${account.banco}. Solo Itaú por ahora.` })
+      }
+
+      const result = await syncItauAccount(
+        account.bank_user,
+        bankPassword,
+        undefined, // rutEmpresa — could add to account config later
+        account.numero_cuenta,
+        body.mes,
+        body.year,
+      )
+
+      if (!result.success) {
+        await db.update(bankAccounts)
+          .set({ sync_status: 'error', sync_error: result.error ?? 'Unknown error' })
+          .where(eq(bankAccounts.id, accountId))
+        return reply.status(500).send({ error: result.error ?? 'Error al sincronizar' })
+      }
+
+      // Update account saldo
+      const matchingAccount = result.accounts.find(a => a.numero === account.numero_cuenta)
+      if (matchingAccount) {
+        await db.update(bankAccounts)
+          .set({
+            saldo: matchingAccount.saldoDisponible,
+            saldo_fecha: new Date().toISOString().slice(0, 10),
+          })
+          .where(eq(bankAccounts.id, accountId))
+      }
+
+      // Insert transactions (deduplicate by external_id)
+      let inserted = 0
+      for (const tx of result.transactions) {
+        const externalId = `${tx.fecha}-${tx.nOperacion}-${tx.deposito}-${tx.giro}`
+        const monto = tx.deposito > 0 ? tx.deposito : -tx.giro
+        const tipo = tx.deposito > 0 ? 'credito' : 'debito'
+
+        try {
+          const [row] = await db.insert(bankTransactions).values({
+            bank_account_id: accountId,
+            company_id: companyId,
+            fecha: tx.fecha,
+            descripcion: tx.descripcion,
+            referencia: tx.nOperacion,
+            monto,
+            tipo,
+            saldo: tx.saldoDiario,
+            source: 'scraping',
+            external_id: externalId,
+          }).onConflictDoNothing()
+            .returning({ id: bankTransactions.id })
+
+          if (row) inserted++
+        } catch {
+          // Skip duplicates silently
+        }
+      }
+
+      // Update sync status
+      await db.update(bankAccounts)
+        .set({
+          sync_status: 'sincronizado',
+          sync_error: null,
+          last_sync: new Date(),
+          updated_at: new Date(),
+        })
+        .where(eq(bankAccounts.id, accountId))
+
+      logger.info({
+        accountId, mes: body.mes, year: body.year,
+        totalScraped: result.transactions.length, inserted,
+        resumen: result.resumen,
+      }, 'Bank sync completed')
+
+      return reply.send({
+        success: true,
+        message: `Sincronización completada: ${inserted} nuevas transacciones de ${result.transactions.length} encontradas`,
+        totalScraped: result.transactions.length,
+        inserted,
+        saldo: matchingAccount?.saldoDisponible,
+        resumen: result.resumen,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error desconocido'
+      await db.update(bankAccounts)
+        .set({ sync_status: 'error', sync_error: message })
+        .where(eq(bankAccounts.id, accountId))
+      return reply.status(500).send({ error: message })
+    }
   })
 }
