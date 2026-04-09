@@ -342,39 +342,83 @@ export async function syncItauAccount(
   mes: number,
   year: number,
 ): Promise<ItauSyncResult> {
+  // Use remote scraper service if configured (runs on Chilean server)
+  const scraperUrl = process.env['BANK_SCRAPER_URL']
+  const scraperSecret = process.env['BANK_SCRAPER_SECRET'] ?? 'cuentax-bank-scraper-2026'
+
+  if (scraperUrl) {
+    return syncViaRemoteScraper(scraperUrl, scraperSecret, {
+      rutPersonal, claveInternet, rutEmpresa, numeroCuenta, mes, year,
+    })
+  }
+
+  // Fallback: local Playwright (works when server is in Chile)
   let session: ItauSession | null = null
 
   try {
     session = await createItauSession(rutPersonal, claveInternet, rutEmpresa)
 
-    // 1. Scrape accounts from dashboard
     const accounts = await scrapeAccounts(session.page)
     logger.info({ accountCount: accounts.length }, 'Itaú: accounts scraped')
 
-    // 2. Scrape cartola histórica for the specified account
     const { transactions, resumen } = await scrapeCartolaHistorica(
       session.page, numeroCuenta, mes, year,
     )
 
-    return {
-      success: true,
-      accounts,
-      transactions,
-      resumen,
-    }
+    return { success: true, accounts, transactions, resumen }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     logger.error({ err: message }, 'Itaú sync failed')
-    return {
-      success: false,
-      accounts: [],
-      transactions: [],
-      error: message,
-    }
+    return { success: false, accounts: [], transactions: [], error: message }
   } finally {
     if (session) {
       await session.browser.close().catch(() => {})
     }
+  }
+}
+
+/**
+ * Call the remote bank scraper microservice running on a Chilean server.
+ * This avoids geo-blocking by Itaú which rejects non-Chilean IPs.
+ */
+async function syncViaRemoteScraper(
+  scraperUrl: string,
+  secret: string,
+  params: {
+    rutPersonal: string; claveInternet: string; rutEmpresa?: string
+    numeroCuenta: string; mes: number; year: number
+  },
+): Promise<ItauSyncResult> {
+  logger.info({ scraperUrl }, 'Itaú: using remote scraper service')
+
+  try {
+    const response = await fetch(`${scraperUrl}/scrape`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${secret}`,
+      },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(120_000), // 2 min timeout
+    })
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`Remote scraper returned ${response.status}: ${text.substring(0, 200)}`)
+    }
+
+    const result = await response.json() as ItauSyncResult
+    logger.info({
+      success: result.success,
+      accounts: result.accounts?.length ?? 0,
+      transactions: result.transactions?.length ?? 0,
+    }, 'Itaú: remote scraper result')
+
+    return result
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error({ err: message }, 'Itaú: remote scraper failed')
+    return { success: false, accounts: [], transactions: [], error: message }
   }
 }
 
