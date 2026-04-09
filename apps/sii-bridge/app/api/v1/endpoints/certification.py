@@ -773,7 +773,7 @@ async def generate_libros(req: LibrosRequest):
                 break
 
     if session:
-        batch_result = session.get("last_batch_result", {})
+        batch_result = session.get("last_batch_result") or {}
         raw_content = session.get("raw_test_set_content")
 
     # Fall back to inline data when session is lost (e.g. after deploy)
