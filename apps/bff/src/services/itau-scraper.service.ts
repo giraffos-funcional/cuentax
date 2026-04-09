@@ -99,7 +99,14 @@ export async function createItauSession(
 ): Promise<ItauSession> {
   logger.info({ rutPersonal: rutPersonal.substring(0, 4) + '...' }, 'Itaú: authenticating')
 
-  const browser = await chromium.launch({ headless: true })
+  // Use Chilean proxy if configured (Itaú blocks non-Chilean IPs)
+  const proxyServer = process.env['BANK_PROXY_URL'] ?? undefined
+  const launchOpts: Record<string, unknown> = { headless: true }
+  if (proxyServer) {
+    launchOpts.proxy = { server: proxyServer }
+    logger.info({ proxy: proxyServer }, 'Itaú: using proxy')
+  }
+  const browser = await chromium.launch(launchOpts as Parameters<typeof chromium.launch>[0])
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     locale: 'es-CL',
