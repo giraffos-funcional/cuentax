@@ -114,14 +114,22 @@ export async function createItauSession(
   const page = await context.newPage()
 
   try {
-    await page.goto(ITAU_LOGIN_URL, { waitUntil: 'networkidle', timeout: 60_000 })
+    await page.goto(ITAU_LOGIN_URL, { waitUntil: 'load', timeout: 60_000 })
+    // Wait extra for Itaú's JS to render the login form
+    await page.waitForTimeout(5000)
     logger.info({ url: page.url(), title: await page.title() }, 'Itaú: login page loaded')
 
-    // Wait for the RUT field to appear (may take extra time on slow connections)
-    await page.waitForSelector('#rut_usuarioID', { timeout: 15_000 }).catch(() => {
-      // Fallback: try waiting for any text input
-      return page.waitForSelector('input[name="rut_usuario"]', { timeout: 10_000 })
-    })
+    // Log page content for debugging if fields not found
+    const hasRutField = await page.locator('#rut_usuarioID').isVisible().catch(() => false)
+    if (!hasRutField) {
+      const bodyText = await page.evaluate(`(() => document.body.innerText.substring(0, 500))()`)
+      logger.warn({ bodyText }, 'Itaú: RUT field not found, page content sample')
+      // Try waiting longer
+      await page.waitForTimeout(10_000)
+    }
+
+    // Wait for the RUT field
+    await page.waitForSelector('#rut_usuarioID', { timeout: 30_000 })
 
     // Fill RUT — click field first, clear, then type slowly to trigger Itaú's JS handlers
     await page.click('#rut_usuarioID')
