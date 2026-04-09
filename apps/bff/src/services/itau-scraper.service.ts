@@ -109,25 +109,33 @@ export async function createItauSession(
   try {
     await page.goto(ITAU_LOGIN_URL, { waitUntil: 'networkidle', timeout: 60_000 })
 
-    // Fill RUT
-    const rutInput = page.locator('input[type="text"]').first()
-    await rutInput.fill(rutPersonal)
-
-    // Fill password
-    const passInput = page.locator('input[type="password"]').first()
-    await passInput.fill(claveInternet)
+    // Fill RUT and password using native setter (Itaú portal uses custom JS that ignores .fill())
+    await page.evaluate(`((rut, clave) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      const rutEl = document.getElementById('rut_usuarioID');
+      const claveEl = document.getElementById('claveId');
+      setter.call(rutEl, rut);
+      rutEl.dispatchEvent(new Event('input', { bubbles: true }));
+      rutEl.dispatchEvent(new Event('change', { bubbles: true }));
+      rutEl.dispatchEvent(new Event('blur', { bubbles: true }));
+      setter.call(claveEl, clave);
+      claveEl.dispatchEvent(new Event('input', { bubbles: true }));
+      claveEl.dispatchEvent(new Event('change', { bubbles: true }));
+      claveEl.dispatchEvent(new Event('blur', { bubbles: true }));
+    })('${rutPersonal}', '${claveInternet}')`)
 
     // Click Ingresar
     await Promise.all([
       page.waitForNavigation({ timeout: 30_000, waitUntil: 'networkidle' }).catch(() => {}),
-      page.locator('button:has-text("Ingresar"), input[type="submit"]').first().click(),
+      page.evaluate(`(() => { document.getElementById('btnLoginPortalEmpresas').click(); })()`),
     ])
 
     await page.waitForTimeout(3000)
 
     // Check for login failure
+    const currentUrl = page.url()
     const content = await page.content()
-    if (content.includes('incorrecta') || content.includes('error') && content.includes('clave')) {
+    if (currentUrl.includes('login') || content.includes('incorrecta') || content.includes('Clave bloqueada')) {
       throw new Error('Itaú authentication failed: invalid credentials')
     }
 
@@ -146,27 +154,34 @@ export async function createItauSession(
 
 async function switchCompany(page: Page, rutEmpresa: string): Promise<void> {
   try {
-    // Click "Cambiar empresa"
-    const cambiarBtn = page.locator('text=Cambiar empresa').first()
-    if (await cambiarBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await cambiarBtn.click()
-      await page.waitForTimeout(1500)
-
-      // Find and click the radio button for the target RUT
-      const rutOption = page.locator(`text=${rutEmpresa}`).first()
-      if (await rutOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await rutOption.click()
-        await page.waitForTimeout(500)
-
-        // Click "Cambiar empresa" button
-        const confirmBtn = page.locator('button:has-text("Cambiar empresa")').first()
-        await confirmBtn.click()
-        await page.waitForTimeout(3000)
-        await page.waitForLoadState('networkidle').catch(() => {})
-
-        logger.info({ rutEmpresa }, 'Itaú: switched company')
+    // Click "Cambiar empresa" link
+    await page.evaluate(`(() => {
+      const links = document.querySelectorAll('a');
+      for (const a of links) {
+        if (a.textContent.trim().includes('Cambiar empresa')) { a.click(); return; }
       }
-    }
+    })()`)
+    await page.waitForTimeout(2000)
+
+    // Select the company radio button by RUT (format: rd_RUTWITHOUTDASH)
+    const rutClean = rutEmpresa.replace(/[.\-]/g, '')
+    await page.evaluate(`(() => {
+      const radio = document.getElementById('rd_${rutClean}');
+      if (radio) radio.click();
+    })()`)
+    await page.waitForTimeout(500)
+
+    // Click "Cambiar empresa" confirm button
+    await page.evaluate(`(() => {
+      const btn = document.getElementById('btnCambiarEmpresa');
+      if (btn) btn.click();
+    })()`)
+
+    // Wait for re-authentication redirect and re-login
+    await page.waitForTimeout(5000)
+    await page.waitForLoadState('networkidle').catch(() => {})
+
+    logger.info({ rutEmpresa }, 'Itaú: switched company')
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'Itaú: could not switch company, continuing with current')
   }
@@ -177,13 +192,6 @@ async function switchCompany(page: Page, rutEmpresa: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function scrapeAccounts(page: Page): Promise<ItauAccount[]> {
-  // Navigate to home/dashboard
-  const inicioLink = page.locator('a:has-text("Inicio"), a[href*="inicio"]').first()
-  if (await inicioLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await inicioLink.click()
-    await page.waitForLoadState('networkidle').catch(() => {})
-    await page.waitForTimeout(2000)
-  }
 
   const accounts: Array<{
     tipo: string; numero: string; moneda: string;
@@ -231,52 +239,11 @@ export async function scrapeCartolaHistorica(
 ): Promise<{ transactions: ItauTransaction[]; resumen: ItauSyncResult['resumen'] }> {
   logger.info({ numeroCuenta, mes, year }, 'Itaú: scraping cartola histórica')
 
-  // Navigate to Cartola histórica via Mi Banco menu
-  try {
-    // Try clicking "Mi Banco" tab first
-    const miBancoTab = page.locator('a:has-text("Mi Banco")').first()
-    if (await miBancoTab.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await miBancoTab.click()
-      await page.waitForTimeout(2000)
-    }
-
-    // Look for "Cartola histórica" link
-    const cartolaLink = page.locator('a:has-text("Cartola histórica"), a:has-text("cartola histórica")').first()
-    if (await cartolaLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await cartolaLink.click()
-      await page.waitForLoadState('networkidle').catch(() => {})
-      await page.waitForTimeout(3000)
-    } else {
-      // Try clicking account first, then cartola link
-      const accountLink = page.locator(`a:has-text("${numeroCuenta}")`).first()
-      if (await accountLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await accountLink.click()
-        await page.waitForTimeout(2000)
-      }
-      const cartolaLink2 = page.locator('a:has-text("cartola histórica")').first()
-      if (await cartolaLink2.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await cartolaLink2.click()
-        await page.waitForLoadState('networkidle').catch(() => {})
-        await page.waitForTimeout(3000)
-      }
-    }
-  } catch (err) {
-    logger.warn({ err: (err as Error).message }, 'Itaú: navigation to cartola failed')
-  }
-
-  // Set the period (MM/YYYY)
-  try {
-    const periodoInput = page.locator('input[type="text"][value*="/"]').first()
-    if (await periodoInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await periodoInput.click({ clickCount: 3 })
-      await periodoInput.fill(`${String(mes).padStart(2, '0')} / ${year}`)
-      await periodoInput.press('Enter')
-      await page.waitForTimeout(3000)
-      await page.waitForLoadState('networkidle').catch(() => {})
-    }
-  } catch {
-    logger.warn('Itaú: could not set period, using current')
-  }
+  // Navigate directly to cartola histórica URL
+  await page.goto('https://banco.itau.cl/wps/myportal/newiol/web/mi-banco/cuenta-corriente/cartola-historica', {
+    waitUntil: 'networkidle', timeout: 30_000,
+  })
+  await page.waitForTimeout(3000)
 
   // Extract resumen
   const resumen: { saldoInicial: string; totalDepositos: string; totalCargos: string } = await page.evaluate(`(() => {
@@ -288,6 +255,7 @@ export async function scrapeCartolaHistorica(
   })()`)
 
   // Extract all transaction rows from the cartola table
+  // Skip first row (contains JS garbage in header), only take rows with valid date pattern
   const rawTransactions: Array<{
     fecha: string; nOperacion: string; sucursal: string
     descripcion: string; deposito: string; giro: string; saldo: string
@@ -297,20 +265,24 @@ export async function scrapeCartolaHistorica(
     for (const table of tables) {
       const headers = table.querySelectorAll('th');
       const headerTexts = Array.from(headers).map(h => h.textContent?.trim().toLowerCase() ?? '');
-      if (headerTexts.some(h => h.includes('fecha')) && headerTexts.some(h => h.includes('descripci'))) {
+      if (headerTexts.some(h => h.includes('operaci')) && headerTexts.some(h => h.includes('descripci'))) {
         const bodyRows = table.querySelectorAll('tbody tr');
         for (const tr of bodyRows) {
           const cells = tr.querySelectorAll('td');
-          if (cells.length >= 6) {
-            rows.push({
-              fecha: cells[0]?.textContent?.trim() ?? '',
-              nOperacion: cells[1]?.textContent?.trim() ?? '',
-              sucursal: cells[2]?.textContent?.trim() ?? '',
-              descripcion: cells[3]?.textContent?.trim() ?? '',
-              deposito: cells[4]?.textContent?.trim() ?? '0',
-              giro: cells[5]?.textContent?.trim() ?? '0',
-              saldo: cells[6]?.textContent?.trim() ?? '0',
-            });
+          if (cells.length === 7) {
+            const fecha = cells[0]?.textContent?.trim() ?? '';
+            // Only include rows with valid date (dd/mm format)
+            if (/^\\d{2}\\/\\d{2}$/.test(fecha)) {
+              rows.push({
+                fecha,
+                nOperacion: cells[1]?.textContent?.trim() ?? '',
+                sucursal: cells[2]?.textContent?.trim() ?? '',
+                descripcion: cells[3]?.textContent?.trim() ?? '',
+                deposito: cells[4]?.textContent?.trim() ?? '0',
+                giro: cells[5]?.textContent?.trim() ?? '0',
+                saldo: cells[6]?.textContent?.trim() ?? '0',
+              });
+            }
           }
         }
         break;
