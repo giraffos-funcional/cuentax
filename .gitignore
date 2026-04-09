@@ -71,3 +71,4 @@ coverage/
 # Turbo cache
 .turbo/
 .env.prod
+.playwright-mcp/

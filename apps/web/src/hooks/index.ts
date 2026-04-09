@@ -771,6 +771,82 @@ export function useCreateCostCenter() {
 // Cash Flow Hooks
 // ══════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════
+// Cotizaciones CRUD Hooks
+// ══════════════════════════════════════════════════════════
+
+/** Lista cotizaciones con filtros */
+export function useCotizaciones(filters?: { estado?: string; page?: number }) {
+  const params = new URLSearchParams()
+  if (filters?.estado && filters.estado !== 'todas') params.set('estado', filters.estado)
+  if (filters?.page) params.set('page', String(filters.page))
+
+  const url = `/api/v1/cotizaciones?${params.toString()}`
+  const { data, error, isLoading, mutate } = useSWR(url, fetcher, { refreshInterval: 30_000 })
+
+  return {
+    cotizaciones: data?.data ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+/** Detalle de una cotización */
+export function useCotizacion(id: number | string | null) {
+  const { data, error, isLoading, mutate } = useSWR(
+    id ? `/api/v1/cotizaciones/${id}` : null, fetcher,
+  )
+  return { cotizacion: data ?? null, isLoading, error, mutate }
+}
+
+/** Crear cotización */
+export function useCreateCotizacion() {
+  const { trigger, isMutating, error } = useSWRMutation('/api/v1/cotizaciones', poster)
+
+  const crear = async (payload: unknown) => {
+    const result = await trigger(payload)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/cotizaciones'))
+    return result
+  }
+
+  return { crear, isLoading: isMutating, error }
+}
+
+/** Acciones de cotización (enviar, aceptar, rechazar, facturar) */
+export function useCotizacionAction() {
+  const ejecutar = async (id: number, action: 'enviar' | 'aceptar' | 'rechazar' | 'facturar') => {
+    const result = await apiClient.post(`/api/v1/cotizaciones/${id}/${action}`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/cotizaciones'))
+    // Also invalidate DTEs if facturar
+    if (action === 'facturar') {
+      globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/dte'))
+    }
+    return result
+  }
+  return { ejecutar }
+}
+
+/** Actualizar cotización */
+export function useUpdateCotizacion() {
+  const update = async (id: number, payload: unknown) => {
+    const result = await apiClient.put(`/api/v1/cotizaciones/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/cotizaciones'))
+    return result
+  }
+  return { update }
+}
+
+/** Eliminar cotización */
+export function useDeleteCotizacion() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/cotizaciones/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/cotizaciones'))
+  }
+  return { remove }
+}
+
 /** Cash flow forecast with historical and projected periods */
 export function useCashFlow(months?: number) {
   const params = months ? new URLSearchParams({ months: String(months) }) : ''
