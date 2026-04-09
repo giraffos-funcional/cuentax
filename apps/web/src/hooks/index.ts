@@ -5,6 +5,7 @@
  */
 'use client'
 
+import { useState } from 'react'
 import useSWR, { mutate as globalMutate } from 'swr'
 import useSWRMutation from 'swr/mutation'
 import { apiClient } from '@/lib/api-client'
@@ -843,6 +844,58 @@ export function useDeleteCotizacion() {
   const remove = async (id: number) => {
     await apiClient.delete(`/api/v1/cotizaciones/${id}`)
     globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/cotizaciones'))
+  }
+  return { remove }
+}
+
+// ══════════════════════════════════════════════════════════
+// Pedidos de Compra CRUD Hooks
+// ══════════════════════════════════════════════════════════
+
+/** Lista pedidos de compra con filtros */
+export function usePedidosCompra(filters?: { estado?: string; page?: number }) {
+  const params = new URLSearchParams()
+  if (filters?.estado) params.set('estado', filters.estado)
+  if (filters?.page) params.set('page', String(filters.page))
+  const { data, error, isLoading, mutate } = useSWR(`/api/v1/compras/pedidos?${params}`, fetcher, { refreshInterval: 30_000 })
+  return { pedidos: data?.data ?? [], total: data?.total ?? 0, isLoading, error, mutate }
+}
+
+/** Detalle de un pedido de compra */
+export function usePedidoCompra(id: string | null) {
+  const { data, error, isLoading, mutate } = useSWR(id ? `/api/v1/compras/pedidos/${id}` : null, fetcher)
+  return { pedido: data ?? null, isLoading, error, mutate }
+}
+
+/** Acciones de pedido de compra (enviar, confirmar, recibir, cancelar, vincular-factura) */
+export function usePedidoCompraAction() {
+  const [isLoading, setLoading] = useState(false)
+  const execute = async (id: number, action: string, body?: Record<string, unknown>) => {
+    setLoading(true)
+    try {
+      const { data } = await apiClient.post(`/api/v1/compras/pedidos/${id}/${action}`, body ?? {})
+      globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/compras/pedidos'))
+      return data
+    } finally { setLoading(false) }
+  }
+  return { execute, isLoading }
+}
+
+/** Crear pedido de compra */
+export function useCreatePedidoCompra() {
+  const crear = async (payload: unknown) => {
+    const result = await apiClient.post('/api/v1/compras/pedidos', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/compras/pedidos'))
+    return result
+  }
+  return { crear }
+}
+
+/** Eliminar pedido de compra */
+export function useDeletePedidoCompra() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/compras/pedidos/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/compras/pedidos'))
   }
   return { remove }
 }

@@ -145,6 +145,40 @@ export const quotations = pgTable('quotations', {
 }))
 
 // ══════════════════════════════════════════════════════════════
+// PEDIDOS DE COMPRA (Purchase Orders)
+// ══════════════════════════════════════════════════════════════
+export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
+  'solicitud', 'enviada', 'confirmada', 'recibida', 'cancelada'
+])
+
+export const purchaseOrders = pgTable('purchase_orders', {
+  id:               serial('id').primaryKey(),
+  company_id:       integer('company_id').notNull().references(() => companies.id),
+  numero:           integer('numero').notNull(),
+  estado:           purchaseOrderStatusEnum('estado').default('solicitud'),
+  // Proveedor
+  rut_proveedor:    varchar('rut_proveedor', { length: 15 }).notNull(),
+  razon_social_proveedor: text('razon_social_proveedor').notNull(),
+  email_proveedor:  text('email_proveedor'),
+  // Fechas
+  fecha:            text('fecha').notNull(),
+  fecha_entrega:    text('fecha_entrega'),
+  // Montos
+  monto_neto:       bigint('monto_neto', { mode: 'number' }).default(0),
+  monto_iva:        bigint('monto_iva', { mode: 'number' }).default(0),
+  monto_total:      bigint('monto_total', { mode: 'number' }).notNull(),
+  // Items
+  items_json:       jsonb('items_json').notNull(),
+  observaciones:    text('observaciones'),
+  // Link to received invoice
+  dte_document_id:  integer('dte_document_id'),
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:       timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyNumIdx: uniqueIndex('po_company_num_idx').on(t.company_id, t.numero),
+}))
+
+// ══════════════════════════════════════════════════════════════
 // CONTACTOS (Maestro de Clientes)
 // ══════════════════════════════════════════════════════════════
 export const contacts = pgTable('contacts', {
@@ -318,12 +352,17 @@ export const rcvDetalles = pgTable('rcv_detalles', {
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
   quotations: many(quotations),
+  purchaseOrders: many(purchaseOrders),
   contacts: many(contacts),
   products: many(products),
   cafs: many(cafConfigs),
   apiKeys: many(apiKeys),
   webhooks: many(webhookEndpoints),
   rcvRegistros: many(rcvRegistros),
+}))
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one }) => ({
+  company: one(companies, { fields: [purchaseOrders.company_id], references: [companies.id] }),
 }))
 
 export const rcvRegistrosRelations = relations(rcvRegistros, ({ one, many }) => ({

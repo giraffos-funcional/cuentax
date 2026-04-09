@@ -39,6 +39,7 @@ import { portalRoutes } from '@/routes/portal'
 import { rcvRoutes } from '@/routes/rcv'
 import { jobsRoutes } from '@/routes/jobs'
 import { cotizacionesRoutes } from '@/routes/cotizaciones'
+import { comprasRoutes } from '@/routes/compras'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -325,6 +326,20 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now(), "updated_at" timestamptz DEFAULT now()
       )`)
 
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE purchase_order_status AS ENUM('solicitud','enviada','confirmada','recibida','cancelada'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "purchase_orders" (
+        "id" serial PRIMARY KEY, "company_id" integer NOT NULL REFERENCES "companies"("id"),
+        "numero" integer NOT NULL, "estado" purchase_order_status DEFAULT 'solicitud',
+        "rut_proveedor" varchar(15) NOT NULL, "razon_social_proveedor" text NOT NULL,
+        "email_proveedor" text,
+        "fecha" text NOT NULL, "fecha_entrega" text,
+        "monto_neto" bigint DEFAULT 0, "monto_iva" bigint DEFAULT 0, "monto_total" bigint NOT NULL,
+        "items_json" jsonb NOT NULL, "observaciones" text,
+        "dte_document_id" integer,
+        "created_at" timestamptz DEFAULT now(), "updated_at" timestamptz DEFAULT now()
+      )`)
+
       await db.execute(sql`CREATE TABLE IF NOT EXISTS "caf_configs" (
         "id" serial PRIMARY KEY, "company_id" integer NOT NULL REFERENCES "companies"("id"),
         "tipo_dte" integer NOT NULL, "folio_desde" integer NOT NULL,
@@ -365,6 +380,7 @@ async function bootstrap() {
   await fastify.register(rcvRoutes, { prefix: '/api/v1/rcv' })
   await fastify.register(jobsRoutes, { prefix: '/api/v1/jobs' })
   await fastify.register(cotizacionesRoutes, { prefix: '/api/v1/cotizaciones' })
+  await fastify.register(comprasRoutes, { prefix: '/api/v1/compras/pedidos' })
 
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {

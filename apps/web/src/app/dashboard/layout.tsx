@@ -33,18 +33,29 @@ const NAV: NavEntry[] = [
   // Direct items
   { href: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/dashboard/emitir', icon: Send,            label: 'Emitir DTE' },
-  { href: '/dashboard/compras', icon: ShoppingCart,  label: 'Compras' },
-  { href: '/dashboard/ventas',  icon: TrendingUp,    label: 'Ventas' },
 
-  // Collapsible sections
+  // Ventas section (like Odoo Sales)
   {
-    section: 'Documentos',
-    icon: BookOpen,
+    section: 'Ventas',
+    icon: TrendingUp,
     collapsible: true,
     items: [
-      { href: '/dashboard/documentos',   icon: FileText, label: 'Emitidos' },
-      { href: '/dashboard/cotizaciones', icon: FileText, label: 'Cotizaciones' },
-      { href: '/dashboard/anulaciones',  icon: FileX,    label: 'Anulaciones' },
+      { href: '/dashboard/ventas',        icon: TrendingUp,  label: 'Resumen Ventas' },
+      { href: '/dashboard/cotizaciones',  icon: FileText,    label: 'Presupuestos' },
+      { href: '/dashboard/documentos',    icon: FileText,    label: 'Facturas Emitidas' },
+      { href: '/dashboard/anulaciones',   icon: FileX,       label: 'Anulaciones' },
+    ],
+  },
+
+  // Compras section (like Odoo Purchase)
+  {
+    section: 'Compras',
+    icon: ShoppingCart,
+    collapsible: true,
+    items: [
+      { href: '/dashboard/compras',               icon: ShoppingCart,   label: 'Resumen Compras' },
+      { href: '/dashboard/compras/solicitudes',    icon: FileText,      label: 'Solicitudes' },
+      { href: '/dashboard/compras/pedidos',        icon: ClipboardList, label: 'Pedidos de Compra' },
     ],
   },
   {
@@ -730,6 +741,8 @@ export default function DashboardLayout({
       '/dashboard/remuneraciones/asistencia':    'Asistencia',
       '/dashboard/remuneraciones/finiquitos':    'Finiquitos',
       '/dashboard/remuneraciones/indicadores':   'Indicadores Previsionales',
+      '/dashboard/compras/solicitudes':            'Solicitudes de Compra',
+      '/dashboard/compras/pedidos':                'Pedidos de Compra',
     }
     return titles[pathname] ?? 'CUENTAX'
   }
