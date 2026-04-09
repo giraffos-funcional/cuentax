@@ -70,10 +70,6 @@ class SetPruebasCase:
     _ref_caso_sub: Optional[int] = None
     # Global discount on afectos (percentage)
     descuento_global_pct: Decimal = Decimal("0")
-    # True when this case is an ND (tipo 56) voiding a text-correction NC.
-    # Forces CodRef=3 (Corrige Montos) instead of 1 (Anula) to avoid
-    # SII REF-2-780 "Anulación presenta diff. de monto con doc. referenciado".
-    _nd_voids_text_nc: bool = False
 
 
 @dataclass
@@ -397,36 +393,28 @@ class SetPruebasParser:
 
             if "ANULA" in razon_upper:
                 if ref_is_text_correction:
-                    # ND voiding a text-correction NC: use first item from the ORIGINAL
-                    # factura (the one the NC referenced). NDs must have positive amounts.
-                    # The text-correction NC itself has MntTotal=0, but the ND needs real
-                    # amounts from the factura to pass SII DTE validation.
-                    # Flag this case so to_payloads() forces CodRef=3 (Corrige Montos)
-                    # instead of 1 (Anula). With CodRef=1, SII raises REF-2-780
-                    # "Anulación presenta diff. de monto" because ND.MntTotal != NC.MntTotal (0).
-                    case._nd_voids_text_nc = True
-                    orig_case = by_sub.get(ref_case._ref_caso_sub) if ref_case._ref_caso_sub else None
-                    if orig_case and orig_case.items:
-                        src_item = orig_case.items[0]
-                        case.items = [
-                            SetPruebasItem(
-                                nombre=src_item.nombre,
-                                cantidad=src_item.cantidad,
-                                precio_unitario=src_item.precio_unitario,
-                                descuento_pct=src_item.descuento_pct,
-                                exento=src_item.exento,
-                            )
-                        ]
-                    else:
-                        case.items = [
-                            SetPruebasItem(
-                                nombre=ref_case.items[0].nombre if ref_case.items else "Anulacion",
-                                cantidad=Decimal("1"),
-                                precio_unitario=Decimal("0"),
-                                descuento_pct=Decimal("0"),
-                                exento=False,
-                            )
-                        ]
+                    # ND voiding a text-correction NC: must MIRROR the NC exactly.
+                    # The referenced NC (CodRef=2 CORRIGE TEXTO) has 1 Detalle with
+                    # MontoItem=0 and MntTotal=0. The ND that ANULA it must have the
+                    # SAME structure: CodRef=1, 1 Detalle con precio=0, MntTotal=0.
+                    #
+                    # Formato DTE v2.2 p.42: CodRef=1 (ANULA) requires the ND to be a
+                    # structural mirror of the referenced NC. A previous attempt to use
+                    # real amounts from the original factura triggered REF-2-780
+                    # "Anulación presenta diff. de monto con doc. referenciado : [1] <> [3]"
+                    # (where [1] and [3] are Detalle counts, not pesos).
+                    # Another attempt with CodRef=3 was rejected with
+                    # "Nota Debito Modifica Monto de Tipo Doc. No Permitido : [61]"
+                    # (CodRef=3 is forbidden for ND→NC; only CodRef=1 is valid).
+                    case.items = [
+                        SetPruebasItem(
+                            nombre=ref_case.items[0].nombre if ref_case.items else "ANULA NOTA DE CREDITO ELECTRONICA",
+                            cantidad=Decimal("1"),
+                            precio_unitario=Decimal("0"),
+                            descuento_pct=Decimal("0"),
+                            exento=False,
+                        )
+                    ]
                 elif not case.items:
                     # Full void: copy ALL items from referenced case at same prices
                     case.items = [
@@ -588,12 +576,7 @@ class SetPruebasParser:
                 payload["ref_folio"] = 0  # Resolved during batch emission
                 payload["ref_fecha"] = ""  # Set to fecha_emision during emission
                 payload["ref_motivo"] = case.referencia.razon_ref
-                # ND voiding text-correction NC: override to CodRef=3 (Corrige Montos)
-                # to avoid SII REF-2-780 monto-diff reparo. See SetPruebasCase._nd_voids_text_nc.
-                if case._nd_voids_text_nc:
-                    payload["ref_cod_ref"] = 3
-                else:
-                    payload["ref_cod_ref"] = self._derive_cod_ref(case.referencia.razon_ref)
+                payload["ref_cod_ref"] = self._derive_cod_ref(case.referencia.razon_ref)
                 payload["_ref_caso_sub"] = case._ref_caso_sub
 
             payloads.append(payload)
