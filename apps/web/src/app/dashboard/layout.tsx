@@ -17,7 +17,7 @@ import {
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Building2, Bell, Search, Menu, Star,
-  Tag, Users, FileX, BarChart3, Folders, Send, PieChart,
+  Tag, Users, FileX, BarChart3, Folders, Send, PieChart, ShoppingCart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
   Wrench, ShieldCheck, RefreshCw
@@ -33,6 +33,8 @@ const NAV: NavEntry[] = [
   // Direct items
   { href: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/dashboard/emitir', icon: Send,            label: 'Emitir DTE' },
+  { href: '/dashboard/compras', icon: ShoppingCart,  label: 'Compras' },
+  { href: '/dashboard/ventas',  icon: TrendingUp,    label: 'Ventas' },
 
   // Collapsible sections
   {
