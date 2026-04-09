@@ -10,6 +10,7 @@ import {
   Search, Download, RefreshCw, FileText, Eye,
   ArrowUpDown, CheckCircle2, Clock, XCircle,
   AlertTriangle, Loader2, AlertCircle, ChevronLeft, ChevronRight,
+  ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { useDTEs } from '@/hooks'
 
@@ -106,6 +107,26 @@ function EmptyState({ hasFilters }: { hasFilters: boolean }) {
   )
 }
 
+// ── Sort header ─────────────────────────────────────────────
+
+type SortDir = 'asc' | 'desc' | null
+
+function SortHeader({ label, sortKey: key, current, dir, onSort, className }: {
+  label: string; sortKey: string; current: string | null; dir: SortDir; onSort: (key: string) => void; className?: string
+}) {
+  const active = current === key
+  return (
+    <button
+      onClick={() => onSort(key)}
+      className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] transition-colors cursor-pointer select-none ${className ?? ''}`}
+    >
+      {label}
+      {active && dir === 'asc' && <ChevronUp size={12} />}
+      {active && dir === 'desc' && <ChevronDown size={12} />}
+    </button>
+  )
+}
+
 // ── Page ───────────────────────────────────────────────────────
 
 export default function DocumentosPage() {
@@ -116,6 +137,22 @@ export default function DocumentosPage() {
 
   // Client-side search (folio or receptor name)
   const [search, setSearch] = useState('')
+
+  // Sort state
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>(null)
+
+  function toggleSort(key: string) {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir('asc')
+    } else if (sortDir === 'asc') {
+      setSortDir('desc')
+    } else {
+      setSortKey(null)
+      setSortDir(null)
+    }
+  }
 
   // Batch selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -136,6 +173,18 @@ export default function DocumentosPage() {
       d.razon_social_receptor.toLowerCase().includes(q)
     )
   }, [documentos, search])
+
+  const sorted = useMemo<Documento[]>(() => {
+    if (!sortKey || !sortDir) return filtered
+    return [...filtered].sort((a: Documento, b: Documento) => {
+      const av = a[sortKey as keyof Documento] ?? ''
+      const bv = b[sortKey as keyof Documento] ?? ''
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), 'es-CL', { numeric: true })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [filtered, sortKey, sortDir])
 
   const totalAmount = filtered.reduce((s: number, d: Documento) => s + d.monto_total, 0)
   const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -252,7 +301,7 @@ export default function DocumentosPage() {
       {!error && (
         <div className="card border border-[var(--cx-border-light)] rounded-2xl overflow-hidden">
           {/* Table Header */}
-          <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-[var(--cx-border-light)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest">
+          <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-[var(--cx-border-light)]">
             <div className="col-span-1">
               <input
                 type="checkbox"
@@ -261,16 +310,14 @@ export default function DocumentosPage() {
                 onChange={toggleSelectAll}
               />
             </div>
-            <div className="col-span-1 flex items-center gap-1 cursor-pointer hover:text-[var(--cx-text-secondary)]">
-              Folio <ArrowUpDown size={9} />
-            </div>
-            <div className="col-span-1">Tipo</div>
-            <div className="col-span-3">Receptor</div>
-            <div className="col-span-2">RUT</div>
-            <div className="col-span-1">Fecha</div>
-            <div className="col-span-1 text-right">Monto</div>
-            <div className="col-span-1 text-center">Estado</div>
-            <div className="col-span-1 text-center">Acciones</div>
+            <div className="col-span-1"><SortHeader label="Folio" sortKey="folio" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Tipo" sortKey="tipo_dte" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-3"><SortHeader label="Receptor" sortKey="razon_social_receptor" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-2"><SortHeader label="RUT" sortKey="rut_receptor" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Fecha" sortKey="fecha_emision" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Monto" sortKey="monto_total" current={sortKey} dir={sortDir} onSort={toggleSort} className="justify-end" /></div>
+            <div className="col-span-1"><SortHeader label="Estado" sortKey="estado" current={sortKey} dir={sortDir} onSort={toggleSort} className="justify-center" /></div>
+            <div className="col-span-1 text-center text-[10px] font-semibold uppercase tracking-widest text-[var(--cx-text-muted)]">Acciones</div>
           </div>
 
           {/* Body */}
@@ -280,7 +327,7 @@ export default function DocumentosPage() {
             <EmptyState hasFilters={hasFilters} />
           ) : (
             <div className="divide-y divide-[var(--cx-border-light)]">
-              {filtered.map((doc: Documento) => {
+              {sorted.map((doc: Documento) => {
                 const statusConf = STATUS_CONFIG[doc.estado] ?? STATUS_CONFIG['borrador']
                 const StatusIcon = statusConf.icon
                 return (

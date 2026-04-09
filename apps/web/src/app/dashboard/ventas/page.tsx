@@ -11,7 +11,7 @@ import Link from 'next/link'
 import {
   Download, Loader2, AlertCircle, TrendingUp,
   Search, Send, Clock, RefreshCw, CheckCircle2,
-  XCircle, AlertTriangle,
+  XCircle, AlertTriangle, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { useDTEs } from '@/hooks'
 import { formatCLP, MONTHS } from '@/lib/formatters'
@@ -122,6 +122,26 @@ function exportCSV(docs: any[], mes: number, year: number) {
   URL.revokeObjectURL(url)
 }
 
+// ── Sort header ─────────────────────────────────────────────
+
+type SortDir = 'asc' | 'desc' | null
+
+function SortHeader({ label, sortKey: key, current, dir, onSort, className }: {
+  label: string; sortKey: string; current: string | null; dir: SortDir; onSort: (key: string) => void; className?: string
+}) {
+  const active = current === key
+  return (
+    <button
+      onClick={() => onSort(key)}
+      className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] transition-colors cursor-pointer select-none ${className ?? ''}`}
+    >
+      {label}
+      {active && dir === 'asc' && <ChevronUp size={12} />}
+      {active && dir === 'desc' && <ChevronDown size={12} />}
+    </button>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────
 
 export default function VentasPage() {
@@ -129,6 +149,20 @@ export default function VentasPage() {
   const [mes, setMes] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>(null)
+
+  function toggleSort(key: string) {
+    if (sortKey !== key) {
+      setSortKey(key)
+      setSortDir('asc')
+    } else if (sortDir === 'asc') {
+      setSortDir('desc')
+    } else {
+      setSortKey(null)
+      setSortDir(null)
+    }
+  }
 
   const { documentos, isLoading, error } = useDTEs()
 
@@ -156,6 +190,18 @@ export default function VentasPage() {
       return rut.includes(q) || razon.includes(q)
     })
   }, [salesDocs, search])
+
+  const sorted = useMemo(() => {
+    if (!sortKey || !sortDir) return filtered
+    return [...filtered].sort((a: any, b: any) => {
+      const av = a[sortKey] ?? ''
+      const bv = b[sortKey] ?? ''
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), 'es-CL', { numeric: true })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [filtered, sortKey, sortDir])
 
   // KPI totals from filtered data
   const kpiTotals = useMemo(() => {
@@ -260,21 +306,21 @@ export default function VentasPage() {
       {!isLoading && !error && filtered.length > 0 && (
         <div className="card border border-[var(--cx-border-light)] rounded-2xl overflow-hidden">
           {/* Header */}
-          <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-[var(--cx-border-light)] text-[10px] font-semibold text-[var(--cx-text-muted)] uppercase tracking-widest sticky top-0 bg-white z-10">
-            <div className="col-span-1">Estado</div>
-            <div className="col-span-1">Tipo Doc</div>
-            <div className="col-span-1">Folio</div>
-            <div className="col-span-1">Fecha</div>
-            <div className="col-span-2">RUT Receptor</div>
-            <div className="col-span-2">Razon Social</div>
-            <div className="col-span-1 text-right">Neto</div>
-            <div className="col-span-1 text-right">IVA</div>
-            <div className="col-span-2 text-right">Total</div>
+          <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-[var(--cx-border-light)] sticky top-0 bg-white z-10">
+            <div className="col-span-1"><SortHeader label="Estado" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Tipo Doc" sortKey="tipo_dte" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Folio" sortKey="folio" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Fecha" sortKey="fecha_emision" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-2"><SortHeader label="RUT Receptor" sortKey="rut_receptor" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-2"><SortHeader label="Razon Social" sortKey="razon_social_receptor" current={sortKey} dir={sortDir} onSort={toggleSort} /></div>
+            <div className="col-span-1"><SortHeader label="Neto" sortKey="monto_neto" current={sortKey} dir={sortDir} onSort={toggleSort} className="justify-end" /></div>
+            <div className="col-span-1"><SortHeader label="IVA" sortKey="monto_iva" current={sortKey} dir={sortDir} onSort={toggleSort} className="justify-end" /></div>
+            <div className="col-span-2"><SortHeader label="Total" sortKey="monto_total" current={sortKey} dir={sortDir} onSort={toggleSort} className="justify-end" /></div>
           </div>
 
           {/* Rows */}
           <div className="divide-y divide-[var(--cx-border-light)]">
-            {filtered.map((d: any, i: number) => (
+            {sorted.map((d: any, i: number) => (
               <div
                 key={d.id ?? d.folio ?? i}
                 className={`grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-[var(--cx-hover-bg)] transition-colors ${
