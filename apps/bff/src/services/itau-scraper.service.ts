@@ -108,6 +108,13 @@ export async function createItauSession(
 
   try {
     await page.goto(ITAU_LOGIN_URL, { waitUntil: 'networkidle', timeout: 60_000 })
+    logger.info({ url: page.url(), title: await page.title() }, 'Itaú: login page loaded')
+
+    // Wait for the RUT field to appear (may take extra time on slow connections)
+    await page.waitForSelector('#rut_usuarioID', { timeout: 15_000 }).catch(() => {
+      // Fallback: try waiting for any text input
+      return page.waitForSelector('input[name="rut_usuario"]', { timeout: 10_000 })
+    })
 
     // Fill RUT — click field first, clear, then type slowly to trigger Itaú's JS handlers
     await page.click('#rut_usuarioID')
