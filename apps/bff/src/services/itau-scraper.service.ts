@@ -109,25 +109,20 @@ export async function createItauSession(
   try {
     await page.goto(ITAU_LOGIN_URL, { waitUntil: 'networkidle', timeout: 60_000 })
 
-    // Fill RUT and password using native setter (Itaú portal uses custom JS that ignores .fill())
-    await page.evaluate(`((rut, clave) => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-      const rutEl = document.getElementById('rut_usuarioID');
-      const claveEl = document.getElementById('claveId');
-      setter.call(rutEl, rut);
-      rutEl.dispatchEvent(new Event('input', { bubbles: true }));
-      rutEl.dispatchEvent(new Event('change', { bubbles: true }));
-      rutEl.dispatchEvent(new Event('blur', { bubbles: true }));
-      setter.call(claveEl, clave);
-      claveEl.dispatchEvent(new Event('input', { bubbles: true }));
-      claveEl.dispatchEvent(new Event('change', { bubbles: true }));
-      claveEl.dispatchEvent(new Event('blur', { bubbles: true }));
-    })('${rutPersonal}', '${claveInternet}')`)
+    // Fill RUT — click field first, clear, then type slowly to trigger Itaú's JS handlers
+    await page.click('#rut_usuarioID')
+    await page.fill('#rut_usuarioID', '')
+    await page.type('#rut_usuarioID', rutPersonal, { delay: 50 })
+
+    // Fill password
+    await page.click('#claveId')
+    await page.fill('#claveId', '')
+    await page.type('#claveId', claveInternet, { delay: 50 })
 
     // Click Ingresar
     await Promise.all([
       page.waitForNavigation({ timeout: 30_000, waitUntil: 'networkidle' }).catch(() => {}),
-      page.evaluate(`(() => { document.getElementById('btnLoginPortalEmpresas').click(); })()`),
+      page.click('#btnLoginPortalEmpresas'),
     ])
 
     await page.waitForTimeout(3000)
