@@ -15,6 +15,7 @@ import {
   useBankAccounts, useCreateBankAccount, useDeleteBankAccount,
   useSaveBankCredentials,
 } from '@/hooks'
+import { apiClient } from '@/lib/api-client'
 import { formatCLP } from '@/lib/formatters'
 
 // ── Types ───────────────────────────────────────────────────
@@ -30,6 +31,7 @@ interface BankAccount {
   last_sync: string | null
   sync_status: string
   sync_error: string | null
+  bank_user: string | null
 }
 
 // ── Status Config ───────────────────────────────────────────
@@ -358,12 +360,23 @@ export default function BancoPage() {
                 )}
               </div>
 
-              {/* Last sync */}
-              {account.last_sync && (
-                <p className="text-[10px] text-[var(--cx-text-muted)] mb-3">
-                  Ultima sync: {new Date(account.last_sync).toLocaleDateString('es-CL')}
-                </p>
-              )}
+              {/* Credential & sync status */}
+              <div className="flex items-center gap-2 mb-2">
+                {account.bank_user ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-[var(--cx-status-ok-text)] bg-[var(--cx-status-ok-bg)] border border-[var(--cx-status-ok-border)] px-2 py-0.5 rounded-md">
+                    <CheckCircle2 size={10} /> Credenciales configuradas
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-[var(--cx-status-warn-text)] bg-[var(--cx-status-warn-bg)] border border-[var(--cx-status-warn-border)] px-2 py-0.5 rounded-md">
+                    <KeyRound size={10} /> Sin credenciales
+                  </span>
+                )}
+                {account.last_sync && (
+                  <span className="text-[10px] text-[var(--cx-text-muted)]">
+                    Sync: {new Date(account.last_sync).toLocaleDateString('es-CL')}
+                  </span>
+                )}
+              </div>
 
               {/* Actions */}
               <div className="flex items-center gap-2 pt-3 border-t border-[var(--cx-border-lighter)]">
@@ -374,6 +387,7 @@ export default function BancoPage() {
                   <ArrowLeftRight size={12} />
                   Transacciones
                 </Link>
+                <SyncButton accountId={account.id} hasCredentials={!!account.bank_user} />
                 <button
                   onClick={() => setCredAccount(account)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--cx-text-secondary)] hover:bg-[var(--cx-hover-bg)] transition-colors"
@@ -396,7 +410,75 @@ export default function BancoPage() {
 
       {/* Credentials Modal */}
       {credAccount && (
-        <CredentialsModal account={credAccount} onClose={() => setCredAccount(null)} />
+        <CredentialsModal account={credAccount} onClose={() => { setCredAccount(null); mutate() }} />
+      )}
+    </div>
+  )
+}
+
+// ── Sync Button ─────────────────────────────────────────────
+
+function SyncButton({ accountId, hasCredentials }: { accountId: number; hasCredentials: boolean }) {
+  const [syncing, setSyncing] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const now = new Date()
+  const [mes, setMes] = useState(now.getMonth() + 1)
+  const [year, setYear] = useState(now.getFullYear())
+  const [showPicker, setShowPicker] = useState(false)
+
+  if (!hasCredentials) return null
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setMsg(null)
+    try {
+      const { data } = await apiClient.post(`/api/v1/bank/accounts/${accountId}/sync`, { mes, year })
+      setMsg({ type: 'ok', text: data.message ?? 'Sincronizado' })
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.response?.data?.error ?? 'Error al sincronizar' })
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setMsg(null), 6000)
+    }
+  }
+
+  const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowPicker(!showPicker)}
+        disabled={syncing}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--cx-active-text)] bg-[var(--cx-active-bg)] border border-[var(--cx-active-border)] hover:bg-[var(--cx-violet-600)] hover:text-white transition-colors"
+        title="Sincronizar transacciones"
+      >
+        {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+        Sync
+      </button>
+      {showPicker && (
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-[var(--cx-border-light)] rounded-xl shadow-lg p-3 space-y-2 min-w-[200px]">
+          <div className="flex gap-1">
+            <select value={mes} onChange={e => setMes(Number(e.target.value))} className="input-field py-1 text-xs flex-1">
+              {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+            </select>
+            <select value={year} onChange={e => setYear(Number(e.target.value))} className="input-field py-1 text-xs w-20">
+              {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <button
+            onClick={() => { handleSync(); setShowPicker(false) }}
+            disabled={syncing}
+            className="btn-primary w-full text-xs py-1.5 flex items-center justify-center gap-1.5"
+          >
+            {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            Sincronizar {MESES[mes-1]} {year}
+          </button>
+          {msg && (
+            <p className={`text-[10px] ${msg.type === 'ok' ? 'text-[var(--cx-status-ok-text)]' : 'text-[var(--cx-status-error-text)]'}`}>
+              {msg.type === 'ok' ? '✓' : '✗'} {msg.text}
+            </p>
+          )}
+        </div>
       )}
     </div>
   )
