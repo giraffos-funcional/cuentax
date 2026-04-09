@@ -258,6 +258,9 @@ function RCVSyncCard({ currentMonth, currentYear }: { currentMonth: number; curr
   const [syncYear, setSyncYear] = useState(currentYear)
   const [syncing, setSyncing] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [showRange, setShowRange] = useState(false)
+  const [rangeFrom, setRangeFrom] = useState({ mes: 1, year: currentYear })
+  const [rangeTo, setRangeTo] = useState({ mes: 12, year: currentYear })
   const [status, setStatus] = useState<{
     credentials: { configured: boolean; auto_sync: boolean; last_sync: string | null }
     registros: Array<{
@@ -404,6 +407,66 @@ function RCVSyncCard({ currentMonth, currentYear }: { currentMonth: number; curr
             Sync
           </button>
         </div>
+      </div>
+
+      {/* Range sync */}
+      <div>
+        <button
+          onClick={() => setShowRange(!showRange)}
+          className="text-xs text-[var(--cx-active-text)] hover:underline cursor-pointer"
+        >
+          {showRange ? 'Ocultar' : 'Sincronizar rango de meses'}
+        </button>
+        {showRange && (
+          <div className="mt-2 flex flex-wrap items-end gap-2 p-3 rounded-xl border border-[var(--cx-border-light)] bg-[var(--cx-hover-bg)]">
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] mb-1">Desde</p>
+              <div className="flex gap-1">
+                <select value={rangeFrom.mes} onChange={e => setRangeFrom(p => ({ ...p, mes: Number(e.target.value) }))} className="input-field py-1.5 text-xs w-auto">
+                  {MESES_SHORT.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                </select>
+                <select value={rangeFrom.year} onChange={e => setRangeFrom(p => ({ ...p, year: Number(e.target.value) }))} className="input-field py-1.5 text-xs w-auto">
+                  {[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] text-[var(--cx-text-muted)] mb-1">Hasta</p>
+              <div className="flex gap-1">
+                <select value={rangeTo.mes} onChange={e => setRangeTo(p => ({ ...p, mes: Number(e.target.value) }))} className="input-field py-1.5 text-xs w-auto">
+                  {MESES_SHORT.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                </select>
+                <select value={rangeTo.year} onChange={e => setRangeTo(p => ({ ...p, year: Number(e.target.value) }))} className="input-field py-1.5 text-xs w-auto">
+                  {[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                setSyncing(true)
+                setMsg(null)
+                try {
+                  const { data } = await apiClient.post('/api/v1/rcv/sync-range', {
+                    mesDesde: rangeFrom.mes, yearDesde: rangeFrom.year,
+                    mesFin: rangeTo.mes, yearFin: rangeTo.year,
+                  })
+                  setMsg({ type: 'ok', text: data.message ?? 'Sincronizacion por rango iniciada' })
+                  setTimeout(fetchStatus, 5000)
+                } catch (err: any) {
+                  setMsg({ type: 'error', text: err.response?.data?.error ?? 'Error al sincronizar rango' })
+                } finally {
+                  setSyncing(false)
+                  setTimeout(() => setMsg(null), 8000)
+                }
+              }}
+              disabled={syncing}
+              className="btn-primary flex items-center gap-1.5 text-xs py-1.5 px-4"
+            >
+              {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Sync Rango
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Recent sync history */}

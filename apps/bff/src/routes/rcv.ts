@@ -30,6 +30,13 @@ const syncSchema = z.object({
   year: z.number().int().min(2020).max(2030),
 })
 
+const syncRangeSchema = z.object({
+  mesDesde: z.number().int().min(1).max(12),
+  mesFin: z.number().int().min(1).max(12),
+  yearDesde: z.number().int().min(2020).max(2030),
+  yearFin: z.number().int().min(2020).max(2030),
+})
+
 const credentialsSchema = z.object({
   sii_user: z.string().min(8, 'RUT requerido (ej: 12345678-9)'),
   sii_password: z.string().min(4, 'Clave tributaria requerida'),
@@ -179,6 +186,67 @@ export async function rcvRoutes(fastify: FastifyInstance) {
         ...result,
       })
     }
+  })
+
+  // ── POST /sync-range — Sync multiple months ────────────────
+  fastify.post('/sync-range', async (req, reply) => {
+    const body = syncRangeSchema.parse(req.body)
+    const user = (req as any).user
+    const companyId = await getLocalCompanyId(user.company_id)
+
+    if (!companyId) {
+      return reply.status(404).send({ error: 'Company not found' })
+    }
+
+    const [company] = await db.select({
+      sii_user: companies.sii_user,
+      has_password: companies.sii_password_enc,
+    })
+      .from(companies)
+      .where(eq(companies.id, companyId))
+      .limit(1)
+
+    if (!company?.sii_user || !company?.has_password) {
+      return reply.status(400).send({
+        error: 'Debes configurar tus credenciales del SII antes de sincronizar',
+      })
+    }
+
+    // Build list of months to sync
+    const months: Array<{ mes: number; year: number }> = []
+    let y = body.yearDesde
+    let m = body.mesDesde
+    while (y < body.yearFin || (y === body.yearFin && m <= body.mesFin)) {
+      months.push({ mes: m, year: y })
+      m++
+      if (m > 12) { m = 1; y++ }
+    }
+
+    if (months.length === 0 || months.length > 24) {
+      return reply.status(400).send({ error: 'Rango invalido (max 24 meses)' })
+    }
+
+    // Queue each month as a separate job
+    const jobs: Array<{ mes: number; year: number; jobId?: string }> = []
+    for (const period of months) {
+      try {
+        const jobId = await triggerManualRCVSync(companyId, period.mes, period.year)
+        jobs.push({ ...period, jobId })
+      } catch {
+        // Fallback inline if queue unavailable — only for first month to avoid blocking
+        if (jobs.length === 0) {
+          logger.warn('BullMQ not available, running first month inline')
+          await syncRCVFull(companyId, period.mes, period.year)
+          jobs.push({ ...period, jobId: 'inline' })
+        }
+      }
+    }
+
+    return reply.send({
+      message: `Sincronizacion de ${months.length} meses iniciada (${body.mesDesde}/${body.yearDesde} a ${body.mesFin}/${body.yearFin})`,
+      totalMeses: months.length,
+      jobs,
+    })
   })
 
   // ── GET /:tipo — Get RCV data ──────────────────────────────
