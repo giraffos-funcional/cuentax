@@ -71,7 +71,7 @@ export default function DocumentsScreen() {
         title="Documentos"
         rightAction={
           <Pressable
-            onPress={() => router.push('/(stacks)/emitir/')}
+            onPress={() => router.push('/(stacks)/emitir' as never)}
             style={styles.emitBtn}
             accessibilityRole="button"
             accessibilityLabel="Emitir DTE"
@@ -131,7 +131,7 @@ export default function DocumentsScreen() {
               title="Sin documentos"
               description="Emite tu primer DTE para comenzar"
               actionLabel="Emitir DTE"
-              onAction={() => router.push('/(stacks)/emitir/')}
+              onAction={() => router.push('/(stacks)/emitir' as never)}
             />
           }
           ListFooterComponent={

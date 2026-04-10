@@ -3,7 +3,7 @@
  * PDF download, share, and open via expo-file-system and expo-sharing.
  */
 
-import * as FileSystem from 'expo-file-system';
+import { cacheDirectory, downloadAsync } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { apiClient } from '@/lib/api-client';
 import { useAuthStore } from '@/stores/auth.store';
@@ -12,9 +12,9 @@ import { useAuthStore } from '@/stores/auth.store';
 export async function downloadPDF(url: string, filename?: string): Promise<string> {
   const token = useAuthStore.getState().accessToken;
   const name = filename ?? `dte-${Date.now()}.pdf`;
-  const localUri = `${FileSystem.cacheDirectory}${name}`;
+  const localUri = `${cacheDirectory}${name}`;
 
-  const downloadResult = await FileSystem.downloadAsync(
+  const downloadResult = await downloadAsync(
     `${apiClient.defaults.baseURL}${url}`,
     localUri,
     {

@@ -64,7 +64,8 @@
           "color": "#7c3aed"
         }
       ],
-      "expo-router"
+      "expo-router",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

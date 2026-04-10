@@ -33,8 +33,8 @@ configureNotificationHandler();
 export function useNotificationListeners(): UseNotificationsReturn {
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
-  const notificationListener = useRef<Subscription>();
-  const responseListener = useRef<Subscription>();
+  const notificationListener = useRef<Subscription>(null!);
+  const responseListener = useRef<Subscription>(null!);
 
   useEffect(() => {
     // Register for push notifications
@@ -56,12 +56,8 @@ export function useNotificationListeners(): UseNotificationsReturn {
       });
 
     return () => {
-      if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
-      }
-      if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
-      }
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
   }, []);
 
@@ -80,11 +76,11 @@ function handleNotificationNavigation(data: NotificationData): void {
       break;
 
     case 'folio_low':
-      router.push('/(tabs)/settings');
+      router.push('/(stacks)/settings' as any);
       break;
 
     case 'payment':
-      router.push('/(tabs)/documents');
+      router.push('/(tabs)/documents' as any);
       break;
 
     case 'gasto':
