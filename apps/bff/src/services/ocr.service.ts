@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { logger } from '@/core/logger'
+import { processImageFree } from './ocr-free.service'
 
 // ── OCR Result Schema ───────────────────────────────────────────
 
@@ -107,8 +108,15 @@ class OCRService {
 
   /**
    * Process an image buffer and extract Chilean tax document data.
+   * Uses Claude Vision if ANTHROPIC_API_KEY is set, otherwise falls back to free Tesseract.js OCR.
    */
   async processImage(imageBuffer: Buffer, mimeType: string): Promise<OCRResult> {
+    // Fallback to free Tesseract.js if no Anthropic API key
+    if (!process.env.ANTHROPIC_API_KEY) {
+      logger.info('No ANTHROPIC_API_KEY — using free Tesseract.js OCR')
+      return processImageFree(imageBuffer, mimeType)
+    }
+
     const client = this.getClient()
 
     const supportedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
