@@ -805,12 +805,16 @@ async def generate_libros(req: LibrosRequest):
     # Parse libro de compras data from the test set file
     compras_data = set_pruebas_parser.parse_libro_compras(raw_content)
 
-    folio_ventas = compras_data["folio_notificacion_ventas"]
-    folio_compras = compras_data["folio_notificacion_compras"]
+    # Per SII certification instructions ("Instructivo SET PRUEBAS DTE", section
+    # III/IV): FolioNotificacion is the LITERAL value 1 for Libro de Ventas and
+    # 2 for Libro de Compras — NOT the SET number from the test set file.
+    # Using the SET number causes LRH (Descuadrado) on LV and LNC on LC.
+    folio_ventas = "1"
+    folio_compras = "2"
     fct_prop = compras_data.get("fct_prop")
     compras_entries = compras_data["entries"]
 
-    if not folio_ventas:
+    if not compras_data.get("folio_notificacion_ventas"):
         raise HTTPException(
             status_code=400,
             detail="Could not find SET LIBRO DE VENTAS section in test set file",
