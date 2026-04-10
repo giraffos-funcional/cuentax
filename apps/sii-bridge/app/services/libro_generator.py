@@ -200,6 +200,12 @@ class LibroXMLGenerator:
                 if tot_iva_no_retenido:
                     self._elem(totales, "TotIVANoRetenido", str(tot_iva_no_retenido))
 
+            # LV: TotMntPeriodo per TpoDoc (Campo 25). XSD sequence has it
+            # after TotMntNoFact.  SII rejects the libro as LRH "Descuadrado"
+            # if this is missing on LV submissions.
+            if data.tipo_operacion == "VENTA":
+                self._elem(totales, "TotMntPeriodo", str(tot_total))
+
     def _build_detalle(
         self, parent: etree._Element, det: LibroDetalle, tipo_operacion: str
     ):
@@ -235,18 +241,20 @@ class LibroXMLGenerator:
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
 
-        # Corrige-texto NCs and mirror NDs with all amounts = 0 must omit
-        # MntTotal entirely (SII LRH Descuadrado otherwise). Count in TotDoc
-        # only, contribute 0 to monetary totals.
-        has_any_amount = (
-            det.mnt_exe or det.mnt_neto or det.mnt_iva or det.mnt_total
-        )
-        if has_any_amount:
-            self._elem(detalle, "MntTotal", str(det.mnt_total))
+        # MntTotal is always included, even when 0 (corrige-texto NCs and
+        # mirror NDs).  Omitting it caused SII LRH Descuadrado in earlier
+        # attempts — the SII reconciler expects every Detalle to report
+        # MntTotal so it can match against ResumenPeriodo.
+        self._elem(detalle, "MntTotal", str(det.mnt_total))
 
         if tipo_operacion == "COMPRA":
             if det.iva_no_retenido:
                 self._elem(detalle, "IVANoRetenido", str(det.iva_no_retenido))
+
+        # LV: MntPeriodo per detalle (Campo 25, XSD seq after MntNoFact).
+        # Mirrors MntTotal for simple cases (no MntNoFact).
+        if tipo_operacion == "VENTA":
+            self._elem(detalle, "MntPeriodo", str(det.mnt_total))
 
     @staticmethod
     def _elem(parent: etree._Element, tag: str, text: str) -> etree._Element:
