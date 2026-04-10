@@ -41,6 +41,9 @@ import { jobsRoutes } from '@/routes/jobs'
 import { cotizacionesRoutes } from '@/routes/cotizaciones'
 import { comprasRoutes } from '@/routes/compras'
 import { bankRoutes } from '@/routes/bank'
+import { gastosRoutes } from '@/routes/gastos'
+import { ocrRoutes } from '@/routes/ocr'
+import { aiChatRoutes } from '@/routes/ai-chat'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -390,6 +393,37 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now()
       )`)
 
+      // ── Gastos module ────────────────────────────────────────
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE gasto_tipo_documento AS ENUM('boleta','factura','nota_credito','nota_debito','guia_despacho','sin_documento'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "gastos" (
+        "id" serial PRIMARY KEY,
+        "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+        "tipo_documento" gasto_tipo_documento DEFAULT 'sin_documento',
+        "numero_documento" varchar(20),
+        "fecha_documento" text,
+        "emisor_rut" varchar(12),
+        "emisor_razon_social" varchar(200),
+        "monto_neto" bigint DEFAULT 0,
+        "monto_iva" bigint DEFAULT 0,
+        "monto_total" bigint NOT NULL,
+        "monto_exento" bigint DEFAULT 0,
+        "categoria" varchar(50) NOT NULL,
+        "descripcion" text,
+        "foto_url" text,
+        "datos_ocr" jsonb,
+        "confianza_ocr" real,
+        "verificado" boolean DEFAULT false,
+        "created_by" integer,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "gastos_company_idx" ON "gastos"("company_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "gastos_categoria_idx" ON "gastos"("company_id","categoria")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "gastos_fecha_idx" ON "gastos"("fecha_documento")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "gastos_verificado_idx" ON "gastos"("company_id","verificado")`)
+
       // Indexes for bank tables
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_acc_company_idx" ON "bank_accounts"("company_id")`)
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "bank_acc_company_num_idx" ON "bank_accounts"("company_id","banco","numero_cuenta")`)
@@ -423,6 +457,9 @@ async function bootstrap() {
   await fastify.register(cotizacionesRoutes, { prefix: '/api/v1/cotizaciones' })
   await fastify.register(comprasRoutes, { prefix: '/api/v1/compras/pedidos' })
   await fastify.register(bankRoutes, { prefix: '/api/v1/bank' })
+  await fastify.register(gastosRoutes, { prefix: '/api/v1/gastos' })
+  await fastify.register(ocrRoutes, { prefix: '/api/v1/ocr' })
+  await fastify.register(aiChatRoutes, { prefix: '/api/v1/ai/chat' })
 
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {

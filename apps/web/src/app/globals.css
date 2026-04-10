@@ -214,6 +214,76 @@
   100% { background-position: 1000px 0; }
 }
 
+/* ── PWA & Mobile ───────────────────────────────────────────── */
+
+/* Hide install banner when running as installed PWA */
+@media (display-mode: standalone) {
+  .pwa-install-banner {
+    display: none;
+  }
+}
+
+/* Floating action button — mobile only */
+.mobile-fab {
+  @apply fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full text-white shadow-lg flex items-center justify-center;
+  @apply transition-all active:scale-95;
+  @apply md:hidden;
+  background: linear-gradient(135deg, var(--cx-violet-600), var(--cx-indigo-600));
+  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+}
+
+.mobile-fab:hover {
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
+}
+
+/* Camera viewport — full height for mobile browsers */
+.camera-viewport {
+  @apply w-full bg-black;
+  height: calc(100vh - 4rem);
+  height: calc(100dvh - 4rem);
+}
+
+/* Improve touch targets on mobile */
+@media (max-width: 768px) {
+  .input-field {
+    min-height: 48px;
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+
+  button,
+  a[role="button"],
+  [type="button"] {
+    min-height: 44px;
+  }
+}
+
+/* Safe area padding for notched phones */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* ── Help article prose ─────────────────────────────────────── */
+.prose-help ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-help li {
+  margin-bottom: 0.35rem;
+  line-height: 1.6;
+}
+
+.prose-help strong {
+  color: var(--cx-text-primary);
+  font-weight: 600;
+}
+
 /* ── Skeleton loader ─────────────────────────────────────────── */
 .skeleton {
   background: linear-gradient(90deg,

@@ -5,18 +5,22 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth.store'
 import { useSIIStatus } from '@/hooks'
 import { apiClient } from '@/lib/api-client'
+import { registerServiceWorker } from '@/lib/register-sw'
+import { InstallPrompt } from '@/components/pwa/InstallPrompt'
+import { AIChatWidget } from '@/components/ai-chat/AIChatWidget'
+import { HelpButton } from '@/components/help/HelpButton'
 import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard, FileText, BookOpen,
   Settings, LogOut, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle2, Wifi, WifiOff,
-  Building2, Bell, Search, Menu, Star, Landmark,
+  Building2, Bell, Search, Menu, Star, Landmark, Camera,
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart, ShoppingCart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
@@ -106,6 +110,17 @@ const NAV: NavEntry[] = [
     ],
   },
 
+  // Gastos section
+  {
+    section: 'Gastos',
+    icon: Receipt,
+    collapsible: true,
+    items: [
+      { href: '/dashboard/gastos',          icon: Receipt,    label: 'Mis Gastos' },
+      { href: '/dashboard/gastos/escanear', icon: Camera,     label: 'Escanear Documento' },
+    ],
+  },
+
   // Herramientas
   {
     section: 'Herramientas',
@@ -119,6 +134,7 @@ const NAV: NavEntry[] = [
   },
 
   // Direct items (bottom)
+  { href: '/dashboard/ayuda',         icon: BookOpen, label: 'Ayuda' },
   { href: '/dashboard/contactos',     icon: Users,    label: 'Contactos' },
   { href: '/dashboard/productos',     icon: Tag,      label: 'Productos' },
   { href: '/dashboard/empresa',       icon: Building2, label: 'Mi Empresa' },
@@ -684,6 +700,8 @@ function Topbar({ title, collapsed, onMenuToggle }: { title: string, collapsed: 
         <span className="hidden sm:block">Buscar...</span>
         <kbd className="hidden sm:block text-[10px] px-1.5 py-0.5 rounded bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] text-[var(--cx-text-muted)]">⌘K</kbd>
       </button>
+      {/* Ayuda */}
+      <HelpButton />
       {/* Notificaciones */}
       <div className="relative">
         <button
@@ -713,6 +731,15 @@ export default function DashboardLayout({
   const [collapsed, setCollapsed] = useState(false)
   const pathname = usePathname()
   const { cert, connectivity } = useSIIStatus()
+  const swRegistered = useRef(false)
+
+  // Register service worker once on mount
+  useEffect(() => {
+    if (!swRegistered.current) {
+      registerServiceWorker()
+      swRegistered.current = true
+    }
+  }, [])
 
   // Derive sidebar SII status from real hook data
   const derivedSiiStatus: 'ok' | 'warning' | 'error' | 'loading' = (() => {
@@ -754,6 +781,7 @@ export default function DashboardLayout({
       '/dashboard/remuneraciones/indicadores':   'Indicadores Previsionales',
       '/dashboard/compras/solicitudes':            'Solicitudes de Compra',
       '/dashboard/compras/pedidos':                'Pedidos de Compra',
+      '/dashboard/ayuda':                          'Centro de Ayuda',
     }
     return titles[pathname] ?? 'CUENTAX'
   }
@@ -776,6 +804,8 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+      <InstallPrompt />
+      <AIChatWidget />
     </div>
   )
 }

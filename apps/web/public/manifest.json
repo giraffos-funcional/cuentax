@@ -1,0 +1,33 @@
+{
+  "name": "CuentaX - Gesti\u00f3n Tributaria",
+  "short_name": "CuentaX",
+  "description": "Gestiona tus documentos tributarios, escanea boletas y emite facturas desde tu celular",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f8f9fc",
+  "theme_color": "#7c3aed",
+  "orientation": "portrait",
+  "categories": ["business", "finance"],
+  "lang": "es-CL",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Escanear Boleta",
+      "short_name": "Escanear",
+      "url": "/dashboard/gastos/escanear",
+      "icons": [{ "src": "/icons/scan-shortcut.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Nueva Factura",
+      "short_name": "Facturar",
+      "url": "/dashboard/emitir?tipo=33",
+      "icons": [{ "src": "/icons/invoice-shortcut.png", "sizes": "96x96" }]
+    }
+  ]
+}

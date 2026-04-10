@@ -1,20 +1,34 @@
 /**
  * CUENTAX — Dashboard Principal (Light Theme)
- * Connected to real data via useStats, useDTEs hooks.
+ * Connected to real data via useStats, useDTEs, useGastos hooks.
  */
 
 'use client'
 
 import { TrendingUp, TrendingDown, FileText, CheckCircle2,
-         Clock, AlertTriangle, ArrowRight, Zap, Loader2, Building2 } from 'lucide-react'
-import { useStats, useDTEs, useCAFStatus, useSIIStatus } from '@/hooks'
+         Clock, AlertTriangle, ArrowRight, Zap, Loader2, Building2,
+         Camera, Receipt, ShoppingCart, Wallet } from 'lucide-react'
+import useSWR from 'swr'
+import { useStats, useDTEs, useCAFStatus, useSIIStatus, useGastos, type Gasto } from '@/hooks'
 import { useAuthStore } from '@/stores/auth.store'
+import { apiClient } from '@/lib/api-client'
 
 const formatCLP = (n: number) =>
   new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
+const fetcher = (url: string) => apiClient.get(url).then(r => r.data)
+
 const TIPO_LABELS: Record<number, string> = {
   33: 'Factura', 39: 'Boleta', 41: 'B. No Afecta', 56: 'Nota D.', 61: 'Nota C.', 110: 'Fac. Export',
+}
+
+const CATEGORIA_LABELS: Record<string, string> = {
+  oficina: 'Oficina',
+  servicios: 'Servicios',
+  transporte: 'Transporte',
+  alimentacion: 'Alimentación',
+  tecnologia: 'Tecnología',
+  otros: 'Otros',
 }
 
 // ── KPI Card ──────────────────────────────────────────────────
@@ -34,6 +48,7 @@ function KPICard({ label, value, subValue, trend, trendValue, accent = 'violet',
     emerald: { icon: 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)]' },
     amber:   { icon: 'bg-[var(--cx-status-warn-bg)] text-[var(--cx-status-warn-text)]' },
     blue:    { icon: 'bg-[var(--cx-active-bg)] text-[var(--cx-active-text)]' },
+    red:     { icon: 'bg-red-50 text-red-600' },
   }
   const colors = accentMap[accent as keyof typeof accentMap] ?? accentMap.violet
 
@@ -131,9 +146,10 @@ function QuickActions() {
     { label: 'Nueva Factura', href: '/dashboard/emitir?tipo=33', icon: FileText, color: 'text-[var(--cx-active-text)] bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] hover:bg-[var(--cx-hover-bg)]' },
     { label: 'Nueva Boleta',  href: '/dashboard/emitir?tipo=39', icon: Zap,      color: 'text-[var(--cx-active-text)] bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] hover:bg-[var(--cx-hover-bg)]' },
     { label: 'Nota de Crédito', href: '/dashboard/emitir?tipo=61', icon: ArrowRight, color: 'text-[var(--cx-status-ok-text)] bg-[var(--cx-status-ok-bg)] border-[var(--cx-status-ok-border)] hover:bg-[var(--cx-hover-bg)]' },
+    { label: 'Escanear Boleta', href: '/dashboard/gastos/escanear', icon: Camera, color: 'text-[var(--cx-status-warn-text)] bg-[var(--cx-status-warn-bg)] border-[var(--cx-status-warn-border)] hover:bg-[var(--cx-hover-bg)]' },
   ]
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-wrap gap-3">
       {actions.map((a) => (
         <a
           key={a.href}
@@ -148,12 +164,100 @@ function QuickActions() {
   )
 }
 
+// ── Recent Gastos Section ─────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function RecentGastos({ gastos, isLoading }: { gastos: Array<any>; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--cx-border-lighter)]">
+          <h2 className="text-sm font-semibold text-[var(--cx-text-primary)]">Últimos Gastos</h2>
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={18} className="animate-spin text-[var(--cx-active-text)]" />
+          <span className="ml-2 text-sm text-[var(--cx-text-muted)]">Cargando gastos...</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] rounded-2xl overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--cx-border-lighter)]">
+        <h2 className="text-sm font-semibold text-[var(--cx-text-primary)]">Últimos Gastos</h2>
+        <a href="/dashboard/gastos" className="text-xs text-[var(--cx-active-text)] hover:opacity-80 flex items-center gap-1 transition-colors">
+          Ver todos <ArrowRight size={12} />
+        </a>
+      </div>
+
+      {gastos.length === 0 ? (
+        <div className="px-6 py-10 text-center">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-[var(--cx-bg-elevated)] flex items-center justify-center">
+            <Receipt size={20} className="text-[var(--cx-text-muted)]" />
+          </div>
+          <p className="text-sm font-medium text-[var(--cx-text-secondary)] mb-1">No hay gastos registrados</p>
+          <p className="text-xs text-[var(--cx-text-muted)] mb-4">Escanea una boleta o registra un gasto manualmente</p>
+          <a href="/dashboard/gastos/escanear" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-bold hover:from-violet-700 hover:to-indigo-700 transition-all shadow-md shadow-violet-500/20">
+            <Camera size={12} /> Escanear Boleta
+          </a>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4">
+          {gastos.map((gasto: Gasto) => (
+            <a
+              key={gasto.id as string}
+              href={`/dashboard/gastos/${gasto.id}`}
+              className="
+                bg-[var(--cx-bg-elevated)] border border-[var(--cx-border-lighter)]
+                rounded-xl p-4 hover:bg-[var(--cx-hover-bg)] transition-all cursor-pointer group
+              "
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div className="p-1.5 rounded-lg bg-[var(--cx-status-warn-bg)]">
+                  <ShoppingCart size={12} className="text-[var(--cx-status-warn-text)]" />
+                </div>
+                <span className="text-[11px] text-[var(--cx-text-muted)]">
+                  {gasto.fecha_documento as string}
+                </span>
+              </div>
+              <p className="text-sm font-medium text-[var(--cx-text-primary)] truncate mb-0.5">
+                {(gasto.emisor_razon_social as string) || 'Sin emisor'}
+              </p>
+              <p className="text-xs text-[var(--cx-text-muted)] mb-2">
+                {CATEGORIA_LABELS[(gasto.categoria as string)] ?? (gasto.categoria as string)}
+              </p>
+              <p className="text-base font-bold text-[var(--cx-text-primary)]">
+                {formatCLP(gasto.monto_total as number)}
+              </p>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────
 export default function DashboardPage() {
   const user = useAuthStore(s => s.user)
   const { stats, isLoading: statsLoading } = useStats()
   const { documentos, isLoading: dtesLoading } = useDTEs({ page: 1 })
   const { cafs } = useCAFStatus()
+
+  // Gastos data
+  const currentMonth = new Date().getMonth() + 1
+  const currentYear = new Date().getFullYear()
+  const { data: gastosStats, isLoading: gastosStatsLoading } = useSWR<{
+    total_gastos: number
+    total_iva: number
+    total_neto: number
+    cantidad: number
+  }>(`/api/v1/gastos/stats?mes=${currentMonth}&year=${currentYear}`, fetcher, { refreshInterval: 30_000 })
+  const { gastos: recentGastos, isLoading: gastosLoading } = useGastos(1, {
+    mes: String(currentMonth),
+    year: String(currentYear),
+  })
+  const latestGastos = recentGastos.slice(0, 3)
 
   // Extract KPI values from real data
   const totalEmitidos = stats?.total_emitidos ?? stats?.por_estado
@@ -170,6 +274,13 @@ export default function DashboardPage() {
 
   // Recent documents (last 5)
   const recentDocs = documentos.slice(0, 5)
+
+  // Gastos KPI values
+  const gastosMes = gastosStats?.total_gastos ?? 0
+  const ivaCredito = gastosStats?.total_iva ?? 0
+  // IVA Débito is 19% of net sales (ingresosMes is total, net = total / 1.19)
+  const ivaDebito = Math.round(ingresosMes - (ingresosMes / 1.19))
+  const balanceIVA = ivaDebito - ivaCredito
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -191,7 +302,7 @@ export default function DashboardPage() {
       {/* Alert SII */}
       <SIIAlert />
 
-      {/* KPIs */}
+      {/* KPIs — Ventas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KPICard
           label="Ingresos del Mes"
@@ -221,9 +332,36 @@ export default function DashboardPage() {
           value={String(foliosDisp)}
           subValue="Tipo 33 — Factura"
           trend={foliosDisp === 0 ? 'down' : foliosDisp < 300 ? 'down' : 'up'}
-          trendValue={foliosDisp === 0 ? '🔴 Sin folios — Solicitar CAF' : foliosDisp < 100 ? `⚠ Quedan pocos folios` : foliosDisp < 300 ? `Quedan ${foliosDisp}` : '✓ Suficientes'}
+          trendValue={foliosDisp === 0 ? 'Sin folios — Solicitar CAF' : foliosDisp < 100 ? `Quedan pocos folios` : foliosDisp < 300 ? `Quedan ${foliosDisp}` : 'Suficientes'}
           accent={foliosDisp === 0 ? 'amber' : 'amber'}
           icon={<Clock size={16} />}
+        />
+      </div>
+
+      {/* KPIs — Gastos e IVA */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KPICard
+          label="Gastos del Mes"
+          value={gastosStatsLoading ? '...' : formatCLP(gastosMes)}
+          subValue={gastosStats?.cantidad ? `${gastosStats.cantidad} documentos` : 'Sin gastos registrados'}
+          accent="amber"
+          icon={<ShoppingCart size={16} />}
+        />
+        <KPICard
+          label="IVA Crédito (Gastos)"
+          value={gastosStatsLoading ? '...' : formatCLP(ivaCredito)}
+          subValue="IVA recuperable este mes"
+          accent="blue"
+          icon={<Wallet size={16} />}
+        />
+        <KPICard
+          label="Balance IVA Estimado"
+          value={statsLoading || gastosStatsLoading ? '...' : formatCLP(Math.abs(balanceIVA))}
+          subValue={balanceIVA > 0 ? 'IVA a pagar al SII' : balanceIVA < 0 ? 'IVA a favor (crédito)' : 'IVA equilibrado'}
+          trend={balanceIVA <= 0 ? 'up' : 'down'}
+          trendValue={balanceIVA > 0 ? 'Débito > Crédito' : balanceIVA < 0 ? 'Crédito > Débito' : 'Equilibrado'}
+          accent={balanceIVA <= 0 ? 'emerald' : 'red'}
+          icon={<Receipt size={16} />}
         />
       </div>
 
@@ -287,6 +425,9 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Últimos Gastos */}
+      <RecentGastos gastos={latestGastos} isLoading={gastosLoading} />
     </div>
   )
 }

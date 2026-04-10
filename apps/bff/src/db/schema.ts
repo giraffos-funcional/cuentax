@@ -12,7 +12,7 @@
 import {
   pgTable, serial, text, integer, bigint, boolean,
   timestamp, jsonb, uniqueIndex, index, pgEnum,
-  varchar, decimal,
+  varchar, decimal, real,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
@@ -412,6 +412,47 @@ export const bankTransactions = pgTable('bank_transactions', {
   externalIdx: uniqueIndex('bank_tx_external_idx').on(t.bank_account_id, t.external_id),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// GASTOS (Expenses)
+// ══════════════════════════════════════════════════════════════
+export const gastoTipoDocEnum = pgEnum('gasto_tipo_documento', [
+  'boleta', 'factura', 'nota_credito', 'nota_debito', 'guia_despacho', 'sin_documento',
+])
+
+export const gastos = pgTable('gastos', {
+  id:                serial('id').primaryKey(),
+  company_id:        integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  // Document identification
+  tipo_documento:    gastoTipoDocEnum('tipo_documento').default('sin_documento'),
+  numero_documento:  varchar('numero_documento', { length: 20 }),
+  fecha_documento:   text('fecha_documento'),           // YYYY-MM-DD
+  // Emisor
+  emisor_rut:        varchar('emisor_rut', { length: 12 }),
+  emisor_razon_social: varchar('emisor_razon_social', { length: 200 }),
+  // Amounts (CLP, stored as integers)
+  monto_neto:        bigint('monto_neto', { mode: 'number' }).default(0),
+  monto_iva:         bigint('monto_iva', { mode: 'number' }).default(0),
+  monto_total:       bigint('monto_total', { mode: 'number' }).notNull(),
+  monto_exento:      bigint('monto_exento', { mode: 'number' }).default(0),
+  // Classification
+  categoria:         varchar('categoria', { length: 50 }).notNull(),
+  descripcion:       text('descripcion'),
+  // OCR data
+  foto_url:          text('foto_url'),
+  datos_ocr:         jsonb('datos_ocr'),
+  confianza_ocr:     real('confianza_ocr'),              // 0.0 to 1.0
+  verificado:        boolean('verificado').default(false),
+  // Audit
+  created_by:        integer('created_by'),
+  created_at:        timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx:       index('gastos_company_idx').on(t.company_id),
+  categoriaIdx:     index('gastos_categoria_idx').on(t.company_id, t.categoria),
+  fechaIdx:         index('gastos_fecha_idx').on(t.fecha_documento),
+  verificadoIdx:    index('gastos_verificado_idx').on(t.company_id, t.verificado),
+}))
+
 // ── Relations ─────────────────────────────────────────────────
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
@@ -424,6 +465,7 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   webhooks: many(webhookEndpoints),
   rcvRegistros: many(rcvRegistros),
   bankAccounts: many(bankAccounts),
+  gastos: many(gastos),
 }))
 
 export const purchaseOrdersRelations = relations(purchaseOrders, ({ one }) => ({
@@ -457,4 +499,8 @@ export const bankAccountsRelations = relations(bankAccounts, ({ one, many }) => 
 export const bankTransactionsRelations = relations(bankTransactions, ({ one }) => ({
   bankAccount: one(bankAccounts, { fields: [bankTransactions.bank_account_id], references: [bankAccounts.id] }),
   company: one(companies, { fields: [bankTransactions.company_id], references: [companies.id] }),
+}))
+
+export const gastosRelations = relations(gastos, ({ one }) => ({
+  company: one(companies, { fields: [gastos.company_id], references: [companies.id] }),
 }))

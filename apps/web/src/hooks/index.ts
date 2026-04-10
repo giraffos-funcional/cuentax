@@ -993,6 +993,116 @@ export function useUnreconcileBankTx() {
   return { unreconcile }
 }
 
+// ══════════════════════════════════════════════════════════
+// Gastos (Expenses) Hooks
+// ══════════════════════════════════════════════════════════
+
+export interface Gasto {
+  id: string
+  tipo_documento: string
+  numero_documento: string
+  fecha_documento: string
+  emisor_rut: string
+  emisor_razon_social: string
+  monto_neto: number
+  monto_iva: number
+  monto_total: number
+  categoria: string
+  descripcion: string
+  foto_url: string | null
+  confianza_ocr: number | null
+  verificado: boolean
+  created_at: string
+}
+
+export interface CreateGastoDTO {
+  tipo_documento: string
+  numero_documento?: string
+  fecha_documento: string
+  emisor_rut?: string
+  emisor_razon_social?: string
+  monto_neto?: number
+  monto_iva?: number
+  monto_total: number
+  categoria: string
+  descripcion?: string
+  foto_url?: string
+  datos_ocr?: Record<string, unknown>
+  confianza_ocr?: number
+}
+
+/** Lista gastos con filtros y paginación */
+export function useGastos(page = 1, filters?: { categoria?: string; verificado?: string; mes?: string; year?: string }) {
+  const params = new URLSearchParams({ page: String(page), limit: '20' })
+  if (filters?.categoria) params.set('categoria', filters.categoria)
+  if (filters?.verificado) params.set('verificado', filters.verificado)
+  if (filters?.mes) params.set('mes', filters.mes)
+  if (filters?.year) params.set('year', filters.year)
+
+  const { data, error, isLoading, mutate } = useSWR<{ data: Gasto[]; total: number; page: number; pages: number }>(
+    `/api/v1/gastos?${params}`,
+    fetcher,
+    { refreshInterval: 30_000 },
+  )
+
+  return {
+    gastos: data?.data ?? [],
+    total: data?.total ?? 0,
+    pages: data?.pages ?? 1,
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+/** Detalle de un gasto */
+export function useGasto(id: string | null) {
+  const { data, error, isLoading, mutate } = useSWR<Gasto>(
+    id ? `/api/v1/gastos/${id}` : null, fetcher,
+  )
+  return { gasto: data ?? null, isLoading, error, mutate }
+}
+
+/** Crear gasto */
+export function useCreateGasto() {
+  const crear = async (payload: CreateGastoDTO) => {
+    const result = await apiClient.post('/api/v1/gastos', payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/gastos'))
+    return result
+  }
+  return { crear }
+}
+
+/** Actualizar gasto */
+export function useUpdateGasto() {
+  const update = async (id: string, payload: Partial<CreateGastoDTO>) => {
+    const result = await apiClient.put(`/api/v1/gastos/${id}`, payload).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/gastos'))
+    return result
+  }
+  return { update }
+}
+
+/** Eliminar gasto */
+export function useDeleteGasto() {
+  const remove = async (id: string) => {
+    await apiClient.delete(`/api/v1/gastos/${id}`)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/gastos'))
+  }
+  return { remove }
+}
+
+/** Procesar imagen con OCR */
+export function useProcessOCR() {
+  const process = async (imageFile: File) => {
+    const formData = new FormData()
+    formData.append('image', imageFile)
+    const { data } = await apiClient.post('/api/v1/ocr/process', formData)
+    return data
+  }
+  return { process }
+}
+
 /** Cash flow forecast with historical and projected periods */
 export function useCashFlow(months?: number) {
   const params = months ? new URLSearchParams({ months: String(months) }) : ''
@@ -1009,4 +1119,78 @@ export function useCashFlow(months?: number) {
     isLoading,
     error,
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// AI Chat Hook (SSE Streaming)
+// ══════════════════════════════════════════════════════════════
+
+import { useChatStore } from '@/stores/chat.store'
+
+/** Sends messages to the AI chat endpoint via SSE streaming */
+export function useAIChat() {
+  const { accessToken } = useAuthStore()
+  const { addMessage, appendToLastMessage, setStreaming } = useChatStore()
+
+  const sendMessage = async (content: string) => {
+    // Add user message to store
+    addMessage({ role: 'user', content })
+    // Add empty assistant message placeholder
+    addMessage({ role: 'assistant', content: '' })
+    setStreaming(true)
+
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BFF_URL}/api/v1/ai/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            messages: useChatStore
+              .getState()
+              .messages.slice(0, -1)
+              .map((m) => ({ role: m.role, content: m.content })),
+          }),
+        },
+      )
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+
+      const reader = res.body?.getReader()
+      const decoder = new TextDecoder()
+
+      while (reader) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const text = decoder.decode(value, { stream: true })
+        // Parse SSE data lines
+        const lines = text.split('\n').filter((l) => l.startsWith('data: '))
+        for (const line of lines) {
+          const raw = line.slice(6)
+          if (raw === '[DONE]') break
+          try {
+            const data = JSON.parse(raw)
+            if (data.type === 'text_delta') {
+              appendToLastMessage(data.text)
+            }
+          } catch {
+            // Skip malformed SSE chunks
+          }
+        }
+      }
+    } catch {
+      appendToLastMessage(
+        '\n\n_Error al procesar tu consulta. Intenta de nuevo._',
+      )
+    } finally {
+      setStreaming(false)
+    }
+  }
+
+  return { sendMessage }
 }
