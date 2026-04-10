@@ -215,8 +215,10 @@ class LibroXMLGenerator:
         self._elem(detalle, "TpoDoc", str(det.tipo_doc))
         self._elem(detalle, "NroDoc", str(det.nro_doc))
 
-        if det.tasa_imp and det.mnt_neto:
-            self._elem(detalle, "TasaImp", f"{det.tasa_imp:.2f}")
+        # TasaImp is obligatoriedad=1 (siempre) per IECV spec section 2.4
+        # campo 6.  Emit always — even on 0-amount NC/ND detalles — otherwise
+        # the SII LV reconciler returns LRH "Descuadrado".
+        self._elem(detalle, "TasaImp", f"{det.tasa_imp or Decimal('19'):.2f}")
 
         self._elem(detalle, "FchDoc", det.fch_doc)
 
@@ -229,8 +231,10 @@ class LibroXMLGenerator:
             self._elem(detalle, "MntExe", str(det.mnt_exe))
         if det.mnt_neto:
             self._elem(detalle, "MntNeto", str(det.mnt_neto))
-        if det.mnt_iva:
-            self._elem(detalle, "MntIVA", str(det.mnt_iva))
+        # MntIVA is obligatoriedad=1 (siempre) per IECV spec section 2.4
+        # campo 20: "Es un dato obligatorio... En los documentos exentos, el
+        # campo debe ir con un cero." Emit always — value 0 is valid.
+        self._elem(detalle, "MntIVA", str(det.mnt_iva))
 
         # Libro de Compras: XSD Detalle sequence per LibroCV_v10.xsd:
         # IVAUsoComun → IVAPropio → IVARetTotal → MntTotal → IVANoRetenido
