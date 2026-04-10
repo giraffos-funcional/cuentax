@@ -39,7 +39,7 @@ export default function ContactsListScreen() {
   const keyExtractor = useCallback((item: Contact) => String(item.id), []);
 
   return (
-    <Screen>
+    <Screen scrollable={false}>
       <Header title="Contactos" showBack />
 
       <View style={styles.searchContainer}>

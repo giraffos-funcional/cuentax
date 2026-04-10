@@ -163,7 +163,7 @@ export default function GastosScreen() {
   };
 
   return (
-    <Screen>
+    <Screen scrollable={false}>
       <Header
         title="Gastos"
         subtitle={isLoading ? 'Cargando...' : `${total} gastos registrados`}

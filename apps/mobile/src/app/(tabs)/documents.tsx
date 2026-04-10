@@ -66,7 +66,7 @@ export default function DocumentsScreen() {
   const keyExtractor = useCallback((item: DTE) => String(item.id), []);
 
   return (
-    <Screen>
+    <Screen scrollable={false}>
       <Header
         title="Documentos"
         rightAction={
