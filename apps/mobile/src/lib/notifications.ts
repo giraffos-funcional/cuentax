@@ -71,10 +71,17 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   // Get Expo push token
-  const tokenData = await Notifications.getExpoPushTokenAsync({
-    projectId: Constants.expoConfig?.extra?.eas?.projectId,
-  });
-  const expoPushToken = tokenData.data;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  let expoPushToken: string;
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    );
+    expoPushToken = tokenData.data;
+  } catch (error) {
+    console.warn('Could not get push token (dev mode?):', error);
+    return null;
+  }
 
   // Check if we already registered this token
   const storedToken = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
