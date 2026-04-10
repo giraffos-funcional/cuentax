@@ -4,7 +4,7 @@
  */
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -106,6 +106,7 @@ function ArticleListItem({ article }: { article: HelpArticle }) {
 export default function AyudaPage() {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
+  const articlesRef = useRef<HTMLDivElement>(null)
 
   const searchResults = useMemo(() => {
     if (!search.trim()) return []
@@ -120,6 +121,13 @@ export default function AyudaPage() {
   const popularArticles = useMemo(() => getPopularArticles(), [])
 
   const isSearching = search.trim().length > 0
+
+  // Auto-scroll to articles when category is selected
+  useEffect(() => {
+    if (activeCategory && filteredArticles.length > 0 && articlesRef.current) {
+      articlesRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [activeCategory, filteredArticles])
 
   const handleCategoryClick = (key: string) => {
     setSearch('')
@@ -215,7 +223,7 @@ export default function AyudaPage() {
 
           {/* Filtered articles for selected category */}
           {activeCategory && filteredArticles.length > 0 && (
-            <div>
+            <div ref={articlesRef}>
               <div className="flex items-center justify-between mb-3">
                 <h2 className="section-title">
                   {HELP_CATEGORIES.find(c => c.key === activeCategory)?.label ?? 'Articulos'}
