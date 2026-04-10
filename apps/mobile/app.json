@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "CuentaX",
+    "slug": "cuentax",
+    "scheme": "cuentax",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#7c3aed"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.giraffos.cuentax",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CuentaX necesita acceso a la camara para escanear boletas y facturas.",
+        "NSPhotoLibraryUsageDescription": "CuentaX necesita acceso a tus fotos para adjuntar imagenes de documentos.",
+        "NSFaceIDUsageDescription": "CuentaX usa Face ID para desbloqueo rapido y seguro."
+      }
+    },
+    "android": {
+      "package": "com.giraffos.cuentax",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7c3aed"
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CuentaX necesita acceso a la camara para escanear boletas y facturas."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CuentaX necesita acceso a tus fotos para adjuntar imagenes de documentos."
+        }
+      ],
+      "expo-local-authentication",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#7c3aed"
+        }
+      ],
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

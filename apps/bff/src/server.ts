@@ -42,6 +42,7 @@ import { cotizacionesRoutes } from '@/routes/cotizaciones'
 import { comprasRoutes } from '@/routes/compras'
 import { bankRoutes } from '@/routes/bank'
 import { gastosRoutes } from '@/routes/gastos'
+import { pushTokenRoutes } from '@/routes/push-tokens'
 import { ocrRoutes } from '@/routes/ocr'
 import { aiChatRoutes } from '@/routes/ai-chat'
 
@@ -424,6 +425,21 @@ async function bootstrap() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "gastos_fecha_idx" ON "gastos"("fecha_documento")`)
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "gastos_verificado_idx" ON "gastos"("company_id","verificado")`)
 
+      // ── Push tokens table ────────────────────────────────────────
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "push_tokens" (
+        "id" serial PRIMARY KEY,
+        "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+        "user_id" integer NOT NULL,
+        "expo_push_token" varchar(255) NOT NULL,
+        "device_id" varchar(255) NOT NULL,
+        "platform" varchar(20) NOT NULL,
+        "active" boolean DEFAULT true,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "push_tokens_company_user_device_idx" ON "push_tokens"("company_id","user_id","device_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "push_tokens_company_active_idx" ON "push_tokens"("company_id","active")`)
+
       // Indexes for bank tables
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_acc_company_idx" ON "bank_accounts"("company_id")`)
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "bank_acc_company_num_idx" ON "bank_accounts"("company_id","banco","numero_cuenta")`)
@@ -458,6 +474,7 @@ async function bootstrap() {
   await fastify.register(comprasRoutes, { prefix: '/api/v1/compras/pedidos' })
   await fastify.register(bankRoutes, { prefix: '/api/v1/bank' })
   await fastify.register(gastosRoutes, { prefix: '/api/v1/gastos' })
+  await fastify.register(pushTokenRoutes, { prefix: '/api/v1/push-tokens' })
   await fastify.register(ocrRoutes, { prefix: '/api/v1/ocr' })
   await fastify.register(aiChatRoutes, { prefix: '/api/v1/ai/chat' })
 

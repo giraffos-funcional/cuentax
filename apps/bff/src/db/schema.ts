@@ -504,3 +504,6 @@ export const bankTransactionsRelations = relations(bankTransactions, ({ one }) =
 export const gastosRelations = relations(gastos, ({ one }) => ({
   company: one(companies, { fields: [gastos.company_id], references: [companies.id] }),
 }))
+
+// ── Re-export push tokens schema ─────────────────────────────
+export { pushTokens, pushTokensRelations } from '@/db/schema/push-tokens'

@@ -1,0 +1,21 @@
+node_modules/
+.expo/
+dist/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+.env
+.env.local
+.env.development
+.env.production
+
+# macOS
+.DS_Store
+
+# EAS
+google-services.json
+GoogleService-Info.plist
