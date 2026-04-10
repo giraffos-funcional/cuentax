@@ -235,7 +235,14 @@ class LibroXMLGenerator:
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
 
-        self._elem(detalle, "MntTotal", str(det.mnt_total))
+        # Corrige-texto NCs and mirror NDs with all amounts = 0 must omit
+        # MntTotal entirely (SII LRH Descuadrado otherwise). Count in TotDoc
+        # only, contribute 0 to monetary totals.
+        has_any_amount = (
+            det.mnt_exe or det.mnt_neto or det.mnt_iva or det.mnt_total
+        )
+        if has_any_amount:
+            self._elem(detalle, "MntTotal", str(det.mnt_total))
 
         if tipo_operacion == "COMPRA":
             if det.iva_no_retenido:
