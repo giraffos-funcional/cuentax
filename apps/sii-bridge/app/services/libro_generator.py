@@ -200,11 +200,12 @@ class LibroXMLGenerator:
                 if tot_iva_no_retenido:
                     self._elem(totales, "TotIVANoRetenido", str(tot_iva_no_retenido))
 
-            # LV: TotMntPeriodo per TpoDoc (Campo 25). XSD sequence has it
-            # after TotMntNoFact.  SII rejects the libro as LRH "Descuadrado"
-            # if this is missing on LV submissions.
-            if data.tipo_operacion == "VENTA":
-                self._elem(totales, "TotMntPeriodo", str(tot_total))
+            # LV: TotMntPeriodo / TotMntNoFact are for "servicios periódicos
+            # domiciliarios" (utilities), Campo 39 of the Detalle.  They are
+            # optional and MUST NOT be emitted for ordinary invoices — including
+            # a TotMntPeriodo that duplicates TotMntTotal without matching
+            # MntPeriodo on each Detalle causes LRH "Descuadrado" because SII
+            # validates TotMntPeriodo == Σ MntPeriodo per TpoDoc.
 
     def _build_detalle(
         self, parent: etree._Element, det: LibroDetalle, tipo_operacion: str
@@ -251,10 +252,9 @@ class LibroXMLGenerator:
             if det.iva_no_retenido:
                 self._elem(detalle, "IVANoRetenido", str(det.iva_no_retenido))
 
-        # LV: MntPeriodo per detalle (Campo 25, XSD seq after MntNoFact).
-        # Mirrors MntTotal for simple cases (no MntNoFact).
-        if tipo_operacion == "VENTA":
-            self._elem(detalle, "MntPeriodo", str(det.mnt_total))
+        # MntPeriodo (Campo 39) is ONLY for "servicios periódicos domiciliarios"
+        # (utilities).  For ordinary invoices it must be omitted, otherwise SII
+        # requires TotMntPeriodo = Σ MntPeriodo to balance per TpoDoc.
 
     @staticmethod
     def _elem(parent: etree._Element, tag: str, text: str) -> etree._Element:
