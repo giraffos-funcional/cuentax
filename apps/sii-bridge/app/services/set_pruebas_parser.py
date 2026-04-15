@@ -398,25 +398,30 @@ class SetPruebasParser:
                     # MontoItem=0 and MntTotal=0. The ND that ANULA it must have the
                     # SAME structure: CodRef=1, 1 Detalle, MntTotal=0.
                     #
-                    # Trick to get MontoItem=0 while passing both XSD and SET checker:
-                    # use PrcItem=1 with DescuentoPct=100. Math: 1×1 - 1 = 0.
-                    # XSD requires PrcItem > 0 (Dec12_6Type minInclusive=0.000001),
-                    # and the SET checker validates Qty×Prc - Desc = MontoItem.
+                    # Per Formato DTE v2.2 p.37 campo 38 <MontoItem>:
+                    #   "Debe ser cero cuando ... Es una Nota de Crédito tipo fe de
+                    #    erratas (Ver campo Código de Referencia en Referencias)"
+                    # And per the obligatoriedad table for NOTA CRED:
+                    #   QtyItem, PrcItem, UnmdItem, DescuentoMonto = obligatoriedad 2
+                    #   (CONDICIONAL, NO obligatorio)
+                    #   Only NroLinDet, NmbItem, MontoItem are required.
                     #
-                    # Formato DTE v2.2 p.42: CodRef=1 (ANULA) requires the ND to be a
-                    # structural mirror of the referenced NC. A previous attempt to use
-                    # real amounts from the original factura triggered REF-2-780
-                    # "Anulación presenta diff. de monto con doc. referenciado : [1] <> [3]"
-                    # (where [1] and [3] are Detalle counts, not pesos).
-                    # Another attempt with CodRef=3 was rejected with
-                    # "Nota Debito Modifica Monto de Tipo Doc. No Permitido : [61]"
-                    # (CodRef=3 is forbidden for ND→NC; only CodRef=1 is valid).
+                    # The dte_generator emits ONLY NroLinDet + NmbItem + MontoItem=0
+                    # when precio_unitario==0 and cantidad==0, skipping QtyItem,
+                    # PrcItem, UnmdItem and DescuentoPct/Monto entirely. This way the
+                    # SET checker has no formula (Qty×Prc-Desc) to validate against.
+                    #
+                    # Earlier attempts that FAILED the SET checker:
+                    # - PrcItem=1 + DescuentoPct=100 (passes DTE individual but
+                    #   SET checker rejects with "Los Valores de la Linea 1 No Cuadran")
+                    # - Real amounts from referenced factura (REF-2-780)
+                    # - CodRef=3 (forbidden for ND→NC)
                     case.items = [
                         SetPruebasItem(
                             nombre=ref_case.items[0].nombre if ref_case.items else "ANULA NOTA DE CREDITO ELECTRONICA",
-                            cantidad=Decimal("1"),
-                            precio_unitario=Decimal("1"),
-                            descuento_pct=Decimal("100"),
+                            cantidad=Decimal("0"),
+                            precio_unitario=Decimal("0"),
+                            descuento_pct=Decimal("0"),
                             exento=False,
                         )
                     ]
@@ -449,16 +454,24 @@ class SetPruebasParser:
             elif "CORRIGE" in razon_upper:
                 if "GIRO" in razon_upper or "TEXTO" in razon_upper or "RAZON" in razon_upper:
                     # Text correction (CodRef=2): NC must have MntTotal=0.
-                    # Use PrcItem=1 + DescuentoPct=100 so MontoItem=0 while
-                    # satisfying both XSD (PrcItem > 0) and the SET checker
-                    # (Qty×Prc - Desc = MontoItem). SII SET checker expects
-                    # exactly 1 Detalle line.
+                    #
+                    # Per Formato DTE v2.2 p.37 campo 38 <MontoItem>:
+                    #   "Debe ser cero cuando ... Es una Nota de Crédito tipo fe de
+                    #    erratas (Ver campo Código de Referencia en Referencias)"
+                    # And per the obligatoriedad table for NOTA CRED:
+                    #   QtyItem, PrcItem, UnmdItem, DescuentoMonto = obligatoriedad 2
+                    #   (CONDICIONAL, NO obligatorio)
+                    #
+                    # The dte_generator emits ONLY NroLinDet + NmbItem + MontoItem=0
+                    # when precio_unitario==0 and cantidad==0. This skips QtyItem,
+                    # PrcItem, UnmdItem and DescuentoPct/Monto entirely so the SET
+                    # checker has no arithmetic formula to validate.
                     case.items = [
                         SetPruebasItem(
                             nombre=ref_case.items[0].nombre if ref_case.items else "Correccion",
-                            cantidad=Decimal("1"),
-                            precio_unitario=Decimal("1"),
-                            descuento_pct=Decimal("100"),
+                            cantidad=Decimal("0"),
+                            precio_unitario=Decimal("0"),
+                            descuento_pct=Decimal("0"),
                             exento=False,
                         )
                     ]

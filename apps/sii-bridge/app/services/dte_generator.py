@@ -258,18 +258,35 @@ class DTEXMLGenerator:
         if item.exento:
             self._elem(det, "IndExe", "1")
         self._elem(det, "NmbItem", item.nombre[:80])
-        # QtyItem is required by XSD after NmbItem
+
+        # MINIMAL DETALLE for fe-de-erratas NC (CodRef=2) and ND ANULA NC
+        # (CodRef=1): when both cantidad==0 and precio_unitario==0, emit ONLY
+        # NroLinDet + NmbItem + MontoItem (=0).
+        #
+        # Per Formato DTE v2.2 p.37 campo 38 <MontoItem>:
+        #   "Debe ser cero cuando ... Es una Nota de Crédito tipo fe de erratas"
+        # Per the obligatoriedad table for NOTA CRED (col NOTA CRED):
+        #   QtyItem, PrcItem, UnmdItem, DescuentoMonto = 2 (CONDICIONAL, opcional)
+        #   NroLinDet, NmbItem, MontoItem = 1 (obligatorio)
+        #
+        # By omitting QtyItem/PrcItem/DescuentoMonto entirely the SET checker
+        # has no formula (Qty × Prc - Desc = MontoItem) to validate against,
+        # so it accepts MontoItem=0 directly. Earlier attempts with PrcItem=1
+        # + DescuentoPct=100 passed XSD and DTE individual but the SET checker
+        # rejected them with "Los Valores de la Linea 1 No Cuadran".
+        if item.cantidad == 0 and item.precio_unitario == 0:
+            self._elem(det, "MontoItem", str(item.monto_item))
+            return
+
+        # Normal items: QtyItem is needed by XSD after NmbItem
         self._elem(det, "QtyItem", str(item.cantidad))
         self._elem(det, "UnmdItem", item.unidad)
-        # PrcItem is Dec12_6Type with minInclusive=0.000001 — must be > 0 if
-        # written. Text-correction NCs (CodRef=2) handle the "monto 0" case
-        # by using PrcItem=1 with DescuentoPct=100 (set in set_pruebas_parser).
+        # PrcItem is Dec12_6Type with minInclusive=0.000001 — must be > 0 if written
         if item.precio_unitario > 0:
             self._elem(det, "PrcItem", str(item.precio_unitario))
             if item.descuento_pct > 0:
                 self._elem(det, "DescuentoPct", str(item.descuento_pct))
                 self._elem(det, "DescuentoMonto", str(item.descuento_monto))
-        # MontoItem: 0 for text corrections (CodRef=2), calculated for normal items
         self._elem(det, "MontoItem", str(item.monto_item))
 
     def _build_referencia(self, documento, doc: DTEDocumento, nro_lin: int = 1):
