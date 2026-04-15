@@ -396,7 +396,12 @@ class SetPruebasParser:
                     # ND voiding a text-correction NC: must MIRROR the NC exactly.
                     # The referenced NC (CodRef=2 CORRIGE TEXTO) has 1 Detalle with
                     # MontoItem=0 and MntTotal=0. The ND that ANULA it must have the
-                    # SAME structure: CodRef=1, 1 Detalle con precio=0, MntTotal=0.
+                    # SAME structure: CodRef=1, 1 Detalle, MntTotal=0.
+                    #
+                    # Trick to get MontoItem=0 while passing both XSD and SET checker:
+                    # use PrcItem=1 with DescuentoPct=100. Math: 1×1 - 1 = 0.
+                    # XSD requires PrcItem > 0 (Dec12_6Type minInclusive=0.000001),
+                    # and the SET checker validates Qty×Prc - Desc = MontoItem.
                     #
                     # Formato DTE v2.2 p.42: CodRef=1 (ANULA) requires the ND to be a
                     # structural mirror of the referenced NC. A previous attempt to use
@@ -410,8 +415,8 @@ class SetPruebasParser:
                         SetPruebasItem(
                             nombre=ref_case.items[0].nombre if ref_case.items else "ANULA NOTA DE CREDITO ELECTRONICA",
                             cantidad=Decimal("1"),
-                            precio_unitario=Decimal("0"),
-                            descuento_pct=Decimal("0"),
+                            precio_unitario=Decimal("1"),
+                            descuento_pct=Decimal("100"),
                             exento=False,
                         )
                     ]
@@ -443,14 +448,17 @@ class SetPruebasParser:
 
             elif "CORRIGE" in razon_upper:
                 if "GIRO" in razon_upper or "TEXTO" in razon_upper or "RAZON" in razon_upper:
-                    # Text correction (CodRef=2): NC must have MntTotal=0
-                    # SII SET checker expects exactly 1 Detalle line
+                    # Text correction (CodRef=2): NC must have MntTotal=0.
+                    # Use PrcItem=1 + DescuentoPct=100 so MontoItem=0 while
+                    # satisfying both XSD (PrcItem > 0) and the SET checker
+                    # (Qty×Prc - Desc = MontoItem). SII SET checker expects
+                    # exactly 1 Detalle line.
                     case.items = [
                         SetPruebasItem(
                             nombre=ref_case.items[0].nombre if ref_case.items else "Correccion",
                             cantidad=Decimal("1"),
-                            precio_unitario=Decimal("0"),
-                            descuento_pct=Decimal("0"),
+                            precio_unitario=Decimal("1"),
+                            descuento_pct=Decimal("100"),
                             exento=False,
                         )
                     ]
