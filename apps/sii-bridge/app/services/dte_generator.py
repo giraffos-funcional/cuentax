@@ -261,11 +261,14 @@ class DTEXMLGenerator:
         # QtyItem is required by XSD after NmbItem
         self._elem(det, "QtyItem", str(item.cantidad))
         self._elem(det, "UnmdItem", item.unidad)
-        if item.precio_unitario > 0:
-            self._elem(det, "PrcItem", str(item.precio_unitario))
-            if item.descuento_pct > 0:
-                self._elem(det, "DescuentoPct", str(item.descuento_pct))
-                self._elem(det, "DescuentoMonto", str(item.descuento_monto))
+        # PrcItem is ALWAYS written (even when 0) so the SII SET checker can
+        # validate Cantidad × PrcItem = MontoItem. Omitting PrcItem on text-
+        # correction NCs (CodRef=2) and the NDs that void them (CodRef=1)
+        # caused "Los Valores de la Linea 1 del Detalle No Cuadran" rejections.
+        self._elem(det, "PrcItem", str(item.precio_unitario))
+        if item.precio_unitario > 0 and item.descuento_pct > 0:
+            self._elem(det, "DescuentoPct", str(item.descuento_pct))
+            self._elem(det, "DescuentoMonto", str(item.descuento_monto))
         # MontoItem: 0 for text corrections (CodRef=2), calculated for normal items
         self._elem(det, "MontoItem", str(item.monto_item))
 
