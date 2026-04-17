@@ -25,6 +25,9 @@ declare module 'fastify' {
       company_rut: string
       company_ids: number[]
       jti: string
+      country_code: string
+      locale: string
+      currency: string
     }
     // authenticate — registrado en server.ts
     authenticate?: () => Promise<void>
@@ -50,6 +53,9 @@ export async function authGuard(
       company_rut: rut,
       company_ids: companyId ? [companyId] : [],
       jti: 'internal',
+      country_code: 'CL',
+      locale: 'es-CL',
+      currency: 'CLP',
     }
     return
   }
@@ -92,6 +98,9 @@ export async function authGuard(
       company_rut:  payload.company_rut as string,
       company_ids:  (payload.company_ids ?? [payload.company_id]) as number[],
       jti:          payload.jti as string,
+      country_code: (payload.country_code as string) ?? 'CL',
+      locale:       (payload.locale as string) ?? 'es-CL',
+      currency:     (payload.currency as string) ?? 'CLP',
     }
 
     // Actualizar companyId en el multi-tenant context
