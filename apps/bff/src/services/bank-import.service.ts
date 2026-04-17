@@ -93,7 +93,7 @@ const BANK_MAPPINGS: Record<string, CSVMapping> = {
   },
   // ── US Banks ────────────────────────────────────────────────
   chase: {
-    date: 1, description: 2, amount: 3, reference: 0,
+    date: 0, description: 2, amount: 5, reference: 4,
     dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
     country: 'US',
   },
