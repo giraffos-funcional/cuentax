@@ -1194,3 +1194,114 @@ export function useAIChat() {
 
   return { sendMessage }
 }
+
+// ══════════════════════════════════════════════════════════════
+// USA Accounting Hooks
+// ══════════════════════════════════════════════════════════════
+
+/** Import a bank statement file and classify transactions with AI */
+export function useImportAndClassify() {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const importAndClassify = async (content: string, format: 'csv' | 'ofx', bank?: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await apiClient.post('/api/v1/usa/import-and-classify', { content, format, bank }).then(r => r.data)
+      globalMutate((key: string) => typeof key === 'string' && key.includes('/usa/'))
+      return result
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Classification failed')
+      throw err
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return { importAndClassify, loading, error }
+}
+
+/** Get classifications with optional status filter */
+export function useClassifications(status: 'pending' | 'approved' | 'all' = 'all') {
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/usa/classifications?status=${status}`,
+    fetcher,
+    { refreshInterval: 30_000 },
+  )
+  return {
+    classifications: data?.classifications ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+/** Approve a single classification (optionally with corrected account) */
+export function useApproveClassification() {
+  const approve = async (id: number, update?: { account_id: number; account_name: string; category: string }) => {
+    const result = await apiClient.put(`/api/v1/usa/classifications/${id}/approve`, update ?? {}).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/usa/'))
+    return result
+  }
+  return { approve }
+}
+
+/** Bulk approve multiple classifications */
+export function useBulkApprove() {
+  const bulkApprove = async (ids: number[]) => {
+    const result = await apiClient.post('/api/v1/usa/bulk-approve', { ids }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/usa/'))
+    return result
+  }
+  return { bulkApprove }
+}
+
+/** Generate journal entries from approved classifications */
+export function useGenerateJournalEntries() {
+  const [loading, setLoading] = useState(false)
+
+  const generate = async (bankJournalId: number, bankAccountId: number) => {
+    setLoading(true)
+    try {
+      const result = await apiClient.post('/api/v1/usa/generate-journal-entries', {
+        bank_journal_id: bankJournalId,
+        bank_account_id: bankAccountId,
+      }).then(r => r.data)
+      globalMutate((key: string) => typeof key === 'string' && (key.includes('/usa/') || key.includes('/contabilidad/')))
+      return result
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return { generate, loading }
+}
+
+/** Get learned classification rules */
+export function useClassificationRules() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/usa/classification-rules', fetcher)
+  return {
+    rules: data?.rules ?? [],
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+/** Run US company setup (create GAAP chart of accounts + journals) */
+export function useUSSetup() {
+  const [loading, setLoading] = useState(false)
+
+  const setup = async () => {
+    setLoading(true)
+    try {
+      return await apiClient.post('/api/v1/usa/setup').then(r => r.data)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return { setup, loading }
+}

@@ -9,6 +9,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth.store'
+import { LocaleProvider } from '@/contexts/locale-context'
 import { useSIIStatus } from '@/hooks'
 import { apiClient } from '@/lib/api-client'
 import { registerServiceWorker } from '@/lib/register-sw'
@@ -28,21 +29,23 @@ import {
 } from 'lucide-react'
 
 // ── Navigation structure ─────────────────────────────────────
-type NavItem = { href: string; icon: LucideIcon; label: string }
+// country: 'CL' = Chile only, 'US' = USA only, undefined = shared (both)
+type NavItem = { href: string; icon: LucideIcon; label: string; country?: 'CL' | 'US' }
 type NavEntry =
   | NavItem
-  | { section: string; icon: LucideIcon; collapsible: true; items: NavItem[] }
+  | { section: string; icon: LucideIcon; collapsible: true; items: NavItem[]; country?: 'CL' | 'US' }
 
-const NAV: NavEntry[] = [
+const NAV_ALL: NavEntry[] = [
   // Direct items
   { href: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/dashboard/emitir', icon: Send,            label: 'Emitir DTE' },
+  { href: '/dashboard/emitir', icon: Send,            label: 'Emitir DTE', country: 'CL' },
 
-  // Ventas section (like Odoo Sales)
+  // Ventas section — Chile only (DTE-based)
   {
     section: 'Ventas',
     icon: TrendingUp,
     collapsible: true,
+    country: 'CL',
     items: [
       { href: '/dashboard/ventas',        icon: TrendingUp,  label: 'Resumen Ventas' },
       { href: '/dashboard/cotizaciones',  icon: FileText,    label: 'Presupuestos' },
@@ -51,11 +54,12 @@ const NAV: NavEntry[] = [
     ],
   },
 
-  // Compras section (like Odoo Purchase)
+  // Compras section — Chile only
   {
     section: 'Compras',
     icon: ShoppingCart,
     collapsible: true,
+    country: 'CL',
     items: [
       { href: '/dashboard/compras',               icon: ShoppingCart,   label: 'Resumen Compras' },
       { href: '/dashboard/compras/solicitudes',    icon: FileText,      label: 'Solicitudes' },
@@ -63,7 +67,20 @@ const NAV: NavEntry[] = [
     ],
   },
 
-  // Banco section
+  // USA Accounting section — US only
+  {
+    section: 'Accounting',
+    icon: BookOpen,
+    collapsible: true,
+    country: 'US',
+    items: [
+      { href: '/dashboard/accounting/import',   icon: FileText,       label: 'Import & Classify' },
+      { href: '/dashboard/accounting/classify',  icon: CheckCircle2,   label: 'Review Classifications' },
+      { href: '/dashboard/accounting/entries',   icon: BookText,       label: 'Journal Entries' },
+    ],
+  },
+
+  // Banco section — shared
   {
     section: 'Banco',
     icon: Landmark,
@@ -86,7 +103,7 @@ const NAV: NavEntry[] = [
       { href: '/dashboard/contabilidad/balance',            icon: Scale,          label: 'Balance General' },
       { href: '/dashboard/contabilidad/resultados',         icon: TrendingUp,     label: 'Estado Resultados' },
       { href: '/dashboard/contabilidad/conciliacion',       icon: ArrowLeftRight, label: 'Conciliación' },
-      { href: '/dashboard/contabilidad/lcv',                icon: BookOpen,       label: 'Libro C/V' },
+      { href: '/dashboard/contabilidad/lcv',                icon: BookOpen,       label: 'Libro C/V', country: 'CL' },
       { href: '/dashboard/contabilidad/centros-costo',       icon: Folders,        label: 'Centros Costo' },
       { href: '/dashboard/contabilidad/flujo-caja',          icon: TrendingUp,     label: 'Flujo de Caja' },
     ],
@@ -95,6 +112,7 @@ const NAV: NavEntry[] = [
     section: 'Remuneraciones',
     icon: UserCircle,
     collapsible: true,
+    country: 'CL',
     items: [
       { href: '/dashboard/remuneraciones',               icon: UserCircle,    label: 'Panel RRHH' },
       { href: '/dashboard/remuneraciones/empleados',     icon: Users,         label: 'Empleados' },
@@ -110,7 +128,7 @@ const NAV: NavEntry[] = [
     ],
   },
 
-  // Gastos section
+  // Gastos section — shared
   {
     section: 'Gastos',
     icon: Receipt,
@@ -121,11 +139,12 @@ const NAV: NavEntry[] = [
     ],
   },
 
-  // Herramientas
+  // Herramientas — Chile only (SII tools)
   {
     section: 'Herramientas',
     icon: Wrench,
     collapsible: true,
+    country: 'CL',
     items: [
       { href: '/dashboard/herramientas/tareas',        icon: RefreshCw,   label: 'Tareas Automaticas' },
       { href: '/dashboard/herramientas/certificacion', icon: ShieldCheck, label: 'Certificación SII' },
@@ -133,13 +152,31 @@ const NAV: NavEntry[] = [
     ],
   },
 
-  // Direct items (bottom)
+  // Direct items (bottom) — shared unless marked
   { href: '/dashboard/ayuda',         icon: BookOpen, label: 'Ayuda' },
   { href: '/dashboard/contactos',     icon: Users,    label: 'Contactos' },
   { href: '/dashboard/productos',     icon: Tag,      label: 'Productos' },
   { href: '/dashboard/empresa',       icon: Building2, label: 'Mi Empresa' },
-  { href: '/dashboard/configuracion', icon: Settings, label: 'Config. SII' },
+  { href: '/dashboard/configuracion', icon: Settings, label: 'Config. SII', country: 'CL' },
 ]
+
+/** Filter navigation by company country. Items without country tag are shared. */
+function getNavItems(country: string): NavEntry[] {
+  return NAV_ALL
+    .filter(entry => {
+      const entryCountry = 'country' in entry ? entry.country : undefined
+      return !entryCountry || entryCountry === country
+    })
+    .map(entry => {
+      if ('section' in entry && 'items' in entry) {
+        const filtered = entry.items.filter(item => !item.country || item.country === country)
+        if (filtered.length === 0) return null
+        return { ...entry, items: filtered }
+      }
+      return entry
+    })
+    .filter(Boolean) as NavEntry[]
+}
 
 function isNavItem(entry: NavEntry): entry is NavItem {
   return 'href' in entry
@@ -550,6 +587,8 @@ interface SidebarProps {
 
 function Sidebar({ collapsed, onToggle, siiStatus, ambiente }: SidebarProps) {
   const pathname = usePathname()
+  const country = useAuthStore(s => s.user?.country_code ?? 'CL')
+  const NAV = getNavItems(country)
 
   // Determine which section should be open based on current path
   const getActiveSection = (): string | null => {
@@ -611,15 +650,17 @@ function Sidebar({ collapsed, onToggle, siiStatus, ambiente }: SidebarProps) {
             <span className="text-[var(--cx-text-primary)] text-sm font-bold tracking-tight">
               CUENTA<span className="text-[var(--cx-violet-600)]">X</span>
             </span>
-            <div className="flex items-center gap-1 mt-0.5">
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                ambiente === 'produccion'
-                  ? 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border border-[var(--cx-status-ok-border)]'
-                  : 'bg-[var(--cx-status-warn-bg)] text-[var(--cx-status-warn-text)] border border-[var(--cx-status-warn-border)]'
-              }`}>
-                {ambiente === 'produccion' ? 'PRODUCCIÓN' : 'CERT'}
-              </span>
-            </div>
+            {country === 'CL' && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                  ambiente === 'produccion'
+                    ? 'bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border border-[var(--cx-status-ok-border)]'
+                    : 'bg-[var(--cx-status-warn-bg)] text-[var(--cx-status-warn-text)] border border-[var(--cx-status-warn-border)]'
+                }`}>
+                  {ambiente === 'produccion' ? 'PRODUCCIÓN' : 'CERT'}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -650,7 +691,7 @@ function Sidebar({ collapsed, onToggle, siiStatus, ambiente }: SidebarProps) {
 
       {/* Status SII + Logout */}
       <div className="p-3 border-t border-[var(--cx-border-lighter)] space-y-2">
-        <SIIIndicator />
+        {country === 'CL' && <SIIIndicator />}
         <button
           onClick={async () => {
             try {
@@ -787,25 +828,27 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen bg-[var(--cx-bg-base)] overflow-hidden">
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        siiStatus={derivedSiiStatus}
-        ambiente={derivedAmbiente}
-      />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Topbar
-          title={getTitle()}
+    <LocaleProvider>
+      <div className="flex h-screen bg-[var(--cx-bg-base)] overflow-hidden">
+        <Sidebar
           collapsed={collapsed}
-          onMenuToggle={() => setCollapsed(!collapsed)}
+          onToggle={() => setCollapsed(!collapsed)}
+          siiStatus={derivedSiiStatus}
+          ambiente={derivedAmbiente}
         />
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <Topbar
+            title={getTitle()}
+            collapsed={collapsed}
+            onMenuToggle={() => setCollapsed(!collapsed)}
+          />
+          <main className="flex-1 overflow-y-auto p-6">
+            {children}
+          </main>
+        </div>
+        <InstallPrompt />
+        <AIChatWidget />
       </div>
-      <InstallPrompt />
-      <AIChatWidget />
-    </div>
+    </LocaleProvider>
   )
 }
