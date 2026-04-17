@@ -478,6 +478,10 @@ async function bootstrap() {
   await fastify.register(ocrRoutes, { prefix: '/api/v1/ocr' })
   await fastify.register(aiChatRoutes, { prefix: '/api/v1/ai/chat' })
 
+  // ── USA Accounting (feature-flagged) ──────────────────────
+  const { usaAccountingRoutes } = await import('./routes/usa-accounting.js')
+  await fastify.register(usaAccountingRoutes, { prefix: '/api/v1/usa' })
+
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {
     const queues = [

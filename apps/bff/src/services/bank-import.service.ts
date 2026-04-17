@@ -67,9 +67,11 @@ interface CSVMapping {
   debit?: number      // Column index for debit (if separate)
   credit?: number     // Column index for credit (if separate)
   reference?: number  // Column index for reference
-  dateFormat: 'DD/MM/YYYY' | 'YYYY-MM-DD' | 'DD-MM-YYYY'
+  dateFormat: 'DD/MM/YYYY' | 'YYYY-MM-DD' | 'DD-MM-YYYY' | 'MM/DD/YYYY'
   separator: string   // CSV separator (usually ',' or ';')
   skipHeader: boolean
+  /** Country context for amount parsing (CL uses dots for thousands, US uses commas) */
+  country?: 'CL' | 'US'
 }
 
 const BANK_MAPPINGS: Record<string, CSVMapping> = {
@@ -89,6 +91,27 @@ const BANK_MAPPINGS: Record<string, CSVMapping> = {
     date: 0, description: 1, amount: 2, reference: 3,
     dateFormat: 'DD/MM/YYYY', separator: ',', skipHeader: true,
   },
+  // ── US Banks ────────────────────────────────────────────────
+  chase: {
+    date: 1, description: 2, amount: 3, reference: 0,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  bofa: {
+    date: 0, description: 1, amount: 2,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  wells_fargo: {
+    date: 0, description: 4, amount: 1,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: false,
+    country: 'US',
+  },
+  generic_us: {
+    date: 0, description: 1, amount: 2, reference: 3,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
 }
 
 /** Parse date string to YYYY-MM-DD */
@@ -99,16 +122,33 @@ function parseDate(raw: string, format: string): string {
     const parts = clean.split(sep)
     if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
   }
+  if (format === 'MM/DD/YYYY') {
+    const parts = clean.split('/')
+    if (parts.length === 3) return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
+  }
   if (format === 'YYYY-MM-DD') return clean
   return clean // Fallback
 }
 
 /** Parse numeric amount from Chilean format: 1.234.567 or -1.234.567 */
-function parseAmount(raw: string): number {
+function parseAmountCL(raw: string): number {
   const clean = raw.trim().replace(/"/g, '').replace(/\$/g, '').replace(/\s/g, '')
   // Chilean: dots as thousands, comma as decimal
   const normalized = clean.replace(/\./g, '').replace(',', '.')
   return parseFloat(normalized) || 0
+}
+
+/** Parse numeric amount from US format: 1,234.56 or -1,234.56 */
+function parseAmountUS(raw: string): number {
+  const clean = raw.trim().replace(/"/g, '').replace(/\$/g, '').replace(/\s/g, '')
+  // US: commas as thousands, period as decimal
+  const normalized = clean.replace(/,/g, '')
+  return parseFloat(normalized) || 0
+}
+
+/** Parse amount based on country context */
+function parseAmount(raw: string, country?: 'CL' | 'US'): number {
+  return country === 'US' ? parseAmountUS(raw) : parseAmountCL(raw)
 }
 
 /** Parse CSV bank statement */
@@ -130,10 +170,10 @@ export function parseCSV(content: string, bank: string = 'generic'): ParseResult
 
     let amount = 0
     if (mapping.amount >= 0) {
-      amount = parseAmount(cols[mapping.amount] ?? '0')
+      amount = parseAmount(cols[mapping.amount] ?? '0', mapping.country)
     } else if (mapping.debit !== undefined && mapping.credit !== undefined) {
-      const debit = parseAmount(cols[mapping.debit] ?? '0')
-      const credit = parseAmount(cols[mapping.credit] ?? '0')
+      const debit = parseAmount(cols[mapping.debit] ?? '0', mapping.country)
+      const credit = parseAmount(cols[mapping.credit] ?? '0', mapping.country)
       amount = credit - debit
     }
 
