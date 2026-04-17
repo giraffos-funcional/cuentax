@@ -1,11 +1,26 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, type ComponentType } from 'react'
 import {
-  Shield, Upload, CheckCircle2, AlertTriangle,
-  Eye, EyeOff, FileKey2, ChevronRight,
-  Lock, Info, Loader2, Link2
+  Shield as _Shield, Upload as _Upload, CheckCircle2 as _CheckCircle2, AlertTriangle as _AlertTriangle,
+  Eye as _Eye, EyeOff as _EyeOff, FileKey2 as _FileKey2, ChevronRight as _ChevronRight,
+  Lock as _Lock, Info as _Info, Loader2 as _Loader2, Link2 as _Link2
 } from 'lucide-react'
+
+// Cast all icons — lucide-react ForwardRef types don't match React 18.3 JSX
+type IconProps = { size?: number; className?: string; onClick?: () => void }
+const Shield = _Shield as ComponentType<IconProps>
+const Upload = _Upload as ComponentType<IconProps>
+const CheckCircle2 = _CheckCircle2 as ComponentType<IconProps>
+const AlertTriangle = _AlertTriangle as ComponentType<IconProps>
+const Eye = _Eye as ComponentType<IconProps>
+const EyeOff = _EyeOff as ComponentType<IconProps>
+const FileKey2 = _FileKey2 as ComponentType<IconProps>
+const ChevronRight = _ChevronRight as ComponentType<IconProps>
+const Lock = _Lock as ComponentType<IconProps>
+const Info = _Info as ComponentType<IconProps>
+const Loader2 = _Loader2 as ComponentType<IconProps>
+const Link2 = _Link2 as ComponentType<IconProps>
 import { useCertificateList, useSIIStatus } from '@/hooks'
 import { apiClient } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth.store'
