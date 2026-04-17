@@ -124,7 +124,7 @@ export async function rcvRoutes(fastify: FastifyInstance) {
     let session: SIISession | null = null
     try {
       const siiPassword = decrypt(company.sii_password_enc)
-      session = await createSIISession(company.rut, company.sii_user, siiPassword)
+      session = await createSIISession(company.rut ?? '', company.sii_user, siiPassword)
 
       return reply.send({ success: true, message: 'Conexion exitosa con el SII' })
     } catch (err) {

@@ -11,6 +11,9 @@ interface Company {
   id: number
   name: string
   rut: string
+  country_code?: string  // 'CL' | 'US'
+  locale?: string        // 'es-CL' | 'en-US'
+  currency?: string      // 'CLP' | 'USD'
 }
 
 interface User {
@@ -21,6 +24,10 @@ interface User {
   company_name: string
   company_rut: string
   companies: Company[]
+  // Multi-country context for active company
+  country_code: string   // 'CL' | 'US'
+  locale: string         // 'es-CL' | 'en-US'
+  currency: string       // 'CLP' | 'USD'
 }
 
 interface AuthState {

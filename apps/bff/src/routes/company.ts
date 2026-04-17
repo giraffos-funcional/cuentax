@@ -42,8 +42,21 @@ function formatRut(rut: string): string {
   return `${formatted}-${dv}`
 }
 
-// ── Schema ───────────────────────────────────────────────────
-const createCompanySchema = z.object({
+// ── EIN Validation (US) ─────────────────────────────────────
+function validateEIN(ein: string): boolean {
+  const cleaned = ein.replace(/[^0-9]/g, '')
+  return cleaned.length === 9
+}
+
+function formatEIN(ein: string): string {
+  const cleaned = ein.replace(/[^0-9]/g, '')
+  return `${cleaned.slice(0, 2)}-${cleaned.slice(2)}`
+}
+
+// ── Schemas ──────────────────────────────────────────────────
+// Chilean company creation
+const createChileanCompanySchema = z.object({
+  country_code: z.literal('CL').default('CL'),
   rut: z.string().min(8, 'RUT requerido').refine(validateRut, { message: 'RUT inválido — dígito verificador no coincide' }),
   razon_social: z.string().min(2, 'Razón social requerida'),
   giro: z.string().min(2, 'Giro requerido'),
@@ -54,6 +67,28 @@ const createCompanySchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   telefono: z.string().optional(),
 })
+
+// US company creation
+const createUSCompanySchema = z.object({
+  country_code: z.literal('US'),
+  ein: z.string().optional().refine(val => !val || validateEIN(val), { message: 'Invalid EIN format (XX-XXXXXXX)' }),
+  razon_social: z.string().min(2, 'Company name required'),
+  direccion: z.string().optional(),
+  ciudad: z.string().optional(),
+  state: z.string().max(2).optional(),
+  zip_code: z.string().max(10).optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  telefono: z.string().optional(),
+})
+
+// Union schema — detects country_code to validate accordingly
+const createCompanySchema = z.discriminatedUnion('country_code', [
+  createChileanCompanySchema,
+  createUSCompanySchema,
+]).or(
+  // Backward compatibility: if no country_code provided, assume Chile
+  createChileanCompanySchema.extend({ country_code: z.literal('CL').default('CL') })
+)
 
 export async function companyRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
@@ -68,10 +103,19 @@ export async function companyRoutes(fastify: FastifyInstance) {
         id: user.company_id,
         name: user.company_name,
         rut: user.company_rut,
+        country_code: user.country_code ?? 'CL',
+        locale: user.locale ?? 'es-CL',
+        currency: user.currency ?? 'CLP',
         source: 'jwt',
       })
     }
-    return reply.send({ ...company, source: 'db' })
+    return reply.send({
+      ...company,
+      country_code: company.country_code ?? 'CL',
+      locale: company.locale ?? 'es-CL',
+      currency: company.currency ?? 'CLP',
+      source: 'db',
+    })
   })
 
   // GET / — list user's accessible companies
@@ -88,7 +132,10 @@ export async function companyRoutes(fastify: FastifyInstance) {
         local_id: c.id,
         odoo_id: c.odoo_company_id,
         name: c.razon_social,
-        rut: c.rut,
+        rut: c.rut ?? '',
+        country_code: c.country_code ?? 'CL',
+        locale: c.locale ?? 'es-CL',
+        currency: c.currency ?? 'CLP',
       })),
       active: user.company_id,
     })
@@ -190,6 +237,9 @@ export async function companyRoutes(fastify: FastifyInstance) {
       company_id: odooCompanyId,
       company_name: company.razon_social,
       company_rut: companyRut,
+      country_code: company.country_code ?? 'CL',
+      locale: company.locale ?? 'es-CL',
+      currency: company.currency ?? 'CLP',
     })
 
     // Patch the user response to include all companies + guaranteed rut
@@ -210,31 +260,65 @@ export async function companyRoutes(fastify: FastifyInstance) {
   // POST / — create a new company (in Cuentax DB + Odoo)
   fastify.post('/', async (req, reply) => {
     const user = (req as any).user
-    const parse = createCompanySchema.safeParse(req.body)
+
+    // Determine country from body (default CL for backward compat)
+    const body = req.body as Record<string, unknown> | undefined
+    const countryCode = (body?.country_code as string) || 'CL'
+
+    // Parse with appropriate schema based on country
+    const parse = createCompanySchema.safeParse({ ...body, country_code: countryCode })
     if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
 
-    const formattedRut = formatRut(parse.data.rut)
+    const isUS = countryCode === 'US'
+    const data = parse.data
 
-    // Check RUT uniqueness in local DB
-    const [existing] = await db.select().from(companies)
-      .where(eq(companies.rut, formattedRut)).limit(1)
-    if (existing) {
-      return reply.status(409).send({ error: 'duplicate', message: 'Ya existe una empresa con ese RUT' })
+    // For Chile: validate and format RUT
+    let formattedRut: string | null = null
+    if (!isUS && 'rut' in data) {
+      formattedRut = formatRut(data.rut)
+      const [existing] = await db.select().from(companies)
+        .where(eq(companies.rut, formattedRut)).limit(1)
+      if (existing) {
+        return reply.status(409).send({ error: 'duplicate', message: 'Ya existe una empresa con ese RUT' })
+      }
+    }
+
+    // For US: validate EIN uniqueness if provided
+    let formattedEIN: string | null = null
+    if (isUS && 'ein' in data && data.ein) {
+      formattedEIN = formatEIN(data.ein)
+      const [existing] = await db.select().from(companies)
+        .where(eq(companies.tax_id, formattedEIN)).limit(1)
+      if (existing) {
+        return reply.status(409).send({ error: 'duplicate', message: 'A company with that EIN already exists' })
+      }
     }
 
     // 1. Create in Odoo as res.company
     let odooCompanyId: number | null = null
     try {
-      odooCompanyId = await odooAccountingAdapter.create('res.company', {
-        name: parse.data.razon_social,
-        vat: formattedRut,
-        street: parse.data.direccion ?? '',
-        city: parse.data.ciudad ?? 'Santiago',
-        phone: parse.data.telefono ?? '',
-        email: parse.data.email ?? '',
-        country_id: 46, // Chile
-      })
-      logger.info({ odooCompanyId, rut: formattedRut }, 'Company created in Odoo')
+      const odooVals: Record<string, unknown> = {
+        name: data.razon_social,
+        street: data.direccion ?? '',
+        city: data.ciudad ?? (isUS ? '' : 'Santiago'),
+        phone: data.telefono ?? '',
+        email: data.email ?? '',
+        country_id: isUS ? 233 : 46, // 233 = USA, 46 = Chile
+      }
+
+      if (!isUS && formattedRut) {
+        odooVals.vat = formattedRut
+      } else if (isUS && formattedEIN) {
+        odooVals.vat = formattedEIN
+      }
+
+      if (isUS && 'state' in data && data.state) {
+        // Odoo state_id would need mapping, skip for now — just store in street2
+        odooVals.street2 = `${data.state} ${('zip_code' in data ? data.zip_code : '') ?? ''}`
+      }
+
+      odooCompanyId = await odooAccountingAdapter.create('res.company', odooVals)
+      logger.info({ odooCompanyId, country: countryCode }, 'Company created in Odoo')
 
       // 2. Assign company to the current user in Odoo
       if (odooCompanyId) {
@@ -246,26 +330,42 @@ export async function companyRoutes(fastify: FastifyInstance) {
         logger.info({ uid: user.uid, companyIds: newCompanyIds }, 'User company_ids updated in Odoo')
       }
     } catch (err) {
-      logger.warn({ err, rut: formattedRut }, 'Failed to create company in Odoo — creating locally only')
+      logger.warn({ err, country: countryCode }, 'Failed to create company in Odoo — creating locally only')
     }
 
     // 3. Create in local DB
-    const [created] = await db.insert(companies).values({
+    const dbValues: Record<string, unknown> = {
       odoo_company_id: odooCompanyId,
-      rut: formattedRut,
-      razon_social: parse.data.razon_social,
-      giro: parse.data.giro,
-      actividad_economica: parse.data.actividad_economica,
-      direccion: parse.data.direccion,
-      comuna: parse.data.comuna,
-      ciudad: parse.data.ciudad,
-      email: parse.data.email || undefined,
-      telefono: parse.data.telefono,
-    }).returning()
+      country_code: countryCode,
+      locale: isUS ? 'en-US' : 'es-CL',
+      currency: isUS ? 'USD' : 'CLP',
+      timezone: isUS ? 'America/New_York' : 'America/Santiago',
+      razon_social: data.razon_social,
+      direccion: data.direccion,
+      ciudad: data.ciudad,
+      email: data.email || undefined,
+      telefono: data.telefono,
+    }
 
-    logger.info({ id: created.id, odooCompanyId, rut: created.rut }, 'Company created')
+    if (!isUS && formattedRut) {
+      dbValues.rut = formattedRut
+      dbValues.tax_id = formattedRut
+      dbValues.tax_id_type = 'rut'
+      dbValues.giro = 'giro' in data ? data.giro : undefined
+      dbValues.actividad_economica = 'actividad_economica' in data ? data.actividad_economica : undefined
+      dbValues.comuna = 'comuna' in data ? data.comuna : undefined
+    } else if (isUS) {
+      dbValues.tax_id = formattedEIN
+      dbValues.tax_id_type = formattedEIN ? 'ein' : undefined
+      dbValues.state = 'state' in data ? data.state : undefined
+      dbValues.zip_code = 'zip_code' in data ? data.zip_code : undefined
+    }
 
-    // 4. Return new tokens so the user can switch to this company immediately
+    const [created] = await db.insert(companies).values(dbValues as typeof companies.$inferInsert).returning()
+
+    logger.info({ id: created.id, odooCompanyId, country: countryCode }, 'Company created')
+
+    // 4. Return new company data
     return reply.status(201).send({
       ...created,
       odoo_company_id: odooCompanyId,
@@ -296,7 +396,20 @@ export async function companyRoutes(fastify: FastifyInstance) {
   fastify.put('/me', async (req, reply) => {
     const user = (req as any).user
     const localCompanyId = await getLocalCompanyId(user.company_id)
-    const parse = createCompanySchema.partial().safeParse(req.body)
+    // Use a simple partial schema for updates (shared fields only)
+    const updateSchema = z.object({
+      razon_social: z.string().min(2).optional(),
+      giro: z.string().optional(),
+      actividad_economica: z.number().int().optional(),
+      direccion: z.string().optional(),
+      comuna: z.string().optional(),
+      ciudad: z.string().optional(),
+      state: z.string().max(2).optional(),
+      zip_code: z.string().max(10).optional(),
+      email: z.string().email().optional().or(z.literal('')),
+      telefono: z.string().optional(),
+    })
+    const parse = updateSchema.safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error' })
 
     const [updated] = await db.update(companies)

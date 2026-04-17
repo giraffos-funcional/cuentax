@@ -17,6 +17,8 @@ import {
 import { relations } from 'drizzle-orm'
 
 // ── Enums ─────────────────────────────────────────────────────
+export const countryCodeEnum = pgEnum('country_code', ['CL', 'US'])
+
 export const dteStatusEnum = pgEnum('dte_status', [
   'borrador', 'firmado', 'enviado', 'aceptado', 'rechazado', 'anulado'
 ])
@@ -39,20 +41,32 @@ export const rcvSyncStatusEnum = pgEnum('rcv_sync_status', ['pendiente', 'sincro
 export const companies = pgTable('companies', {
   id:               serial('id').primaryKey(),
   odoo_company_id:  integer('odoo_company_id').unique(),
-  rut:              varchar('rut', { length: 15 }).notNull().unique(),
+  // Multi-country support
+  country_code:     countryCodeEnum('country_code').notNull().default('CL'),
+  locale:           varchar('locale', { length: 10 }).default('es-CL'),
+  currency:         varchar('currency', { length: 5 }).default('CLP'),
+  timezone:         varchar('timezone', { length: 50 }).default('America/Santiago'),
+  // Universal tax identifier (EIN for US, RUT for Chile)
+  tax_id:           varchar('tax_id', { length: 50 }),
+  tax_id_type:      varchar('tax_id_type', { length: 20 }),  // 'rut' | 'ein'
+  // Chilean-specific (nullable for non-CL companies)
+  rut:              varchar('rut', { length: 15 }),
   razon_social:     text('razon_social').notNull(),
-  giro:             text('giro').notNull(),
-  actividad_economica: integer('actividad_economica').default(620200),
+  giro:             text('giro'),
+  actividad_economica: integer('actividad_economica'),
   direccion:        text('direccion'),
   comuna:           varchar('comuna', { length: 50 }),
   ciudad:           varchar('ciudad', { length: 50 }).default('Santiago'),
+  // US-specific address fields
+  state:            varchar('state', { length: 2 }),    // e.g. 'CA', 'NY'
+  zip_code:         varchar('zip_code', { length: 10 }),
   email:            text('email'),
   telefono:         varchar('telefono', { length: 20 }),
-  // SII Config
+  // SII Config (Chile only)
   ambiente_sii:     ambienteEnum('ambiente_sii').default('certificacion'),
   cert_vence:       timestamp('cert_vence', { withTimezone: true }),
   cert_cargado:     boolean('cert_cargado').default(false),
-  // SII Web Credentials (for RCV sync)
+  // SII Web Credentials (for RCV sync, Chile only)
   sii_user:         varchar('sii_user', { length: 50 }),
   sii_password_enc: text('sii_password_enc'),  // AES-256 encrypted
   sii_rcv_auto_sync: boolean('sii_rcv_auto_sync').default(false),
@@ -63,7 +77,9 @@ export const companies = pgTable('companies', {
   created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
   updated_at:       timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (t) => ({
+  // Partial unique index: RUT unique only for Chilean companies
   rutIdx: uniqueIndex('companies_rut_idx').on(t.rut),
+  countryIdx: index('companies_country_idx').on(t.country_code),
 }))
 
 // ══════════════════════════════════════════════════════════════
@@ -453,7 +469,68 @@ export const gastos = pgTable('gastos', {
   verificadoIdx:    index('gastos_verificado_idx').on(t.company_id, t.verificado),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// AI TRANSACTION CLASSIFICATIONS (Multi-country accounting)
+// ══════════════════════════════════════════════════════════════
+export const classificationSourceEnum = pgEnum('classification_source', [
+  'ai', 'manual', 'rule',
+])
+
+export const transactionClassifications = pgTable('transaction_classifications', {
+  id:                  serial('id').primaryKey(),
+  company_id:          integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  bank_transaction_id: integer('bank_transaction_id').references(() => bankTransactions.id),
+  // Original transaction data
+  original_description: text('original_description').notNull(),
+  original_amount:     decimal('original_amount', { precision: 15, scale: 2 }).notNull(),
+  original_date:       text('original_date'),
+  // Classification result
+  classified_account_id: integer('classified_account_id'),  // Odoo account.account ID
+  classified_account_name: text('classified_account_name'),
+  classified_category: varchar('classified_category', { length: 100 }),
+  confidence:          real('confidence'),  // 0.0 to 1.0
+  classification_source: classificationSourceEnum('classification_source').default('ai'),
+  ai_reasoning:        text('ai_reasoning'),
+  // Approval workflow
+  approved:            boolean('approved').default(false),
+  approved_by:         integer('approved_by'),
+  approved_at:         timestamp('approved_at', { withTimezone: true }),
+  // Link to generated journal entry
+  odoo_move_id:        integer('odoo_move_id'),
+  // Audit
+  created_at:          timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:          timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx:    index('tc_company_idx').on(t.company_id),
+  approvedIdx:   index('tc_approved_idx').on(t.company_id, t.approved),
+  dateIdx:       index('tc_date_idx').on(t.original_date),
+}))
+
+export const classificationRules = pgTable('classification_rules', {
+  id:               serial('id').primaryKey(),
+  company_id:       integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  vendor_pattern:   text('vendor_pattern').notNull(),  // regex or keyword match on description
+  account_id:       integer('account_id').notNull(),   // Odoo account.account ID
+  account_name:     text('account_name'),
+  category:         varchar('category', { length: 100 }),
+  hit_count:        integer('hit_count').default(0),
+  last_used_at:     timestamp('last_used_at', { withTimezone: true }),
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx:    index('cr_company_idx').on(t.company_id),
+  patternIdx:    index('cr_pattern_idx').on(t.company_id, t.vendor_pattern),
+}))
+
 // ── Relations ─────────────────────────────────────────────────
+export const transactionClassificationsRelations = relations(transactionClassifications, ({ one }) => ({
+  company: one(companies, { fields: [transactionClassifications.company_id], references: [companies.id] }),
+  bankTransaction: one(bankTransactions, { fields: [transactionClassifications.bank_transaction_id], references: [bankTransactions.id] }),
+}))
+
+export const classificationRulesRelations = relations(classificationRules, ({ one }) => ({
+  company: one(companies, { fields: [classificationRules.company_id], references: [companies.id] }),
+}))
+
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
   quotations: many(quotations),
@@ -466,6 +543,8 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   rcvRegistros: many(rcvRegistros),
   bankAccounts: many(bankAccounts),
   gastos: many(gastos),
+  transactionClassifications: many(transactionClassifications),
+  classificationRules: many(classificationRules),
 }))
 
 export const purchaseOrdersRelations = relations(purchaseOrders, ({ one }) => ({

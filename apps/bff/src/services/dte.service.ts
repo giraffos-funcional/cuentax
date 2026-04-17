@@ -186,7 +186,7 @@ export class DTEService {
         logger.info({ companyId, razon_social: company.razon_social }, 'Emisor data loaded from DB')
         return {
           razon_social: company.razon_social,
-          giro: company.giro,
+          giro: company.giro ?? 'Servicios',
           direccion: company.direccion ?? '',
           comuna: company.comuna ?? '',
           ciudad: company.ciudad ?? 'Santiago',

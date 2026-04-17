@@ -27,6 +27,10 @@ export interface AccessTokenPayload {
   company_name: string
   company_rut: string
   company_ids: number[]
+  // Multi-country context
+  country_code: string   // 'CL' | 'US'
+  locale: string         // 'es-CL' | 'en-US'
+  currency: string       // 'CLP' | 'USD'
   jti: string        // JWT ID único (para blacklist)
   type: 'access'
 }
@@ -49,7 +53,11 @@ export interface AuthTokens {
     company_name: string
     company_rut: string
     company_ids: number[]
-    companies: Array<{ id: number; name: string; rut: string }>
+    companies: Array<{ id: number; name: string; rut: string; country_code?: string }>
+    // Multi-country context
+    country_code: string
+    locale: string
+    currency: string
   }
 }
 
@@ -189,6 +197,9 @@ export class AuthService {
       companyRut: companyData.rut,
       companyIds: currentUser.company_ids,
       companies: [{ id: newCompanyId, name: companyData.name, rut: companyData.rut }],
+      countryCode: companyData.country_code,
+      locale: companyData.locale,
+      currency: companyData.currency,
     }
 
     return this._generateTokens(user)
@@ -204,11 +215,20 @@ export class AuthService {
     }
   }
 
-  private async _getCompanyData(companyId: number): Promise<{ name: string; rut: string } | null> {
+  private async _getCompanyData(companyId: number): Promise<{
+    name: string; rut: string;
+    country_code: string; locale: string; currency: string;
+  } | null> {
     try {
       const [company] = await db.select().from(companies)
         .where(eq(companies.odoo_company_id, companyId)).limit(1)
-      if (company) return { name: company.razon_social, rut: company.rut }
+      if (company) return {
+        name: company.razon_social,
+        rut: company.rut ?? '',
+        country_code: company.country_code ?? 'CL',
+        locale: company.locale ?? 'es-CL',
+        currency: company.currency ?? 'CLP',
+      }
       return null
     } catch { return null }
   }
@@ -221,6 +241,9 @@ export class AuthService {
     company_id: number
     company_name: string
     company_rut: string
+    country_code?: string
+    locale?: string
+    currency?: string
   }): Promise<AuthTokens> {
     return this._generateTokens({
       uid: typeof user.uid === 'string' ? Number(user.uid) : user.uid,
@@ -229,6 +252,9 @@ export class AuthService {
       companyId: user.company_id,
       companyName: user.company_name,
       companyRut: user.company_rut,
+      countryCode: user.country_code,
+      locale: user.locale,
+      currency: user.currency,
     })
   }
 
@@ -241,13 +267,20 @@ export class AuthService {
     companyName: string
     companyRut: string
     companyIds?: number[]
-    companies?: Array<{ id: number; name: string; rut: string }>
+    companies?: Array<{ id: number; name: string; rut: string; country_code?: string }>
+    // Multi-country fields (optional, defaults to Chile for backward compat)
+    countryCode?: string
+    locale?: string
+    currency?: string
   }): Promise<AuthTokens> {
     const accessJti  = randomUUID()
     const refreshJti = randomUUID()
 
     const resolvedCompanyIds = user.companyIds ?? [user.companyId]
     const resolvedCompanies  = user.companies  ?? [{ id: user.companyId, name: user.companyName, rut: user.companyRut }]
+    const resolvedCountry    = user.countryCode ?? 'CL'
+    const resolvedLocale     = user.locale ?? (resolvedCountry === 'US' ? 'en-US' : 'es-CL')
+    const resolvedCurrency   = user.currency ?? (resolvedCountry === 'US' ? 'USD' : 'CLP')
 
     const accessPayload: AccessTokenPayload = {
       sub: String(user.uid),
@@ -257,6 +290,9 @@ export class AuthService {
       company_name: user.companyName,
       company_rut: user.companyRut,
       company_ids: resolvedCompanyIds,
+      country_code: resolvedCountry,
+      locale: resolvedLocale,
+      currency: resolvedCurrency,
       jti: accessJti,
       type: 'access',
     }
@@ -282,12 +318,15 @@ export class AuthService {
         companyRut: user.companyRut,
         companyIds: resolvedCompanyIds,
         companies: resolvedCompanies,
+        countryCode: resolvedCountry,
+        locale: resolvedLocale,
+        currency: resolvedCurrency,
       }),
       'EX',
       REFRESH_TTL_SECONDS,
     )
 
-    logger.info({ uid: user.uid, companyId: user.companyId, companyCount: resolvedCompanyIds.length }, 'Auth tokens generated')
+    logger.info({ uid: user.uid, companyId: user.companyId, country: resolvedCountry, companyCount: resolvedCompanyIds.length }, 'Auth tokens generated')
 
     return {
       access_token:  accessToken,
@@ -302,6 +341,9 @@ export class AuthService {
         company_rut:  user.companyRut,
         company_ids:  resolvedCompanyIds,
         companies:    resolvedCompanies,
+        country_code: resolvedCountry,
+        locale:       resolvedLocale,
+        currency:     resolvedCurrency,
       },
     }
   }

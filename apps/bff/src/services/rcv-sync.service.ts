@@ -470,11 +470,11 @@ export async function syncRCV(opts: RCVSyncOptions & { session?: SIISession }): 
       session = externalSession
     } else {
       const siiPassword = decrypt(company.sii_password_enc)
-      session = await createSIISession(company.rut, company.sii_user, siiPassword)
+      session = await createSIISession(company.rut ?? '', company.sii_user, siiPassword)
     }
 
     // 3. Fetch RCV data
-    const documents = await fetchRCVData(session, company.rut, mes, year, tipo)
+    const documents = await fetchRCVData(session, company.rut ?? '', mes, year, tipo)
 
     logger.info({ companyId, mes, year, tipo, documentCount: documents.length }, 'RCV data fetched from SII')
 
@@ -652,7 +652,7 @@ export async function syncRCVFull(companyId: number, mes: number, year: number):
   let session: SIISession | null = null
   try {
     const siiPassword = decrypt(company.sii_password_enc)
-    session = await createSIISession(company.rut, company.sii_user, siiPassword)
+    session = await createSIISession(company.rut ?? '', company.sii_user, siiPassword)
 
     const compras = await syncRCV({ companyId, mes, year, tipo: 'compras', session })
     const ventas = await syncRCV({ companyId, mes, year, tipo: 'ventas', session })
