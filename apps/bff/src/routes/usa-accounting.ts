@@ -305,8 +305,13 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
           companyContext,
         )
         if (accountId) {
-          // Small delay to let Odoo commit the create transaction before writing
-          await new Promise(resolve => setTimeout(resolve, 50))
+          // NOTE: Odoo 18 stores account.account.code in account.code.mapping
+          // (company-dependent). Both execute_kw and /web/dataset/call_kw with
+          // company context return success but don't persist the mapping when
+          // called from the BFF's internal Docker network. This needs further
+          // investigation — possibly a worker/transaction issue. For now, the
+          // account name and account_type are set correctly; codes must be
+          // configured via Odoo's UI chart template flow or direct RPC.
           await odooAccountingAdapter.write(
             'account.account',
             [accountId],
