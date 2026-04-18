@@ -396,6 +396,7 @@ export class OdooAccountingAdapter {
   ): Promise<boolean> {
     const kwargs = context ? { context } : {}
     const result = await this.rpcCall(model, 'write', [ids, values], kwargs)
+    logger.info({ model, ids, values, context, result }, 'Odoo write result')
     return result === true
   }
 
