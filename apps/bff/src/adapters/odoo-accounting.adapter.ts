@@ -394,13 +394,14 @@ export class OdooAccountingAdapter {
     values: Record<string, unknown>,
     context?: Record<string, unknown>,
   ): Promise<boolean> {
-    const kwargs = context ? { context } : {}
-    const result = await this.rpcCall(model, 'write', [ids, values], kwargs)
-    // Verify persistence for context-dependent fields (Odoo 18 company-dependent)
-    if (context && Object.keys(values).includes('code')) {
-      const check = await this.rpcCall(model, 'read', [ids, Object.keys(values)], kwargs)
-      logger.info({ model, ids, values, context, writeResult: result, readBack: check }, 'Odoo write + verify')
+    // For context-aware writes (e.g. Odoo 18 company-dependent fields), use
+    // webCallKw which goes through /web/dataset/call_kw with a session cookie.
+    // Plain RPC execute_kw doesn't persist company-dependent fields reliably.
+    if (context) {
+      const result = await this.webCallKw(model, 'write', [ids, values], { context })
+      return result === true
     }
+    const result = await this.rpcCall(model, 'write', [ids, values])
     return result === true
   }
 
