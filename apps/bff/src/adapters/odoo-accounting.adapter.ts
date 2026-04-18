@@ -387,8 +387,10 @@ export class OdooAccountingAdapter {
     model: string,
     ids: number[],
     values: Record<string, unknown>,
+    context?: Record<string, unknown>,
   ): Promise<boolean> {
-    const result = await this.rpcCall(model, 'write', [ids, values])
+    const kwargs = context ? { context } : {}
+    const result = await this.rpcCall(model, 'write', [ids, values], kwargs)
     return result === true
   }
 

@@ -284,19 +284,29 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
     const results = { accounts_created: 0, journals_created: 0, errors: [] as string[] }
 
     // 1. Create chart of accounts in Odoo
+    // Odoo 18: account.account uses `company_ids` (M2M). The `code` field is
+    // company-dependent (stored in account.code.mapping), so we must create
+    // the account first, then write `code` with company_id in the context.
     for (const acct of US_GAAP_CHART) {
       try {
-        await odooAccountingAdapter.create('account.account', {
-          code: acct.code,
+        const accountId = await odooAccountingAdapter.create('account.account', {
           name: acct.name,
           account_type: acct.account_type,
           reconcile: acct.reconcile,
-          company_id: odooCompanyId,
+          company_ids: [[6, 0, [odooCompanyId]]],
         })
-        results.accounts_created++
+        if (accountId) {
+          // Set code per-company via write with company context
+          await odooAccountingAdapter.write(
+            'account.account',
+            [accountId],
+            { code: acct.code },
+            { allowed_company_ids: [odooCompanyId], company_id: odooCompanyId },
+          )
+          results.accounts_created++
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown'
-        // Duplicate code is expected if run twice — not an error
         if (!msg.includes('unique') && !msg.includes('duplicate')) {
           results.errors.push(`Account ${acct.code}: ${msg}`)
         }
