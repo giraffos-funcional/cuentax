@@ -305,6 +305,8 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
           companyContext,
         )
         if (accountId) {
+          // Small delay to let Odoo commit the create transaction before writing
+          await new Promise(resolve => setTimeout(resolve, 50))
           await odooAccountingAdapter.write(
             'account.account',
             [accountId],
