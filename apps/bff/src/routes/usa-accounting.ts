@@ -290,9 +290,13 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
     const companyContext = { allowed_company_ids: [odooCompanyId], company_id: odooCompanyId }
     for (const acct of US_GAAP_CHART) {
       try {
+        // Odoo 18: must pass `code` at creation to satisfy validator ("code
+        // must be set for all companies"), but the value doesn't persist.
+        // After creation, write the code with company_id in context.
         const accountId = await odooAccountingAdapter.create(
           'account.account',
           {
+            code: acct.code,
             name: acct.name,
             account_type: acct.account_type,
             reconcile: acct.reconcile,
@@ -301,7 +305,6 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
           companyContext,
         )
         if (accountId) {
-          // Set code per-company via write with company context (Odoo 18)
           await odooAccountingAdapter.write(
             'account.account',
             [accountId],
