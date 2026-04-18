@@ -287,23 +287,30 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
     // Odoo 18: account.account uses `company_ids` (M2M). The `code` field is
     // company-dependent (stored in account.code.mapping), so we must create
     // the account first, then write `code` with company_id in the context.
+    const companyContext = { allowed_company_ids: [odooCompanyId], company_id: odooCompanyId }
     for (const acct of US_GAAP_CHART) {
       try {
-        const accountId = await odooAccountingAdapter.create('account.account', {
-          name: acct.name,
-          account_type: acct.account_type,
-          reconcile: acct.reconcile,
-          company_ids: [[6, 0, [odooCompanyId]]],
-        })
+        const accountId = await odooAccountingAdapter.create(
+          'account.account',
+          {
+            name: acct.name,
+            account_type: acct.account_type,
+            reconcile: acct.reconcile,
+            company_ids: [[6, 0, [odooCompanyId]]],
+          },
+          companyContext,
+        )
         if (accountId) {
-          // Set code per-company via write with company context
+          // Set code per-company via write with company context (Odoo 18)
           await odooAccountingAdapter.write(
             'account.account',
             [accountId],
             { code: acct.code },
-            { allowed_company_ids: [odooCompanyId], company_id: odooCompanyId },
+            companyContext,
           )
           results.accounts_created++
+        } else {
+          results.errors.push(`Account ${acct.code}: Odoo create returned null`)
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown'

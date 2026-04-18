@@ -372,8 +372,13 @@ export class OdooAccountingAdapter {
     return Array.isArray(result) ? result : []
   }
 
-  async create(model: string, values: Record<string, unknown>): Promise<number> {
-    const result = await this.rpcCall(model, 'create', [values])
+  async create(
+    model: string,
+    values: Record<string, unknown>,
+    context?: Record<string, unknown>,
+  ): Promise<number> {
+    const kwargs = context ? { context } : {}
+    const result = await this.rpcCall(model, 'create', [values], kwargs)
     return typeof result === 'number' ? result : 0
   }
 
