@@ -396,7 +396,11 @@ export class OdooAccountingAdapter {
   ): Promise<boolean> {
     const kwargs = context ? { context } : {}
     const result = await this.rpcCall(model, 'write', [ids, values], kwargs)
-    logger.info({ model, ids, values, context, result }, 'Odoo write result')
+    // Verify persistence for context-dependent fields (Odoo 18 company-dependent)
+    if (context && Object.keys(values).includes('code')) {
+      const check = await this.rpcCall(model, 'read', [ids, Object.keys(values)], kwargs)
+      logger.info({ model, ids, values, context, writeResult: result, readBack: check }, 'Odoo write + verify')
+    }
     return result === true
   }
 
