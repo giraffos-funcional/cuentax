@@ -399,6 +399,7 @@ export class OdooAccountingAdapter {
     // Plain RPC execute_kw doesn't persist company-dependent fields reliably.
     if (context) {
       const result = await this.webCallKw(model, 'write', [ids, values], { context })
+      logger.info({ model, ids, values, context, result, via: 'webCallKw' }, 'Odoo context-write result')
       return result === true
     }
     const result = await this.rpcCall(model, 'write', [ids, values])
