@@ -166,7 +166,8 @@ class LibroEmissionService:
                 es_nota_credito=es_nc,
             ))
 
-        if not detalles:
+        # For AJUSTE with empty detalles, allow empty libro (zero-totals adjustment)
+        if not detalles and tipo_envio != "AJUSTE":
             return {
                 "success": False,
                 "tipo": "VENTA",
@@ -220,7 +221,8 @@ class LibroEmissionService:
 
         detalles = self._build_compras_detalles(compras_entries, fecha_doc, rut_emisor)
 
-        if not detalles:
+        # For AJUSTE with empty detalles, allow empty libro (zero-totals adjustment)
+        if not detalles and tipo_envio != "AJUSTE":
             return {
                 "success": False,
                 "tipo": "COMPRA",

@@ -821,13 +821,14 @@ async def generate_libros(req: LibrosRequest):
             detail="Could not find SET LIBRO DE VENTAS section in test set file",
         )
 
-    if not compras_entries:
+    tipo_envio_libros = req.tipo_envio or "TOTAL"
+
+    # AJUSTE allows empty libros (zero-totals adjustment)
+    if not compras_entries and tipo_envio_libros != "AJUSTE":
         raise HTTPException(
             status_code=400,
             detail="No compras entries found in SET LIBRO DE COMPRAS section",
         )
-
-    tipo_envio_libros = req.tipo_envio or "TOTAL"
 
     # 1. Generate and send Libro de Ventas
     # Priority: EnvioDTE XML > inline resultados > session resultados
@@ -852,6 +853,16 @@ async def generate_libros(req: LibrosRequest):
     elif batch_result.get("resultados"):
         resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
             resultados=batch_result["resultados"],
+            rut_emisor=rut_emisor,
+            periodo=periodo,
+            folio_notificacion=folio_ventas,
+            fecha_doc=fecha_emision,
+            tipo_envio=tipo_envio_libros,
+        )
+    elif tipo_envio_libros == "AJUSTE":
+        # AJUSTE with no detalles = zero-totals adjustment envelope
+        resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
+            resultados=[],
             rut_emisor=rut_emisor,
             periodo=periodo,
             folio_notificacion=folio_ventas,
