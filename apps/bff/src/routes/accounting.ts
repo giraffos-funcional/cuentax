@@ -659,37 +659,45 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     const results = { accounts_created: 0, journals_created: 0, errors: [] as string[] }
     const companyContext = { allowed_company_ids: [odooCompanyId], company_id: odooCompanyId }
 
-    for (const acct of chart) {
-      try {
-        const accountId = await odooAccountingAdapter.create(
-          'account.account',
-          {
-            code: acct.code,
-            name: acct.name,
-            account_type: acct.account_type,
-            reconcile: acct.reconcile,
-            company_ids: [[6, 0, [odooCompanyId]]],
-          },
-          companyContext,
-        )
-        if (accountId) {
-          await odooAccountingAdapter.write(
+    // Odoo 18: company-dependent fields (account.account.code via
+    // account.code.mapping) only persist reliably when env.company matches
+    // the target company. env.company comes from the user's default, not the
+    // request context. So we flip the admin's default company for the
+    // duration of the writes, then restore it.
+    await odooAccountingAdapter.withAdminDefaultCompany(odooCompanyId, async () => {
+      for (const acct of chart) {
+        try {
+          const accountId = await odooAccountingAdapter.create(
             'account.account',
-            [accountId],
-            { code: acct.code },
+            {
+              code: acct.code,
+              name: acct.name,
+              account_type: acct.account_type,
+              reconcile: acct.reconcile,
+              company_ids: [[6, 0, [odooCompanyId]]],
+            },
             companyContext,
           )
-          results.accounts_created++
-        } else {
-          results.errors.push(`Account ${acct.code}: create returned null`)
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown'
-        if (!msg.includes('unique') && !msg.includes('duplicate')) {
-          results.errors.push(`Account ${acct.code}: ${msg}`)
+          if (accountId) {
+            // With the user default aligned, the code now persists via plain
+            // write — no context shenanigans needed.
+            await odooAccountingAdapter.write(
+              'account.account',
+              [accountId],
+              { code: acct.code },
+            )
+            results.accounts_created++
+          } else {
+            results.errors.push(`Account ${acct.code}: create returned null`)
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown'
+          if (!msg.includes('unique') && !msg.includes('duplicate')) {
+            results.errors.push(`Account ${acct.code}: ${msg}`)
+          }
         }
       }
-    }
+    })
 
     for (const journal of journals) {
       try {

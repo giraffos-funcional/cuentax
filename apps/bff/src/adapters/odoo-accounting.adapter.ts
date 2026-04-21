@@ -460,6 +460,49 @@ export class OdooAccountingAdapter {
     return result === true
   }
 
+  /** Get the authenticated admin UID (cached after first call). */
+  async getAdminUid(): Promise<number | null> {
+    const session = await this.ensureAuth()
+    return session?.uid ?? null
+  }
+
+  /**
+   * Run a function with the admin user's default company_id temporarily set
+   * to the target company. This is the reliable way to write Odoo 18
+   * company-dependent fields (like account.account.code) — the user's default
+   * company drives `env.company` even when a write passes `company_id` in its
+   * context, at least over RPC.
+   *
+   * Always restores the original default, even on error.
+   */
+  async withAdminDefaultCompany<T>(
+    targetCompanyId: number,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const uid = await this.getAdminUid()
+    if (!uid) throw new Error('Odoo admin UID not available')
+
+    // Read current default
+    const current = await this.rpcCall('res.users', 'read', [[uid], ['company_id']]) as
+      | Array<{ company_id: [number, string] }>
+      | null
+    const originalCompanyId = current?.[0]?.company_id?.[0] ?? 1
+
+    if (originalCompanyId === targetCompanyId) {
+      // Already aligned — just run
+      return fn()
+    }
+
+    // Switch, run, restore
+    await this.rpcCall('res.users', 'write', [[uid], { company_id: targetCompanyId }])
+    try {
+      return await fn()
+    } finally {
+      await this.rpcCall('res.users', 'write', [[uid], { company_id: originalCompanyId }])
+        .catch((e) => logger.error({ e, uid, originalCompanyId }, 'Failed to restore admin default company'))
+    }
+  }
+
   async unlink(model: string, ids: number[]): Promise<boolean> {
     const result = await this.rpcCall(model, 'unlink', [ids])
     return result === true
