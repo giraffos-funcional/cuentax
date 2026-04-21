@@ -138,6 +138,19 @@ class LibroXMLGenerator:
         for d in data.detalles:
             by_tipo[d.tipo_doc].append(d)
 
+        # For empty AJUSTE (zero-totals): emit a single TotalesPeriodo with TpoDoc=33
+        # and all amounts zero so the XSD requirement for at least one TotalesPeriodo
+        # is satisfied without affecting any period totals at the SII backend.
+        if not by_tipo:
+            totales = etree.SubElement(resumen, "TotalesPeriodo")
+            self._elem(totales, "TpoDoc", "33")
+            self._elem(totales, "TotDoc", "0")
+            self._elem(totales, "TotMntExe", "0")
+            self._elem(totales, "TotMntNeto", "0")
+            self._elem(totales, "TotMntIVA", "0")
+            self._elem(totales, "TotMntTotal", "0")
+            return
+
         for tipo_doc in sorted(by_tipo.keys()):
             detalles = by_tipo[tipo_doc]
             totales = etree.SubElement(resumen, "TotalesPeriodo")
