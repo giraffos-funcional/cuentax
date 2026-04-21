@@ -878,8 +878,10 @@ async def generate_libros(req: LibrosRequest):
         )
 
     # 2. Generate and send Libro de Compras
+    # For empty AJUSTE (zero-totals re-send), force empty detalles
+    _compras_entries = [] if (tipo_envio_libros == "AJUSTE" and not inline_resultados and not batch_result) else compras_entries
     resultado_compras = libro_emission_service.emit_libro_compras(
-        compras_entries=compras_entries,
+        compras_entries=_compras_entries,
         rut_emisor=rut_emisor,
         periodo=periodo,
         folio_notificacion=folio_compras,
