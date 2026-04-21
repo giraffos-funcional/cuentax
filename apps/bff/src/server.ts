@@ -482,6 +482,10 @@ async function bootstrap() {
   const { usaAccountingRoutes } = await import('./routes/usa-accounting.js')
   await fastify.register(usaAccountingRoutes, { prefix: '/api/v1/usa' })
 
+  // ── Shared Accounting (works for CL + US, country from JWT) ──
+  const { accountingRoutes } = await import('./routes/accounting.js')
+  await fastify.register(accountingRoutes, { prefix: '/api/v1/accounting' })
+
   // ── Admin: Job queue status ───────────────────────────────
   fastify.get('/api/v1/admin/jobs', async (_, reply) => {
     const queues = [

@@ -140,7 +140,7 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
           linesToClassify.push(parsed.lines[i])
           txIds.push(persistResult.transactionIds[i] ?? 0)
         }
-        const result = await classifyTransactions(localCompanyId, linesToClassify, accounts, txIds)
+        const result = await classifyTransactions(localCompanyId, linesToClassify, accounts, txIds, 'US')
         classification = result
       } catch (err) {
         logger.warn({ err }, 'AI classification failed or skipped')

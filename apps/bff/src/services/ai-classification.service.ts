@@ -47,13 +47,16 @@ const BATCH_SIZE = 30  // Transactions per Claude call
 const HIGH_CONFIDENCE = 0.8
 const LOW_CONFIDENCE = 0.5
 
-const SYSTEM_PROMPT = `You are an expert US small business bookkeeper. Your task is to classify bank transactions into the correct accounting accounts.
+export type ClassifyCountry = 'US' | 'CL'
+
+const SYSTEM_PROMPT_US = `You are an expert US small business bookkeeper. Your task is to classify bank transactions into the correct accounting accounts.
 
 RULES:
 - Positive amounts are DEPOSITS (income, transfers in, refunds received)
 - Negative amounts are PAYMENTS (expenses, transfers out, purchases)
 - Always use the most specific account available from the chart of accounts
 - If uncertain, use a general category and indicate lower confidence
+- Mark suspected inter-account transfers with category="transfer" — these should not hit income/expense
 
 COMMON PATTERNS (use as hints, not absolutes):
 - STRIPE, SQUARE, SHOPIFY → Revenue / Sales
@@ -64,11 +67,52 @@ COMMON PATTERNS (use as hints, not absolutes):
 - COMCAST, ATT, VERIZON → Utilities / Telecom
 - STATE FARM, GEICO → Insurance
 - IRS, STATE TAX → Tax Payments
-- CHASE TRANSFER, ZELLE → Bank Transfers (not income/expense)
+- CHASE TRANSFER, ZELLE → Bank Transfers (category="transfer")
 - INTEREST PAYMENT → Interest Expense or Interest Income
 - ATM WITHDRAWAL → Owner's Draw or Petty Cash
 
+REFUND DETECTION:
+- Positive amount with words like "REFUND", "REVERSAL", "CREDIT" → original vendor's account (reduces that expense)
+- Reversal of a prior expense is NOT revenue
+
 For each transaction, respond with a JSON object using the classify_transactions tool.`
+
+const SYSTEM_PROMPT_CL = `Eres un contador chileno experto en PYMES y normativa SII. Tu tarea es clasificar transacciones bancarias en las cuentas contables correctas según el plan chileno.
+
+REGLAS:
+- Montos positivos son ABONOS (ingresos, transferencias recibidas, devoluciones)
+- Montos negativos son CARGOS (gastos, pagos, compras)
+- Usa la cuenta más específica disponible del plan de cuentas
+- Si hay duda, usa una categoría general y baja la confianza
+- Marca transferencias entre cuentas propias con category="transfer" (no son ingresos ni gastos)
+
+PATRONES COMUNES (sugerencias, no absolutos):
+- TRANSBANK, WEBPAY, GETNET → Ingresos por Ventas
+- MERCADOPAGO, FLOW, KHIPU → Ingresos (pasarelas de pago)
+- SII, TESORERIA GENERAL DE LA REPUBLICA (TGR) → Pago Impuestos
+- PREVIRED, AFC, FONASA, ISAPRE → Imposiciones / Previsión
+- ENEL, CGE, AGUAS ANDINAS, ESSBIO → Servicios Básicos
+- MOVISTAR, ENTEL, CLARO, WOM, VTR → Telefonía / Internet
+- UBER EATS, PEDIDOSYA, RAPPI → Alimentación / Viáticos
+- COPEC, SHELL, SERVIPAG-PEAJE → Combustible / Peajes
+- LIDER, JUMBO, SANTA ISABEL, UNIMARC → Insumos
+- LATAM, SKY, JETSMART → Pasajes / Viajes
+- AWS, GOOGLE, MICROSOFT, ADOBE → Servicios TI / Software
+- TRANSFERENCIA A, ABONO A → posible transfer (category="transfer")
+- CAJERO, GIRO, RETIRO → Retiro de Socio / Caja Chica
+- COMISION BANCARIA → Gastos Bancarios
+
+DEDUCIBILIDAD SII:
+- Gastos con IVA y factura electrónica son necesarios para producir la renta (deducibles)
+- Compras de supermercado SIN documento tributario pueden NO ser deducibles
+- Gastos personales del socio NO son deducibles
+- Indica en "reasoning" si el gasto parece deducible o no
+
+Responde usando la herramienta classify_transactions. Todos los montos en CLP.`
+
+function getPrompt(country: ClassifyCountry): string {
+  return country === 'CL' ? SYSTEM_PROMPT_CL : SYSTEM_PROMPT_US
+}
 
 // ── Service ──────────────────────────────────────────────────
 let anthropic: Anthropic | null = null
@@ -142,9 +186,12 @@ async function applyRules(
 async function classifyWithAI(
   lines: ParsedStatementLine[],
   accounts: ChartAccount[],
+  country: ClassifyCountry = 'US',
 ): Promise<ClassifiedTransaction[]> {
   const client = getClient()
   const results: ClassifiedTransaction[] = []
+  const currencySymbol = country === 'CL' ? '$' : '$'
+  const currencyCode = country === 'CL' ? 'CLP' : 'USD'
 
   // Process in batches
   for (let i = 0; i < lines.length; i += BATCH_SIZE) {
@@ -152,14 +199,14 @@ async function classifyWithAI(
 
     const accountList = accounts.map(a => `${a.code} - ${a.name} (${a.account_type})`).join('\n')
     const transactionList = batch.map((t, idx) => (
-      `${idx + 1}. Date: ${t.date} | Description: "${t.description}" | Amount: $${t.amount.toFixed(2)} | Ref: ${t.reference}`
+      `${idx + 1}. Date: ${t.date} | Description: "${t.description}" | Amount: ${currencySymbol}${t.amount.toFixed(2)} ${currencyCode} | Ref: ${t.reference}`
     )).join('\n')
 
     try {
       const response = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+        system: getPrompt(country),
         tools: [{
           name: 'classify_transactions',
           description: 'Classify each bank transaction into an accounting account',
@@ -254,6 +301,7 @@ export async function classifyTransactions(
   lines: ParsedStatementLine[],
   accounts: ChartAccount[],
   bankTransactionIds?: number[],
+  country: ClassifyCountry = 'US',
 ): Promise<ClassificationBatch> {
   const errors: string[] = []
 
@@ -297,7 +345,7 @@ export async function classifyTransactions(
   // 2. AI classification for unmatched
   let aiClassified: ClassifiedTransaction[] = []
   if (unmatched.length > 0 && accounts.length > 0) {
-    aiClassified = await classifyWithAI(unmatched, accounts)
+    aiClassified = await classifyWithAI(unmatched, accounts, country)
   }
 
   const allClassified = [...ruleMatched, ...aiClassified]

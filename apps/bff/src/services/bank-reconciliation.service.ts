@@ -157,12 +157,25 @@ export interface TransferPair {
  * with the same absolute amount within a few days, where at least one side
  * has a transfer keyword. These should NOT be posted as income/expense —
  * they cancel out at the company level.
+ *
+ * Keywords cover both English (US banks) and Spanish (Chilean banks).
  */
 export function detectTransfers(
   lines: ParsedStatementLine[],
   windowDays: number = 3,
 ): TransferPair[] {
-  const TRANSFER_KEYWORDS = /transfer|zelle|wire|internal|to\s+checking|to\s+savings|from\s+checking|from\s+savings|book\s+transfer/i
+  const TRANSFER_KEYWORDS = new RegExp(
+    [
+      // English / US
+      'transfer', 'zelle', 'wire', 'internal', 'book\\s+transfer',
+      'to\\s+checking', 'to\\s+savings', 'from\\s+checking', 'from\\s+savings',
+      // Spanish / Chile
+      'transferencia', 'trf\\s', 'abono\\s+a', 'cargo\\s+a',
+      'traspaso', 'entre\\s+cuentas', 'cuenta\\s+propia',
+      'cuenta\\s+corriente', 'cuenta\\s+vista', 'cuenta\\s+rut',
+    ].join('|'),
+    'i',
+  )
   const pairs: TransferPair[] = []
   const usedIndexes = new Set<number>()
 
@@ -207,6 +220,80 @@ function dateDiffDays(a: string, b: string): number {
   return ms / (1000 * 60 * 60 * 24)
 }
 
+// ─── Refund detection ─────────────────────────────────────────
+
+export interface RefundPair {
+  original_index: number
+  refund_index: number
+  vendor: string
+  amount: number
+  date_original: string
+  date_refund: string
+  confidence: number
+}
+
+/**
+ * Detect refunds: a positive line whose amount exactly matches a prior
+ * negative line from the same vendor within 60 days, OR a positive line
+ * with refund keywords matching an earlier charge.
+ *
+ * Refunds should reduce the original expense account, not count as revenue.
+ */
+export function detectRefunds(
+  lines: ParsedStatementLine[],
+  windowDays: number = 60,
+): RefundPair[] {
+  const REFUND_KEYWORDS = /refund|reversal|credit|devolucion|devolución|reverso|anulacion|anulación|nota\s+de\s+credito/i
+  const pairs: RefundPair[] = []
+  const usedRefunds = new Set<number>()
+
+  for (let i = 0; i < lines.length; i++) {
+    if (usedRefunds.has(i)) continue
+    const refund = lines[i]
+    if (refund.amount <= 0) continue // refunds come IN as positive
+
+    const hasRefundKeyword = REFUND_KEYWORDS.test(refund.description)
+    const refundVendor = normalizeVendor(refund.description)
+
+    // Search backwards for a matching charge
+    for (let j = 0; j < i; j++) {
+      const charge = lines[j]
+      if (charge.amount >= 0) continue
+      if (Math.abs(charge.amount) !== refund.amount) continue
+
+      const dayDiff = Math.abs(dateDiffDays(refund.date, charge.date))
+      if (dayDiff > windowDays) continue
+
+      const chargeVendor = normalizeVendor(charge.description)
+      const chargeFirstWord = chargeVendor.split(' ')[0] ?? ''
+      const refundFirstWord = refundVendor.split(' ')[0] ?? ''
+      const sameVendor = chargeVendor === refundVendor ||
+        refundVendor.includes(chargeVendor) || chargeVendor.includes(refundVendor) ||
+        (chargeFirstWord.length >= 4 && chargeFirstWord === refundFirstWord)
+
+      if (!sameVendor && !hasRefundKeyword) continue
+
+      const confidence = sameVendor && hasRefundKeyword ? 0.95
+        : sameVendor ? 0.8
+        : 0.55 // keyword only, different vendor — could be unrelated
+
+      pairs.push({
+        original_index: j,
+        refund_index: i,
+        vendor: chargeVendor,
+        amount: refund.amount,
+        date_original: charge.date,
+        date_refund: refund.date,
+        confidence,
+      })
+      usedRefunds.add(i)
+      break
+    }
+  }
+
+  return pairs
+}
+
 // ─── Year-end summary ─────────────────────────────────────────
 
 export interface YearSummary {
@@ -224,8 +311,16 @@ export interface YearSummary {
  * Build an executive summary of bank activity for a given year.
  * Uses bank_transactions only — independent of classification state so it
  * can show a picture even before AI classification runs.
+ *
+ * @param currency 'USD' treats stored monto as cents (÷100).
+ *                 'CLP' treats stored monto as whole pesos.
  */
-export async function buildYearSummary(companyId: number, year: number): Promise<YearSummary> {
+export async function buildYearSummary(
+  companyId: number,
+  year: number,
+  currency: 'USD' | 'CLP' = 'USD',
+): Promise<YearSummary> {
+  const divisor = currency === 'USD' ? 100 : 1
   const yearStart = `${year}-01-01`
   const yearEnd = `${year}-12-31`
 
@@ -263,7 +358,7 @@ export async function buildYearSummary(companyId: number, year: number): Promise
 
   for (const tx of txns) {
     const vendor = normalizeVendor(tx.descripcion)
-    const amount = Number(tx.monto) / 100 // stored as cents
+    const amount = Number(tx.monto) / divisor
     const bucket = amount < 0 ? vendorSpend : incomeSource
     const current = bucket.get(vendor) ?? { total: 0, count: 0 }
     current.total += Math.abs(amount)
@@ -283,8 +378,8 @@ export async function buildYearSummary(companyId: number, year: number): Promise
 
   const totals = monthly.reduce(
     (acc, m) => ({
-      deposits: acc.deposits + Number(m.deposits) / 100,
-      payments: acc.payments + Number(m.payments) / 100,
+      deposits: acc.deposits + Number(m.deposits) / divisor,
+      payments: acc.payments + Number(m.payments) / divisor,
       count: acc.count + m.count,
     }),
     { deposits: 0, payments: 0, count: 0 },
@@ -298,9 +393,9 @@ export async function buildYearSummary(companyId: number, year: number): Promise
     net_cash_flow: Number((totals.deposits - totals.payments).toFixed(2)),
     monthly: monthly.map(m => ({
       month: m.month,
-      deposits: Number((Number(m.deposits) / 100).toFixed(2)),
-      payments: Number((Number(m.payments) / 100).toFixed(2)),
-      net: Number(((Number(m.deposits) - Number(m.payments)) / 100).toFixed(2)),
+      deposits: Number((Number(m.deposits) / divisor).toFixed(2)),
+      payments: Number((Number(m.payments) / divisor).toFixed(2)),
+      net: Number(((Number(m.deposits) - Number(m.payments)) / divisor).toFixed(2)),
       count: m.count,
     })),
     top_vendors_by_spend: sortedVendors,
@@ -332,6 +427,7 @@ export function normalizeVendor(description: string): string {
 export async function ensureDefaultBankAccount(
   companyId: number,
   name: string = 'Default Bank Account',
+  currency: 'USD' | 'CLP' = 'USD',
 ): Promise<number> {
   const existing = await db.select({ id: bankAccounts.id })
     .from(bankAccounts)
@@ -346,10 +442,10 @@ export async function ensureDefaultBankAccount(
     banco: 'Generic',
     tipo_cuenta: 'corriente',
     numero_cuenta: '',
-    moneda: 'USD',
+    moneda: currency,
     activo: true,
   }).returning({ id: bankAccounts.id })
 
-  logger.info({ companyId, bankAccountId: row.id }, 'Created default bank account for US company')
+  logger.info({ companyId, bankAccountId: row.id, currency }, 'Created default bank account')
   return row.id
 }
