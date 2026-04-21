@@ -3,11 +3,29 @@
  * Parses OFX, CSV formats from Chilean banks into standardized statement lines.
  */
 
+import { createHash } from 'crypto'
+
 export interface ParsedStatementLine {
   date: string       // YYYY-MM-DD
   description: string
   amount: number     // positive = credit, negative = debit
   reference: string  // transaction reference
+  /** Stable hash-based ID for deduplication (date|description|amount|reference). */
+  external_id: string
+}
+
+/**
+ * Generate a stable hash for a transaction. Same transaction across re-imports
+ * produces the same hash, enabling safe deduplication in bank_transactions.
+ */
+export function transactionHash(
+  date: string,
+  description: string,
+  amount: number,
+  reference: string = '',
+): string {
+  const normalized = `${date}|${description.trim().toUpperCase()}|${amount.toFixed(2)}|${reference.trim()}`
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 32)
 }
 
 export interface ParseResult {
@@ -47,12 +65,16 @@ export function parseOFX(content: string): ParseResult {
 
     // Parse date: YYYYMMDD -> YYYY-MM-DD
     const dateStr = `${dtposted.slice(0, 4)}-${dtposted.slice(4, 6)}-${dtposted.slice(6, 8)}`
+    const amount = parseFloat(trnamt)
+    const reference = fitid
 
     lines.push({
       date: dateStr,
       description: name,
-      amount: parseFloat(trnamt),
-      reference: fitid,
+      amount,
+      reference,
+      // OFX provides FITID which is already a unique ID — prefer it when present
+      external_id: fitid ? `ofx:${fitid}` : transactionHash(dateStr, name, amount, reference),
     })
   }
 
@@ -184,7 +206,13 @@ export function parseCSV(content: string, bank: string = 'generic'): ParseResult
       continue
     }
 
-    lines.push({ date: dateStr, description, amount, reference })
+    lines.push({
+      date: dateStr,
+      description,
+      amount,
+      reference,
+      external_id: transactionHash(dateStr, description, amount, reference),
+    })
   }
 
   return { lines, bank, format: 'csv', errors }

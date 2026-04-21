@@ -32,8 +32,12 @@ export const config = {
   REDIS_URL:    optional('REDIS_URL', 'redis://localhost:6379'),
 
   // Odoo
-  ODOO_URL:      optional('ODOO_URL', 'http://localhost:8069'),
-  ODOO_DB:       optional('ODOO_DB', 'cuentax'),
+  ODOO_URL:        optional('ODOO_URL', 'http://localhost:8069'),
+  // Public Odoo URL, used for context-aware writes that don't persist through
+  // the internal Docker network (e.g., Odoo 18 company-dependent fields).
+  // Falls back to ODOO_URL when not set.
+  ODOO_PUBLIC_URL: optional('ODOO_PUBLIC_URL', process.env.ODOO_URL ?? 'http://localhost:8069'),
+  ODOO_DB:         optional('ODOO_DB', 'cuentax'),
 
   // SII Bridge (internal)
   SII_BRIDGE_URL:  optional('SII_BRIDGE_URL', 'http://localhost:8000/api/v1'),

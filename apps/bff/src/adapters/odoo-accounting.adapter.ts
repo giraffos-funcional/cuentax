@@ -128,6 +128,10 @@ interface RpcResponse<T = unknown> {
 export class OdooAccountingAdapter {
   private readonly rpcUrl: string
   private readonly webUrl: string
+  /** Public RPC URL used as a fallback for context-dependent writes that
+   *  don't persist reliably through the internal Docker network (e.g. Odoo 18
+   *  company-dependent fields like account.account.code). */
+  private readonly publicRpcUrl: string
   private readonly adminUser: string
   private readonly adminPassword: string
   private uid: number | null = null
@@ -137,6 +141,7 @@ export class OdooAccountingAdapter {
   constructor() {
     this.rpcUrl = `${config.ODOO_URL}/jsonrpc`
     this.webUrl = config.ODOO_URL
+    this.publicRpcUrl = `${config.ODOO_PUBLIC_URL}/jsonrpc`
     // Service account credentials — sourced from env, not from config constants
     // (will be wired up in .env later; fall back to empty strings so startup never crashes)
     this.adminUser = process.env['ODOO_ADMIN_USER'] ?? ''
@@ -345,6 +350,55 @@ export class OdooAccountingAdapter {
     }
   }
 
+  /**
+   * Same as rpcCall but against the PUBLIC Odoo URL, used when context-aware
+   * writes aren't persisting through the internal Docker network (Odoo 18
+   * company-dependent fields). Falls back to rpcCall if no public URL is set.
+   */
+  private async publicRpcCall(
+    model: string,
+    method: string,
+    args: unknown[],
+    kwargs: Record<string, unknown> = {},
+  ): Promise<unknown> {
+    // If public URL is the same as internal, just use rpcCall
+    if (this.publicRpcUrl === this.rpcUrl) {
+      return this.rpcCall(model, method, args, kwargs)
+    }
+
+    const session = await this.ensureAuth()
+    if (!session) return null
+
+    try {
+      const response = await axios.post<RpcResponse>(
+        this.publicRpcUrl,
+        {
+          jsonrpc: '2.0',
+          method: 'call',
+          id: Date.now(),
+          params: {
+            service: 'object',
+            method: 'execute_kw',
+            args: [session.db, session.uid, session.password, model, method, args, kwargs],
+          },
+        },
+        { timeout: 20_000, headers: this.correlationHeaders },
+      )
+
+      if (response.data?.error) {
+        logger.error(
+          { model, method, rpcError: response.data.error, via: 'public' },
+          'Odoo public RPC returned error',
+        )
+        return null
+      }
+      return response.data?.result ?? null
+    } catch (error) {
+      logger.error({ error, model, method, via: 'public' }, 'Odoo public RPC call failed')
+      return null
+    }
+  }
+
   async searchRead(
     model: string,
     domain: unknown[][],
@@ -394,11 +448,12 @@ export class OdooAccountingAdapter {
     values: Record<string, unknown>,
     context?: Record<string, unknown>,
   ): Promise<boolean> {
-    // For context-aware writes (e.g. Odoo 18 company-dependent fields), use
-    // webCallKw which goes through /web/dataset/call_kw with a session cookie.
-    // Plain RPC execute_kw doesn't persist company-dependent fields reliably.
+    // Context-aware writes: Odoo 18 has company-dependent fields (like
+    // account.account.code stored in account.code.mapping) that return success
+    // but don't persist when called through the internal Docker network.
+    // Routing these specific writes through the PUBLIC Odoo URL works reliably.
     if (context) {
-      const result = await this.webCallKw(model, 'write', [ids, values], { context })
+      const result = await this.publicRpcCall(model, 'write', [ids, values], { context })
       return result === true
     }
     const result = await this.rpcCall(model, 'write', [ids, values])

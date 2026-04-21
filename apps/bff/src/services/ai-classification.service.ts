@@ -238,19 +238,61 @@ async function classifyWithAI(
 
 /**
  * Main classification entry point.
- * 1. Apply learned rules to known vendors
- * 2. Send remaining transactions to Claude for classification
- * 3. Save results to transaction_classifications table
+ * 1. Skip lines that already have a classification linked to their
+ *    bank_transaction_id (prevents duplicate work on re-imports)
+ * 2. Apply learned rules to known vendors
+ * 3. Send remaining transactions to Claude for classification
+ * 4. Save results to transaction_classifications table
+ *
+ * @param bankTransactionIds Optional: per-line DB ids from bank_transactions.
+ *        When provided, classifications are linked to them and re-imports
+ *        are deduped by skipping lines whose bank_transaction_id already has
+ *        a classification.
  */
 export async function classifyTransactions(
   companyId: number,
   lines: ParsedStatementLine[],
   accounts: ChartAccount[],
+  bankTransactionIds?: number[],
 ): Promise<ClassificationBatch> {
   const errors: string[] = []
 
+  // 0. Dedup against existing classifications linked to the same bank transactions
+  let linesToProcess = lines
+  let txIdsToProcess = bankTransactionIds
+  if (bankTransactionIds && bankTransactionIds.length === lines.length) {
+    const validIds = bankTransactionIds.filter(id => id > 0)
+    if (validIds.length > 0) {
+      const existing = await db.select({
+        bank_transaction_id: transactionClassifications.bank_transaction_id,
+      })
+        .from(transactionClassifications)
+        .where(and(
+          eq(transactionClassifications.company_id, companyId),
+          sql`${transactionClassifications.bank_transaction_id} = ANY(${validIds})`,
+        ))
+      const alreadyClassified = new Set(existing.map(r => r.bank_transaction_id))
+
+      linesToProcess = []
+      txIdsToProcess = []
+      for (let i = 0; i < lines.length; i++) {
+        const txId = bankTransactionIds[i]
+        if (!alreadyClassified.has(txId)) {
+          linesToProcess.push(lines[i])
+          txIdsToProcess.push(txId)
+        }
+      }
+      if (linesToProcess.length < lines.length) {
+        logger.info(
+          { companyId, skipped: lines.length - linesToProcess.length },
+          'Skipped already-classified transactions',
+        )
+      }
+    }
+  }
+
   // 1. Apply learned rules
-  const { matched: ruleMatched, unmatched } = await applyRules(companyId, lines)
+  const { matched: ruleMatched, unmatched } = await applyRules(companyId, linesToProcess)
 
   // 2. AI classification for unmatched
   let aiClassified: ClassifiedTransaction[] = []
@@ -260,9 +302,19 @@ export async function classifyTransactions(
 
   const allClassified = [...ruleMatched, ...aiClassified]
 
+  // Build lookup: line → bank_transaction_id
+  const txIdByKey = new Map<string, number>()
+  if (txIdsToProcess) {
+    for (let i = 0; i < linesToProcess.length; i++) {
+      const line = linesToProcess[i]
+      txIdByKey.set(line.external_id, txIdsToProcess[i])
+    }
+  }
+
   // 3. Save to DB
   const dbRows = allClassified.map(c => ({
     company_id: companyId,
+    bank_transaction_id: txIdByKey.get(c.original.external_id) ?? null,
     original_description: c.original.description,
     original_amount: String(c.original.amount),
     original_date: c.original.date,

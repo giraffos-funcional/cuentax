@@ -14,7 +14,15 @@ import { logger } from '@/core/logger'
 interface JournalEntryResult {
   classification_id: number
   odoo_move_id: number | null
+  posted?: boolean
   error?: string
+}
+
+export interface GenerateJournalOptions {
+  /** Automatically post created moves (state=posted) when true. Default false (draft). */
+  auto_post?: boolean
+  /** Skip classifications flagged as inter-account transfers. Default true. */
+  skip_transfers?: boolean
 }
 
 /**
@@ -25,13 +33,16 @@ interface JournalEntryResult {
  * @param odooCompanyId - Odoo company ID
  * @param bankJournalId - Odoo journal ID for bank transactions
  * @param bankAccountId - Odoo account.account ID for the bank account (e.g., 1000 Cash)
+ * @param options - { auto_post?: boolean; skip_transfers?: boolean }
  */
 export async function generateJournalEntries(
   companyId: number,
   odooCompanyId: number,
   bankJournalId: number,
   bankAccountId: number,
+  options: GenerateJournalOptions = {},
 ): Promise<{ created: JournalEntryResult[]; errors: string[] }> {
+  const { auto_post = false, skip_transfers = true } = options
   // Fetch approved classifications that don't have a journal entry yet
   const pending = await db.select().from(transactionClassifications)
     .where(and(
@@ -55,6 +66,17 @@ export async function generateJournalEntries(
     if (!classification.classified_account_id) {
       errors.push(`Classification ${classification.id}: no account assigned`)
       results.push({ classification_id: classification.id, odoo_move_id: null, error: 'No account assigned' })
+      continue
+    }
+
+    // Skip inter-account transfers: their classified_category is flagged and
+    // they don't represent income or expense at the company level.
+    if (skip_transfers && classification.classified_category === 'transfer') {
+      results.push({
+        classification_id: classification.id,
+        odoo_move_id: null,
+        error: 'Skipped: inter-account transfer',
+      })
       continue
     }
 
@@ -102,12 +124,24 @@ export async function generateJournalEntries(
       })
 
       if (moveId) {
+        let posted = false
+        if (auto_post) {
+          try {
+            await odooAccountingAdapter.callMethod('account.move', 'action_post', [moveId])
+            posted = true
+          } catch (postErr) {
+            const pm = postErr instanceof Error ? postErr.message : 'Unknown post error'
+            logger.warn({ moveId, postErr }, 'Post failed, entry left in draft state')
+            errors.push(`Classification ${classification.id}: created #${moveId} but post failed (${pm})`)
+          }
+        }
+
         // Update classification with the generated move ID
         await db.update(transactionClassifications)
           .set({ odoo_move_id: moveId, updated_at: new Date() })
           .where(eq(transactionClassifications.id, classification.id))
 
-        results.push({ classification_id: classification.id, odoo_move_id: moveId })
+        results.push({ classification_id: classification.id, odoo_move_id: moveId, posted })
       } else {
         errors.push(`Classification ${classification.id}: Odoo create returned null`)
         results.push({ classification_id: classification.id, odoo_move_id: null, error: 'Odoo create failed' })

@@ -26,6 +26,13 @@ import {
   learnRule,
 } from '@/services/ai-classification.service'
 import { generateJournalEntries } from '@/services/auto-journal.service'
+import {
+  persistTransactions,
+  reconcileBalances,
+  detectTransfers,
+  buildYearSummary,
+  ensureDefaultBankAccount,
+} from '@/services/bank-reconciliation.service'
 import { US_GAAP_CHART, US_JOURNALS } from '@/data/chart-of-accounts-us-gaap'
 import { getLocalCompanyId } from '@/core/company-resolver'
 
@@ -35,7 +42,8 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', requireCountry('US'))
 
   // ── POST /import-and-classify ─────────────────────────────
-  // Upload a bank statement file, parse it, and classify transactions
+  // Upload a bank statement, dedupe into bank_transactions, detect transfers,
+  // optionally reconcile against a known balance, then classify with AI.
   fastify.post('/import-and-classify', async (req, reply) => {
     if (!featureFlags.aiClassificationEnabled && !featureFlags.usaAccountingEnabled) {
       return reply.status(503).send({ error: 'AI classification is not enabled' })
@@ -43,9 +51,13 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
 
     const user = (req as any).user
     const body = req.body as {
-      content: string       // Raw file content
+      content: string
       format: 'csv' | 'ofx'
-      bank?: string         // Bank name for CSV mapping
+      bank?: string
+      opening_balance?: number
+      closing_balance?: number
+      /** Skip AI classification (useful when API key not configured). */
+      skip_classify?: boolean
     }
 
     if (!body.content || !body.format) {
@@ -65,26 +77,74 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
       })
     }
 
-    // 2. Fetch company's chart of accounts from Odoo
     const odooCompanyId = user.company_id
+    const localCompanyId = await getLocalCompanyId(odooCompanyId)
+
+    // 2. Persist to bank_transactions with dedup
+    const bankAccountLocalId = await ensureDefaultBankAccount(
+      localCompanyId,
+      `${(parsed.bank || 'Bank').toString().toUpperCase()} — ${user.company_name ?? 'Default'}`,
+    )
+    const persistResult = await persistTransactions(
+      localCompanyId,
+      bankAccountLocalId,
+      parsed.lines,
+      body.format,
+    )
+
+    // 3. Detect transfers
+    const transferPairs = detectTransfers(parsed.lines)
+    const transferIndexes = new Set<number>()
+    for (const p of transferPairs) {
+      if (p.confidence >= 0.85) {
+        transferIndexes.add(p.out_line_index)
+        transferIndexes.add(p.in_line_index)
+      }
+    }
+
+    // 4. Reconcile balances if provided
+    let reconciliation = null
+    if (body.opening_balance !== undefined && body.closing_balance !== undefined) {
+      reconciliation = reconcileBalances(parsed.lines, body.opening_balance, body.closing_balance)
+    }
+
+    // 5. Fetch US company chart of accounts (Odoo 18: uses company_ids M2M)
     let accounts: Array<{ id: number; code: string; name: string; account_type: string }> = []
     try {
-      const ids = await odooAccountingAdapter.search('account.account', [
-        ['company_id', '=', odooCompanyId],
-      ], { limit: 500 })
-      if (ids.length > 0) {
-        const raw = await odooAccountingAdapter.read('account.account', ids, ['id', 'code', 'name', 'account_type'])
-        accounts = raw.map((a: any) => ({
-          id: a.id, code: a.code ?? '', name: a.name ?? '', account_type: a.account_type ?? '',
-        }))
-      }
+      const raw = await odooAccountingAdapter.searchRead(
+        'account.account',
+        [['company_ids', 'in', [odooCompanyId]]],
+        ['id', 'code', 'name', 'account_type'],
+        { limit: 500, context: { allowed_company_ids: [odooCompanyId], company_id: odooCompanyId } },
+      ) as Array<{ id: number; code: string | false; name: string; account_type: string }>
+      accounts = raw.map(a => ({
+        id: a.id,
+        code: a.code === false ? '' : (a.code ?? ''),
+        name: a.name ?? '',
+        account_type: a.account_type ?? '',
+      }))
     } catch (err) {
       logger.warn({ err }, 'Failed to fetch chart of accounts — classification will use generic categories')
     }
 
-    // 3. Classify transactions
-    const localCompanyId = await getLocalCompanyId(odooCompanyId)
-    const result = await classifyTransactions(localCompanyId, parsed.lines, accounts)
+    // 6. Classify (skippable when AI key absent — still useful to see the import/dedup)
+    let classification = null as null | { stats: any; classified: any[]; errors: string[] }
+    if (!body.skip_classify) {
+      try {
+        // Filter out detected transfers so they don't become income/expense
+        const linesToClassify: typeof parsed.lines = []
+        const txIds: number[] = []
+        for (let i = 0; i < parsed.lines.length; i++) {
+          if (transferIndexes.has(i)) continue
+          linesToClassify.push(parsed.lines[i])
+          txIds.push(persistResult.transactionIds[i] ?? 0)
+        }
+        const result = await classifyTransactions(localCompanyId, linesToClassify, accounts, txIds)
+        classification = result
+      } catch (err) {
+        logger.warn({ err }, 'AI classification failed or skipped')
+      }
+    }
 
     return reply.send({
       parsed: {
@@ -93,25 +153,37 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
         total_lines: parsed.lines.length,
         parse_errors: parsed.errors,
       },
-      classification: {
-        total: result.stats.total,
-        auto_approved: result.stats.auto_approved,
-        needs_review: result.stats.needs_review,
-        unclassified: result.stats.unclassified,
-        rule_matched: result.stats.rule_matched,
+      persisted: {
+        inserted: persistResult.inserted,
+        skipped_duplicates: persistResult.skipped,
+        bank_account_id: bankAccountLocalId,
       },
-      transactions: result.classified.map(c => ({
-        date: c.original.date,
-        description: c.original.description,
-        amount: c.original.amount,
-        account_name: c.account_name,
-        category: c.category,
-        confidence: c.confidence,
-        reasoning: c.reasoning,
-        source: c.source,
-        auto_approved: c.confidence >= 0.8,
-      })),
-      errors: result.errors,
+      transfers_detected: transferPairs.length,
+      transfers: transferPairs.slice(0, 20),
+      reconciliation,
+      classification: classification
+        ? {
+            total: classification.stats.total,
+            auto_approved: classification.stats.auto_approved,
+            needs_review: classification.stats.needs_review,
+            unclassified: classification.stats.unclassified,
+            rule_matched: classification.stats.rule_matched,
+          }
+        : null,
+      transactions: classification
+        ? classification.classified.map((c: any) => ({
+            date: c.original.date,
+            description: c.original.description,
+            amount: c.original.amount,
+            account_name: c.account_name,
+            category: c.category,
+            confidence: c.confidence,
+            reasoning: c.reasoning,
+            source: c.source,
+            auto_approved: c.confidence >= 0.8,
+          }))
+        : [],
+      errors: classification?.errors ?? [],
     })
   })
 
@@ -211,12 +283,16 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
   })
 
   // ── POST /generate-journal-entries ────────────────────────
-  // Create draft journal entries in Odoo from approved classifications
+  // Create journal entries in Odoo from approved classifications.
+  // Pass auto_post=true to call action_post on the created moves so they hit
+  // the balance sheet / P&L immediately instead of sitting in draft.
   fastify.post('/generate-journal-entries', async (req, reply) => {
     const user = (req as any).user
     const body = req.body as {
-      bank_journal_id: number   // Odoo journal ID for bank
-      bank_account_id: number   // Odoo account.account ID for bank
+      bank_journal_id: number
+      bank_account_id: number
+      auto_post?: boolean
+      skip_transfers?: boolean
     }
 
     if (!body.bank_journal_id || !body.bank_account_id) {
@@ -229,6 +305,7 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
       user.company_id,
       body.bank_journal_id,
       body.bank_account_id,
+      { auto_post: body.auto_post === true, skip_transfers: body.skip_transfers !== false },
     )
 
     const created = result.created.filter(r => r.odoo_move_id)
@@ -236,13 +313,77 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       created: created.length,
+      posted: created.filter(r => r.posted).length,
       failed: failed.length,
       entries: created.map(r => ({
         classification_id: r.classification_id,
         odoo_move_id: r.odoo_move_id,
+        posted: r.posted ?? false,
       })),
       errors: result.errors,
     })
+  })
+
+  // ── POST /reconcile ───────────────────────────────────────
+  // Parse a statement and report whether it balances against expected opening
+  // and closing balances. Doesn't persist anything — useful as a pre-flight
+  // check before /import-and-classify.
+  fastify.post('/reconcile', async (req, reply) => {
+    const body = req.body as {
+      content: string
+      format: 'csv' | 'ofx'
+      bank?: string
+      opening_balance: number
+      closing_balance: number
+    }
+    if (!body.content || !body.format || body.opening_balance === undefined || body.closing_balance === undefined) {
+      return reply.status(400).send({ error: 'content, format, opening_balance, closing_balance required' })
+    }
+    const parsed = body.format === 'ofx'
+      ? parseOFX(body.content)
+      : parseCSV(body.content, body.bank ?? 'generic_us')
+
+    const result = reconcileBalances(parsed.lines, body.opening_balance, body.closing_balance)
+    return reply.send({
+      parsed: {
+        total_lines: parsed.lines.length,
+        parse_errors: parsed.errors,
+      },
+      reconciliation: result,
+      transfers_detected: detectTransfers(parsed.lines).length,
+    })
+  })
+
+  // ── GET /summary?year=YYYY ────────────────────────────────
+  // Executive summary for a year — totals, monthly breakdown, top vendors.
+  // Works off bank_transactions so it shows value even before AI classification.
+  fastify.get('/summary', async (req, reply) => {
+    const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const query = req.query as { year?: string }
+    const year = query.year ? Number(query.year) : new Date().getFullYear()
+    if (Number.isNaN(year)) {
+      return reply.status(400).send({ error: 'invalid year' })
+    }
+    const summary = await buildYearSummary(localCompanyId, year)
+    return reply.send(summary)
+  })
+
+  // ── POST /classifications/:id/mark-transfer ───────────────
+  // Flag a classification as an inter-account transfer so generate-journal-entries
+  // skips it. Useful when the auto-detector misses a transfer or the user imports
+  // statements from both sides of the transfer.
+  fastify.post('/classifications/:id/mark-transfer', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await db.update(transactionClassifications)
+      .set({
+        classified_category: 'transfer',
+        approved: true,
+        approved_at: new Date(),
+        updated_at: new Date(),
+      })
+      .where(eq(transactionClassifications.id, Number(id)))
+    return reply.send({ ok: true, id: Number(id), category: 'transfer' })
   })
 
   // ── GET /classification-rules ─────────────────────────────
