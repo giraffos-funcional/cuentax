@@ -25,12 +25,16 @@ export interface DedupResult {
  * Insert parsed statement lines into bank_transactions, deduplicating by
  * (bank_account_id, external_id). Returns counts and the per-line DB id so
  * downstream classifications can link back to the canonical transaction.
+ *
+ * @param currency 'USD' stores amounts as cents (x100), 'CLP' stores as integer pesos.
+ *                 Defaults to 'USD' for the US accounting flow.
  */
 export async function persistTransactions(
   companyId: number,
   bankAccountId: number,
   lines: ParsedStatementLine[],
   source: 'csv' | 'ofx' = 'csv',
+  currency: 'USD' | 'CLP' = 'USD',
 ): Promise<DedupResult> {
   if (lines.length === 0) {
     return { inserted: 0, skipped: 0, transactionIds: [] }
@@ -62,11 +66,11 @@ export async function persistTransactions(
       continue
     }
 
-    // Round to integer (cents would require schema change — bank_transactions
-    // stores bigint as integer, which matches CLP but truncates USD decimals).
-    // For US currency we multiply by 100 to preserve cents without schema churn.
-    const isUS = /\./.test(String(line.amount))
-    const storedAmount = isUS ? Math.round(line.amount * 100) : Math.round(line.amount)
+    // bank_transactions.monto is bigint (integer). For CLP that's pesos, for
+    // USD we store cents to preserve decimals without a schema change.
+    const storedAmount = currency === 'USD'
+      ? Math.round(line.amount * 100)
+      : Math.round(line.amount)
 
     const [row] = await db.insert(bankTransactions).values({
       company_id: companyId,

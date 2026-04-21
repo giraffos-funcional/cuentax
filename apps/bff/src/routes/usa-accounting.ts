@@ -90,6 +90,7 @@ export async function usaAccountingRoutes(fastify: FastifyInstance) {
       bankAccountLocalId,
       parsed.lines,
       body.format,
+      'USD',
     )
 
     // 3. Detect transfers
