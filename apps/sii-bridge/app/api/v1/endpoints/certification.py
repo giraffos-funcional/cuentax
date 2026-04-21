@@ -794,7 +794,9 @@ async def generate_libros(req: LibrosRequest):
             ),
         )
 
-    if not batch_result and not inline_resultados:
+    # AJUSTE can be sent empty (zero-totals envelope for re-submission)
+    _tipo_envio_early = (req.tipo_envio or "TOTAL").upper()
+    if not batch_result and not inline_resultados and _tipo_envio_early != "AJUSTE":
         raise HTTPException(
             status_code=400,
             detail=(
