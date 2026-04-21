@@ -301,8 +301,37 @@ Antes de cualquier merge a `main` que toque el pipeline:
 
 ## 14. Bugs conocidos (no bloqueantes)
 
-| Bug | Impacto | Workaround |
+| Bug | Impacto | Estado |
 |---|---|---|
-| Odoo 18: `account.account.code` no persiste desde red Docker del BFF | Display de códigos faltante, no afecta contabilidad | Setear codes vía RPC directo una vez por empresa |
-| Frontend: form de crear empresa sólo CL (no EIN) | No se pueden crear empresas US desde UI | Crear vía `POST /api/v1/companies` con curl (funciona) |
-| Moves post secuencial para 500+ → ~8 min | Mejorado a batch de 100 → ~30s | Ya implementado con `auto_post:true` |
+| ~~Odoo 18: `account.account.code` no persiste desde red Docker del BFF~~ | ~~Display de códigos faltante~~ | ✅ **RESUELTO** en commit `9fd5acc` — ver §15 |
+| Frontend: form de crear empresa sólo CL (no EIN) | No se pueden crear empresas US desde UI | Workaround: crear vía `POST /api/v1/companies` con curl |
+| Moves post secuencial para 500+ → ~8 min | Lentitud | ✅ **RESUELTO** — batch de 100 con `auto_post:true` (~30s) |
+
+---
+
+## 15. Solución al bug de Odoo 18 codes (referencia)
+
+**Problema original**: Al crear `account.account` en Odoo 18, el campo `code`
+es **company-dependent** (backend: `account.code.mapping`). El write vía RPC
+retornaba `true` pero no persistía cuando se hacía desde la red Docker
+interna del BFF — aun pasando `context: {company_id: X}`.
+
+**Causa raíz**: En Odoo 18 el ORM resuelve `env.company` desde el
+`res.users.company_id` del usuario autenticado, NO del context del request.
+Cuando el admin tiene default `company_id=1` y escribimos en accounts de
+`company_id=7`, el mapping se termina escribiendo bajo company 1 (o no
+se escribe), no bajo company 7.
+
+**Solución**:
+1. Antes de escribir codes, cambiar temporalmente el `res.users.company_id`
+   del admin al target company (`withAdminDefaultCompany`)
+2. Las RPC calls para ese user-swap y los writes subsiguientes deben ir por
+   la URL pública de Odoo (`ODOO_PUBLIC_URL`), no la interna
+3. Restaurar el `company_id` original en finally (siempre)
+
+**Implementación**: `OdooAccountingAdapter.withAdminDefaultCompany()` +
+`writePublic()` en `apps/bff/src/adapters/odoo-accounting.adapter.ts`.
+
+**Verificado**: `POST /accounting/setup` sobre empresa fresh genera 67
+accounts (US) o 72 (CL) con 100% de codes persistidos, visible a cualquier
+usuario que tenga esa empresa como default.
