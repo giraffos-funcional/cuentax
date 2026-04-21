@@ -14,7 +14,9 @@ Referencia: https://www.sii.cl/factura_electronica/formato_libro.pdf
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+_CHILE_TZ = timezone(timedelta(hours=-4))
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
@@ -105,7 +107,7 @@ class LibroXMLGenerator:
             self._build_detalle(envio_libro, detalle, data.tipo_operacion)
 
         # TmstFirma
-        self._elem(envio_libro, "TmstFirma", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+        self._elem(envio_libro, "TmstFirma", datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S"))
 
         logger.info(
             f"LibroCompraVenta generated: tipo={data.tipo_operacion}, "

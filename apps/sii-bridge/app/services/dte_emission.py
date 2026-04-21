@@ -13,7 +13,9 @@ Orquesta el flujo completo de emisión de un DTE:
 
 import base64
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
+
+_CHILE_TZ = timezone(timedelta(hours=-4))
 from decimal import Decimal
 from typing import Optional
 from lxml import etree
@@ -482,7 +484,7 @@ class DTEEmissionService:
             # Add TmstFirma (timestamp of DTE signature)
             SII_DTE_NS = "http://www.sii.cl/SiiDte"
             tmst = etree.SubElement(documento, f"{{{SII_DTE_NS}}}TmstFirma")
-            tmst.text = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            tmst.text = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
 
         except Exception as e:
             raise ValueError(f"TED generation failed (tipo={doc.tipo_dte} folio={doc.folio}): {e}") from e

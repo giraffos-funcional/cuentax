@@ -16,7 +16,9 @@ import base64
 import copy
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+_CHILE_TZ = timezone(timedelta(hours=-4))
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 from lxml import etree
@@ -69,7 +71,7 @@ class TimbreElectronicoService:
             lxml Element for the signed TED
         """
         if not timestamp:
-            timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
 
         # Extract CAF block as clean string (no xmlns)
         caf_str = self._get_caf_string(caf_data.caf_xml_raw)

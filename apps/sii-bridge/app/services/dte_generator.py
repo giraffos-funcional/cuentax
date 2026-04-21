@@ -10,7 +10,14 @@ Referencia: https://www.sii.cl/factura_electronica/factura_mercado/formato_dte.p
 
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Chile timezone (UTC-4, respecting non-DST as SII expects local Santiago time)
+CHILE_TZ = timezone(timedelta(hours=-4))
+
+def _chile_now() -> str:
+    """Return current Santiago time as ISO string (without timezone suffix) for SII timestamps."""
+    return datetime.now(CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 from lxml import etree
@@ -447,7 +454,7 @@ class DTEXMLGenerator:
             self._elem(caratula, "NroResol", str(settings.SII_RESOLUCION_NUMERO))
 
         # Timestamp
-        self._elem(caratula, "TmstFirmaEnv", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+        self._elem(caratula, "TmstFirmaEnv", _chile_now())
 
         # SubTotDTE: count documents by type
         tipo_counts: Counter[int] = Counter()
