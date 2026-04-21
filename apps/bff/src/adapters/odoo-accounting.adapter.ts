@@ -142,6 +142,7 @@ export class OdooAccountingAdapter {
     this.rpcUrl = `${config.ODOO_URL}/jsonrpc`
     this.webUrl = config.ODOO_URL
     this.publicRpcUrl = `${config.ODOO_PUBLIC_URL}/jsonrpc`
+    logger.info({ rpcUrl: this.rpcUrl, publicRpcUrl: this.publicRpcUrl }, 'Odoo adapter initialized')
     // Service account credentials — sourced from env, not from config constants
     // (will be wired up in .env later; fall back to empty strings so startup never crashes)
     this.adminUser = process.env['ODOO_ADMIN_USER'] ?? ''
@@ -454,6 +455,7 @@ export class OdooAccountingAdapter {
     // Routing these specific writes through the PUBLIC Odoo URL works reliably.
     if (context) {
       const result = await this.publicRpcCall(model, 'write', [ids, values], { context })
+      logger.info({ model, ids, values, context, result, via: 'publicRpcCall' }, 'Context-write result')
       return result === true
     }
     const result = await this.rpcCall(model, 'write', [ids, values])
