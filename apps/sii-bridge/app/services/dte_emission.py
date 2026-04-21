@@ -626,7 +626,8 @@ class DTEEmissionService:
                 "dvCompany": company_dv,
             },
             headers={
-                "User-Agent": "CUENTAX/1.0 (DTE SII Chile)",
+                # SII maullin filters non-browser User-Agents — use a browser-like UA
+                "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; Windows NT 5.0; YComp 5.0.2.4)",
                 "Cookie": f"TOKEN={token}",
             },
             proxies=proxies,
