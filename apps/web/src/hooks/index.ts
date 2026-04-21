@@ -1196,20 +1196,38 @@ export function useAIChat() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// USA Accounting Hooks
+// Accounting Hooks (country-agnostic, CL + US)
+// Routes under /api/v1/accounting use the JWT country_code to pick the
+// right prompt, currency, and chart of accounts template.
 // ══════════════════════════════════════════════════════════════
 
-/** Import a bank statement file and classify transactions with AI */
+interface ImportAndClassifyOptions {
+  content: string
+  format: 'csv' | 'ofx'
+  bank?: string
+  opening_balance?: number
+  closing_balance?: number
+  skip_classify?: boolean
+}
+
+/** Import a bank statement — dedup, detect transfers/refunds, optionally classify with AI */
 export function useImportAndClassify() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const importAndClassify = async (content: string, format: 'csv' | 'ofx', bank?: string) => {
+  const importAndClassify = async (
+    contentOrOpts: string | ImportAndClassifyOptions,
+    format?: 'csv' | 'ofx',
+    bank?: string,
+  ) => {
     setLoading(true)
     setError(null)
     try {
-      const result = await apiClient.post('/api/v1/usa/import-and-classify', { content, format, bank }).then(r => r.data)
-      globalMutate((key: string) => typeof key === 'string' && key.includes('/usa/'))
+      const body: ImportAndClassifyOptions = typeof contentOrOpts === 'string'
+        ? { content: contentOrOpts, format: format ?? 'csv', bank }
+        : contentOrOpts
+      const result = await apiClient.post('/api/v1/accounting/import-and-classify', body).then(r => r.data)
+      globalMutate((key: string) => typeof key === 'string' && (key.includes('/accounting/') || key.includes('/usa/')))
       return result
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Classification failed')
@@ -1222,16 +1240,37 @@ export function useImportAndClassify() {
   return { importAndClassify, loading, error }
 }
 
-/** Get classifications with optional status filter */
+/** Pre-flight: parse a statement and report balance gap vs expected closing. */
+export function useReconcileStatement() {
+  const [loading, setLoading] = useState(false)
+  const reconcile = async (opts: {
+    content: string
+    format: 'csv' | 'ofx'
+    bank?: string
+    opening_balance: number
+    closing_balance: number
+  }) => {
+    setLoading(true)
+    try {
+      return await apiClient.post('/api/v1/accounting/reconcile', opts).then(r => r.data)
+    } finally {
+      setLoading(false)
+    }
+  }
+  return { reconcile, loading }
+}
+
+/** Get classifications with optional status filter (works for CL and US). */
 export function useClassifications(status: 'pending' | 'approved' | 'all' = 'all') {
   const { data, error, isLoading, mutate } = useSWR(
-    `/api/v1/usa/classifications?status=${status}`,
+    `/api/v1/accounting/classifications?status=${status}`,
     fetcher,
     { refreshInterval: 30_000 },
   )
   return {
     classifications: data?.classifications ?? [],
     total: data?.total ?? 0,
+    country: data?.country,
     isLoading,
     error,
     mutate,
@@ -1241,35 +1280,56 @@ export function useClassifications(status: 'pending' | 'approved' | 'all' = 'all
 /** Approve a single classification (optionally with corrected account) */
 export function useApproveClassification() {
   const approve = async (id: number, update?: { account_id: number; account_name: string; category: string }) => {
-    const result = await apiClient.put(`/api/v1/usa/classifications/${id}/approve`, update ?? {}).then(r => r.data)
-    globalMutate((key: string) => typeof key === 'string' && key.includes('/usa/'))
+    const result = await apiClient.put(`/api/v1/accounting/classifications/${id}/approve`, update ?? {}).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/accounting/'))
     return result
   }
   return { approve }
 }
 
+/** Mark a classification as an inter-account transfer (skips journal generation). */
+export function useMarkTransfer() {
+  const markTransfer = async (id: number) => {
+    const result = await apiClient.post(`/api/v1/accounting/classifications/${id}/mark-transfer`).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/accounting/'))
+    return result
+  }
+  return { markTransfer }
+}
+
 /** Bulk approve multiple classifications */
 export function useBulkApprove() {
   const bulkApprove = async (ids: number[]) => {
-    const result = await apiClient.post('/api/v1/usa/bulk-approve', { ids }).then(r => r.data)
-    globalMutate((key: string) => typeof key === 'string' && key.includes('/usa/'))
+    const result = await apiClient.post('/api/v1/accounting/bulk-approve', { ids }).then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.includes('/accounting/'))
     return result
   }
   return { bulkApprove }
 }
 
-/** Generate journal entries from approved classifications */
+interface GenerateEntriesOptions {
+  bank_journal_id: number
+  bank_account_id: number
+  auto_post?: boolean
+  skip_transfers?: boolean
+}
+
+/** Generate journal entries from approved classifications. */
 export function useGenerateJournalEntries() {
   const [loading, setLoading] = useState(false)
 
-  const generate = async (bankJournalId: number, bankAccountId: number) => {
+  // Backward-compatible overloads: (journalId, accountId) OR (opts)
+  const generate = async (
+    bankJournalIdOrOpts: number | GenerateEntriesOptions,
+    bankAccountId?: number,
+  ) => {
     setLoading(true)
     try {
-      const result = await apiClient.post('/api/v1/usa/generate-journal-entries', {
-        bank_journal_id: bankJournalId,
-        bank_account_id: bankAccountId,
-      }).then(r => r.data)
-      globalMutate((key: string) => typeof key === 'string' && (key.includes('/usa/') || key.includes('/contabilidad/')))
+      const body: GenerateEntriesOptions = typeof bankJournalIdOrOpts === 'number'
+        ? { bank_journal_id: bankJournalIdOrOpts, bank_account_id: bankAccountId! }
+        : bankJournalIdOrOpts
+      const result = await apiClient.post('/api/v1/accounting/generate-entries', body).then(r => r.data)
+      globalMutate((key: string) => typeof key === 'string' && (key.includes('/accounting/') || key.includes('/contabilidad/')))
       return result
     } finally {
       setLoading(false)
@@ -1279,9 +1339,56 @@ export function useGenerateJournalEntries() {
   return { generate, loading }
 }
 
+/** Year summary with monthly breakdown, top vendors, top income sources. */
+export function useYearSummary(year: number) {
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/accounting/summary?year=${year}`,
+    fetcher,
+  )
+  return {
+    summary: data,
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+/** P&L from posted journal entries. */
+export function usePnl(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/accounting/pnl?${qs}`,
+    fetcher,
+  )
+  return {
+    pnl: data,
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+/** Trigger download of the P&L PDF for a given year/month. */
+export function downloadPnlPdf(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  const url = `/api/v1/accounting/pnl.pdf?${qs}`
+  // Use fetch with credentials so the JWT cookie/header is included
+  return apiClient.get(url, { responseType: 'blob' }).then(res => {
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = `pnl-${year}${month ? '-' + String(month).padStart(2, '0') : ''}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(objectUrl)
+  })
+}
+
 /** Get learned classification rules */
 export function useClassificationRules() {
-  const { data, error, isLoading, mutate } = useSWR('/api/v1/usa/classification-rules', fetcher)
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/accounting/classification-rules', fetcher)
   return {
     rules: data?.rules ?? [],
     isLoading,
@@ -1290,18 +1397,21 @@ export function useClassificationRules() {
   }
 }
 
-/** Run US company setup (create GAAP chart of accounts + journals) */
-export function useUSSetup() {
+/** Run company accounting setup (country-aware chart of accounts + journals) */
+export function useChartOfAccountsSetup() {
   const [loading, setLoading] = useState(false)
-
   const setup = async () => {
     setLoading(true)
     try {
-      return await apiClient.post('/api/v1/usa/setup').then(r => r.data)
+      return await apiClient.post('/api/v1/accounting/setup', {}).then(r => r.data)
     } finally {
       setLoading(false)
     }
   }
-
   return { setup, loading }
+}
+
+/** Legacy US-only setup — kept for backward compatibility. */
+export function useUSSetup() {
+  return useChartOfAccountsSetup()
 }

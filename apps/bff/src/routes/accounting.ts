@@ -611,6 +611,36 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     return reply.send({ ok: true })
   })
 
+  // ── GET /vendor-spend.csv?year=YYYY&threshold=600 ─────────
+  // Export vendor spend as CSV. For US 1099-NEC compliance the threshold
+  // defaults to $600/year (IRS requirement for contractor reporting).
+  // Works for CL too (useful for annual supplier summaries).
+  fastify.get('/vendor-spend.csv', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const query = req.query as { year?: string; threshold?: string }
+    const year = query.year ? Number(query.year) : new Date().getFullYear()
+    const threshold = query.threshold ? Number(query.threshold) : (user.country_code === 'US' ? 600 : 0)
+    const { currency } = countryDefaults(user.country_code)
+
+    const summary = await buildYearSummary(localCompanyId, year, currency)
+    const vendors = summary.top_vendors_by_spend.filter(v => v.total >= threshold)
+
+    const rows: string[] = [
+      user.country_code === 'US'
+        ? 'Vendor,Year,Total Paid (USD),Transaction Count,Over 1099 Threshold'
+        : 'Proveedor,Año,Total Pagado (CLP),Cantidad Transacciones,Sobre Umbral',
+    ]
+    for (const v of vendors) {
+      const amount = currency === 'USD' ? v.total.toFixed(2) : Math.round(v.total).toString()
+      rows.push(`"${v.vendor.replace(/"/g, '""')}",${year},${amount},${v.count},${v.total >= 600 ? 'Yes' : 'No'}`)
+    }
+
+    reply.header('Content-Type', 'text/csv; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="vendor-spend-${year}.csv"`)
+    return reply.send(rows.join('\n'))
+  })
+
   // ── POST /setup ───────────────────────────────────────────
   // Country-aware chart of accounts + journal setup. Picks the right template
   // based on the JWT's country_code. Safe to re-run — duplicates are ignored.

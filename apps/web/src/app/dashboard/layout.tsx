@@ -77,6 +77,21 @@ const NAV_ALL: NavEntry[] = [
       { href: '/dashboard/accounting/import',   icon: FileText,       label: 'Import & Classify' },
       { href: '/dashboard/accounting/classify',  icon: CheckCircle2,   label: 'Review Classifications' },
       { href: '/dashboard/accounting/entries',   icon: BookText,       label: 'Journal Entries' },
+      { href: '/dashboard/accounting/summary',   icon: TrendingUp,     label: 'Year Summary + P&L' },
+    ],
+  },
+
+  // Chile — same accounting pipeline pages (bank statements + AI classify + P&L PDF)
+  {
+    section: 'Contabilidad IA',
+    icon: BookOpen,
+    collapsible: true,
+    country: 'CL',
+    items: [
+      { href: '/dashboard/accounting/import',   icon: FileText,       label: 'Importar Cartola' },
+      { href: '/dashboard/accounting/classify',  icon: CheckCircle2,   label: 'Revisar Clasificaciones' },
+      { href: '/dashboard/accounting/entries',   icon: BookText,       label: 'Generar Asientos' },
+      { href: '/dashboard/accounting/summary',   icon: TrendingUp,     label: 'Resumen Anual + PDF' },
     ],
   },
 
