@@ -63,20 +63,20 @@ export async function generateJournalEntries(
     const isDeposit = amount > 0
     const absAmount = Math.abs(amount)
 
-    if (!classification.classified_account_id) {
-      errors.push(`Classification ${classification.id}: no account assigned`)
-      results.push({ classification_id: classification.id, odoo_move_id: null, error: 'No account assigned' })
-      continue
-    }
-
-    // Skip inter-account transfers: their classified_category is flagged and
-    // they don't represent income or expense at the company level.
+    // Skip inter-account transfers first — these typically have no account_id
+    // assigned (by design: they cancel out at the company level).
     if (skip_transfers && classification.classified_category === 'transfer') {
       results.push({
         classification_id: classification.id,
         odoo_move_id: null,
         error: 'Skipped: inter-account transfer',
       })
+      continue
+    }
+
+    if (!classification.classified_account_id) {
+      errors.push(`Classification ${classification.id}: no account assigned`)
+      results.push({ classification_id: classification.id, odoo_move_id: null, error: 'No account assigned' })
       continue
     }
 
