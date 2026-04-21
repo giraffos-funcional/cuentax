@@ -159,6 +159,7 @@ class LibrosRequest(BaseModel):
     # Optional inline data — when session was lost (e.g. after deploy)
     resultados: Optional[list[dict]] = None
     raw_test_set_path: Optional[str] = None  # path to test set file on server
+    tipo_envio: Optional[str] = "TOTAL"  # TOTAL | RECTIFICA — use RECTIFICA when a prior TOTAL exists for period
 
 
 # ── Prerequisites check ───────────────────────────────────────
@@ -826,6 +827,8 @@ async def generate_libros(req: LibrosRequest):
             detail="No compras entries found in SET LIBRO DE COMPRAS section",
         )
 
+    tipo_envio_libros = req.tipo_envio or "TOTAL"
+
     # 1. Generate and send Libro de Ventas
     # Priority: EnvioDTE XML > inline resultados > session resultados
     xml_b64 = batch_result.get("xml_envio_b64")
@@ -835,6 +838,7 @@ async def generate_libros(req: LibrosRequest):
             rut_emisor=rut_emisor,
             periodo=periodo,
             folio_notificacion=folio_ventas,
+            tipo_envio=tipo_envio_libros,
         )
     elif inline_resultados:
         resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
@@ -843,6 +847,7 @@ async def generate_libros(req: LibrosRequest):
             periodo=periodo,
             folio_notificacion=folio_ventas,
             fecha_doc=fecha_emision,
+            tipo_envio=tipo_envio_libros,
         )
     elif batch_result.get("resultados"):
         resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
@@ -851,6 +856,7 @@ async def generate_libros(req: LibrosRequest):
             periodo=periodo,
             folio_notificacion=folio_ventas,
             fecha_doc=fecha_emision,
+            tipo_envio=tipo_envio_libros,
         )
     else:
         raise HTTPException(
@@ -866,6 +872,7 @@ async def generate_libros(req: LibrosRequest):
         folio_notificacion=folio_compras,
         fct_prop=fct_prop,
         fecha_doc=fecha_emision,
+        tipo_envio=tipo_envio_libros,
     )
 
     # Store results in session

@@ -66,6 +66,7 @@ class LibroEmissionService:
         rut_emisor: str,
         periodo: str,
         folio_notificacion: str,
+        tipo_envio: str = "TOTAL",
     ) -> dict:
         """
         Generate and send Libro de Ventas from an EnvioDTE XML.
@@ -108,7 +109,7 @@ class LibroEmissionService:
             fch_resol=settings.SII_CERT_RESOLUCION_FECHA or "2014-08-22",
             nro_resol="0",
             tipo_libro="ESPECIAL",
-            tipo_envio="TOTAL",
+            tipo_envio=tipo_envio,
             folio_notificacion=folio_notificacion,
             detalles=detalles,
         )
@@ -122,6 +123,7 @@ class LibroEmissionService:
         periodo: str,
         folio_notificacion: str,
         fecha_doc: str = "",
+        tipo_envio: str = "TOTAL",
     ) -> dict:
         """
         Generate and send Libro de Ventas from batch emission resultados.
@@ -182,7 +184,7 @@ class LibroEmissionService:
             fch_resol=settings.SII_CERT_RESOLUCION_FECHA or "2014-08-22",
             nro_resol="0",
             tipo_libro="ESPECIAL",
-            tipo_envio="TOTAL",
+            tipo_envio=tipo_envio,
             folio_notificacion=folio_notificacion,
             detalles=detalles,
         )
@@ -197,6 +199,7 @@ class LibroEmissionService:
         folio_notificacion: str,
         fct_prop: Optional[Decimal] = None,
         fecha_doc: Optional[str] = None,
+        tipo_envio: str = "TOTAL",
     ) -> dict:
         """
         Generate and send Libro de Compras from parsed compras entries.
@@ -235,7 +238,7 @@ class LibroEmissionService:
             fch_resol=settings.SII_CERT_RESOLUCION_FECHA or "2014-08-22",
             nro_resol="0",
             tipo_libro="ESPECIAL",
-            tipo_envio="TOTAL",
+            tipo_envio=tipo_envio,
             folio_notificacion=folio_notificacion,
             detalles=detalles,
             fct_prop=fct_prop,
