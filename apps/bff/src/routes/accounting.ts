@@ -679,9 +679,9 @@ export async function accountingRoutes(fastify: FastifyInstance) {
             companyContext,
           )
           if (accountId) {
-            // With the user default aligned, the code now persists via plain
-            // write — no context shenanigans needed.
-            await odooAccountingAdapter.write(
+            // Admin default is aligned to target company; use the PUBLIC URL
+            // route which actually persists Odoo 18 company-dependent fields.
+            await odooAccountingAdapter.writePublic(
               'account.account',
               [accountId],
               { code: acct.code },

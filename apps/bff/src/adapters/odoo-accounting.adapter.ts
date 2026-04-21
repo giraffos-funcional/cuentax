@@ -460,6 +460,21 @@ export class OdooAccountingAdapter {
     return result === true
   }
 
+  /**
+   * Write company-dependent fields (Odoo 18 account.code.mapping-backed).
+   * Always goes through the public URL — the internal Docker call silently
+   * drops these writes. Expects the caller to have aligned the admin user's
+   * default company via withAdminDefaultCompany().
+   */
+  async writePublic(
+    model: string,
+    ids: number[],
+    values: Record<string, unknown>,
+  ): Promise<boolean> {
+    const result = await this.publicRpcCall(model, 'write', [ids, values])
+    return result === true
+  }
+
   /** Get the authenticated admin UID (cached after first call). */
   async getAdminUid(): Promise<number | null> {
     const session = await this.ensureAuth()
@@ -482,8 +497,10 @@ export class OdooAccountingAdapter {
     const uid = await this.getAdminUid()
     if (!uid) throw new Error('Odoo admin UID not available')
 
-    // Read current default
-    const current = await this.rpcCall('res.users', 'read', [[uid], ['company_id']]) as
+    // Use the PUBLIC URL for res.users reads/writes — same reason codes
+    // don't persist via the internal route (Odoo handles cross-user updates
+    // differently when the request comes from inside the Docker network).
+    const current = await this.publicRpcCall('res.users', 'read', [[uid], ['company_id']]) as
       | Array<{ company_id: [number, string] }>
       | null
     const originalCompanyId = current?.[0]?.company_id?.[0] ?? 1
@@ -494,11 +511,11 @@ export class OdooAccountingAdapter {
     }
 
     // Switch, run, restore
-    await this.rpcCall('res.users', 'write', [[uid], { company_id: targetCompanyId }])
+    await this.publicRpcCall('res.users', 'write', [[uid], { company_id: targetCompanyId }])
     try {
       return await fn()
     } finally {
-      await this.rpcCall('res.users', 'write', [[uid], { company_id: originalCompanyId }])
+      await this.publicRpcCall('res.users', 'write', [[uid], { company_id: originalCompanyId }])
         .catch((e) => logger.error({ e, uid, originalCompanyId }, 'Failed to restore admin default company'))
     }
   }
