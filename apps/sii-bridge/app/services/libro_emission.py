@@ -465,21 +465,16 @@ class LibroEmissionService:
             mnt_afecto = entry.get("mnt_afecto", 0)
             observaciones = entry.get("observaciones", "").upper()
 
-            # NC/ND paper vs electronic resolution via reference. The SET de
-            # Pruebas LC block names every credit/debit note as "NOTA DE
-            # CREDITO" or "NOTA DE DEBITO" without distinguishing paper from
-            # electronic. The observaciones however reference the parent
-            # document: if the referenced document is electronic ("FACTURA
-            # ELECTRONICA"), the note itself is also electronic, so the
-            # TpoDoc must be upgraded 60→61 (NC) or 55→56 (ND).
-            # SII "IECV" schema requires TpoDoc to match the document's
-            # medium; mismatching causes "Numero de Lineas de Resumen No
-            # Cuadra" because SII groups references.
-            if "ELECTRONICA" in observaciones or "ELECTR" in observaciones:
-                if tipo_doc == 60:
-                    tipo_doc = 61
-                elif tipo_doc == 55:
-                    tipo_doc = 56
+            # NC/ND TpoDoc is determined by the document name in the SET
+            # (parser + COMPRA_TIPO_DOC_MAP), NOT by the observaciones text.
+            # Prior iterations upgraded 60→61 when observaciones referenced
+            # an "ELECTRONICA" document — but that incorrectly created an
+            # extra TotalesPeriodo row (61) not expected by the SET checker,
+            # which caused "El Numero de Lineas de Resumen No Cuadra"
+            # (SET 4788786 rejection for track 247765032).
+            # SET 4788786 LC expects rows: {30, 33, 46, 60} — both NCs are
+            # paper (60). Leave tipo_doc as mapped from the SET document
+            # name.
 
             # Calculate IVA from monto afecto
             mnt_neto = mnt_afecto
