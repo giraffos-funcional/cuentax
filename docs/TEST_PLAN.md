@@ -299,6 +299,93 @@ Antes de cualquier merge a `main` que toque el pipeline:
 
 ---
 
+## 16. Módulo de Centros de Costo (analytic dimensions)
+
+Feature genérica que funciona para cualquier cliente: propiedades (Airbnb),
+proyectos (construcción), casos (law firm), locales (retail), departamentos, etc.
+Backed by Odoo's `account.analytic.account` + `account.analytic.plan`.
+
+### 16.1 Schema
+
+| Test | Tipo | Aceptación |
+|---|---|---|
+| Migration 0004 applied | 🖐️ | `cost_centers` table + FK `cost_center_id` on `transaction_classifications` |
+| Prerequisite: admin user has group "Analytic Accounting" (id=16) | 🖐️ | `res.users.groups_id` contains 16 — otherwise Odoo rejects creates with permission error |
+
+### 16.2 CRUD
+
+| Test | Tipo | Aceptación |
+|---|---|---|
+| POST /accounting/cost-centers creates in Odoo + local | ✅ integ | Returns row with `odoo_analytic_id` populated |
+| Create with plan_name creates analytic.plan if missing | ✅ integ | Plan reusable across centers |
+| GET /accounting/cost-centers | ✅ integ | Returns only active centers for current company |
+| PUT /accounting/cost-centers/:id updates keywords | ✅ integ | Round-trip visible in subsequent GET |
+| DELETE deactivates (soft) | ✅ integ | `active=false`, existing classifications keep tag |
+| POST /cost-centers/sync pulls unknown analytic accounts from Odoo | ✅ integ | Bulk-imports existing analytic data |
+
+### 16.3 Keyword matching
+
+| Test | Tipo | Aceptación |
+|---|---|---|
+| `matchCostCenterByKeywords` case-insensitive substring | ✅ unit | 5 tests cover match, miss, tie-break, empty, no keywords |
+| Longest keyword wins tie | ✅ unit | "PROV 101" beats "PROV" |
+| Auto-tag endpoint retroactively tags | ✅ integ | POST /cost-centers/auto-tag updates untagged classifications |
+| Real-data validation | ✅ manual | 4/5 seed transactions tagged correctly; "TRANSBANK" stays untagged (expected) |
+
+### 16.4 Airbnb parser
+
+| Test | Tipo | Aceptación |
+|---|---|---|
+| EN headers (Date, Type, Listing, Amount, Host Fee, ...) | ✅ unit | Parses correctly |
+| ES headers (Fecha, Tipo, Anuncio, Monto, Comisión del anfitrión) | ✅ unit | Parses correctly |
+| Skips Payout rows (only keeps Reservation) | ✅ unit | `unsupported_rows` counted separately |
+| Extracts unique listings with counts + totals | ✅ unit | Sorted by total gross |
+| Computes end_date from start + nights | ✅ unit | ISO string |
+| Detects date range | ✅ unit | min/max of reservation_date |
+| Matches listings to cost_center.airbnb_listing | ✅ integ | 3/3 listings mapped when airbnb_listing set |
+| Suggests by partial name match | ✅ integ | `suggested_cost_center_id` when no exact match |
+
+### 16.5 Journal entries with analytic distribution
+
+| Test | Tipo | Aceptación |
+|---|---|---|
+| Classification with cost_center_id → move line has `analytic_distribution` | ✅ integ | Shape: `{"<odoo_analytic_id>": 100}` |
+| Bank line does NOT carry analytic distribution | ✅ design | Only expense/income line |
+| Move post preserves analytic_distribution | ✅ integ | Visible on `account.move.line` after post |
+
+### 16.6 P&L reports
+
+| Test | Tipo | Aceptación |
+|---|---|---|
+| GET /accounting/cost-center-pnl?year=YYYY | ✅ integ | Returns `by_center[]` + totals |
+| Buckets by analytic_distribution keys | ✅ design | Splits multi-plan shares correctly |
+| Untagged lines go to `(sin centro)` bucket | ✅ integ | Special bucket `cost_center_id: null` |
+| Sorted by net_income descending | ✅ integ | |
+| GET /accounting/cost-center-pnl.pdf | ✅ integ | Multi-page PDF: summary + one page per center |
+| Bilingual PDF (CL: Estado de Resultados, US: P&L) | ✅ design | |
+
+### 16.7 Frontend pages
+
+| Page | Reachable | Funcionalidad |
+|---|---|---|
+| /dashboard/accounting/cost-centers | ✅ HTTP 200 | CRUD, keywords, search, sync, auto-tag |
+| /dashboard/accounting/cost-center-pnl | ✅ HTTP 200 | Year/month picker, expandable per-center, PDF |
+| /dashboard/accounting/airbnb | ✅ HTTP 200 | CSV upload, listings mapping, create-center inline |
+| Nav: "Centros de Costo" en CL | ✅ | Bajo sección "Contabilidad IA" |
+| Nav: "Cost Centers" en US | ✅ | Bajo sección "Accounting" |
+
+### 16.8 Unit tests
+
+```
+src/__tests__/cost-center.test.ts — 12 tests:
+  matchCostCenterByKeywords (5 tests)
+  parseAirbnbCsv (7 tests)
+```
+
+Total del test suite: **56 tests pasando**.
+
+---
+
 ## 14. Bugs conocidos (no bloqueantes)
 
 | Bug | Impacto | Estado |
