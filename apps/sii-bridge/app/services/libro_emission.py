@@ -493,20 +493,16 @@ class LibroEmissionService:
 
             if "RETENCION TOTAL" in observaciones or "RETENCI" in observaciones:
                 # Factura de compra (TpoDoc 46) con retencion total del IVA.
-                # Per IECV manual: when the buyer retains 100% of the IVA, the
-                # operation does NOT produce IVA recuperable for the buyer.
-                # Therefore in the Libro de Compras Detalle:
-                #   - MntIVA = 0 (no IVA propio/recuperable)
-                #   - IVARetTotal = iva_calc (flag of amount retained)
-                #   - MntTotal = MntNeto + MntExe (no IVA included — the
-                #     retained amount is declared separately via IVARetTotal,
-                #     not summed into MntTotal).
-                # The SET checker validates TotMntTotal per TpoDoc and rejects
-                # "El Monto Total No Cuadra" if MntTotal includes the retained
-                # IVA, and "No Informa Adecuadamente IVA Retenido Total" if
-                # MntIVA is non-zero while IVARetTotal is present.
+                # Empirically validated against SII SET checker (iter 1 and 2):
+                #   - MntIVA must equal MntNeto * TasaImp (NOT 0) — SET checker
+                #     validates "El Monto IVA No Cuadra" when MntIVA=0.
+                #   - MntTotal = MntNeto + MntExe (NO IVA added) — since the
+                #     buyer retains 100% of the IVA, the amount payable is
+                #     just the net.  SET checker rejects "El Monto Total No
+                #     Cuadra" when MntTotal includes the retained IVA.
+                #   - IVARetTotal = iva_calc (amount retained, goes to SII).
                 iva_ret_total = iva_calc
-                mnt_iva = 0
+                mnt_iva = iva_calc
                 mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
