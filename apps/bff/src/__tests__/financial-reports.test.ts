@@ -11,17 +11,17 @@ vi.mock('@/adapters/odoo-accounting.adapter', () => ({ odooAccountingAdapter: {}
 
 describe('financial reports: module load', () => {
   it('balance-sheet.service exports buildBalanceSheet', async () => {
-    const m = await import('@/services/balance-sheet.service')
+    const m = await import('@/services/balance-sheet.service.js')
     expect(typeof m.buildBalanceSheet).toBe('function')
   })
 
   it('cash-flow.service exports buildCashFlow', async () => {
-    const m = await import('@/services/cash-flow.service')
+    const m = await import('@/services/cash-flow.service.js')
     expect(typeof m.buildCashFlow).toBe('function')
   })
 
   it('budget.service exports buildBudgetVariance + CRUD', async () => {
-    const m = await import('@/services/budget.service')
+    const m = await import('@/services/budget.service.js')
     expect(typeof m.buildBudgetVariance).toBe('function')
     expect(typeof m.listBudgets).toBe('function')
     expect(typeof m.upsertBudget).toBe('function')
@@ -29,7 +29,7 @@ describe('financial reports: module load', () => {
   })
 
   it('exchange-rate.service exports convert + CRUD', async () => {
-    const m = await import('@/services/exchange-rate.service')
+    const m = await import('@/services/exchange-rate.service.js')
     expect(typeof m.convert).toBe('function')
     expect(typeof m.listRates).toBe('function')
     expect(typeof m.setRate).toBe('function')
@@ -39,7 +39,7 @@ describe('financial reports: module load', () => {
 
 describe('balance-sheet-pdf: generate without crashing', () => {
   it('generates a PDF buffer for an empty report', async () => {
-    const { generateBalanceSheetPdf } = await import('@/services/balance-sheet-pdf.service')
+    const { generateBalanceSheetPdf } = await import('@/services/balance-sheet-pdf.service.js')
     const buf = await generateBalanceSheetPdf({
       country: 'US',
       company_name: 'Test Inc',
@@ -65,7 +65,7 @@ describe('balance-sheet-pdf: generate without crashing', () => {
 
 describe('cash-flow-pdf: generate without crashing', () => {
   it('generates a PDF buffer for an empty period (CL spanish)', async () => {
-    const { generateCashFlowPdf } = await import('@/services/cash-flow-pdf.service')
+    const { generateCashFlowPdf } = await import('@/services/cash-flow-pdf.service.js')
     const buf = await generateCashFlowPdf({
       country: 'CL',
       company_name: 'Inversiones Franic Ltda',
