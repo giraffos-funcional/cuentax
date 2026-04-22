@@ -44,8 +44,9 @@ class LibroDetalle:
     # Libro de Compras specific fields
     iva_propio: int = 0          # IVA con derecho a credito fiscal
     iva_uso_comun: int = 0       # IVA uso comun
-    iva_ret_total: int = 0       # IVA retencion total (factura de compra)
+    iva_ret_total: int = 0       # IVA retencion total (LV semantic per XSD)
     iva_no_retenido: int = 0     # IVA no retenido
+    mnt_sin_cred: int = 0        # LC: monto impuesto sin derecho a credito (FCE retenc. total)
     # IVA No Recuperable (subelement IVANoRec)
     iva_no_rec_cod: int = 0      # CodIVANoRec (1-9). 0 = no aplica
     iva_no_rec_mnt: int = 0      # MntIVANoRec
@@ -179,6 +180,7 @@ class LibroXMLGenerator:
             tot_op_iva_ret_total = 0
             tot_iva_no_retenido = 0
             tot_op_iva_no_retenido = 0
+            tot_imp_sin_credito = 0
             # IVA No Recuperable grouped by CodIVANoRec
             iva_no_rec_by_cod: dict[int, dict[str, int]] = {}
 
@@ -203,6 +205,8 @@ class LibroXMLGenerator:
                 if d.iva_no_retenido:
                     tot_iva_no_retenido += d.iva_no_retenido
                     tot_op_iva_no_retenido += 1
+                if d.mnt_sin_cred:
+                    tot_imp_sin_credito += d.mnt_sin_cred
                 if d.iva_no_rec_cod and d.iva_no_rec_mnt:
                     bucket = iva_no_rec_by_cod.setdefault(
                         d.iva_no_rec_cod, {"cnt": 0, "mnt": 0}
@@ -244,9 +248,16 @@ class LibroXMLGenerator:
                         self._elem(totales, "TotCredIVAUsoComun", str(cred_iva))
                 # TotIVAPropio is LV-semantic per XSD docs ("IVA Propio en
                 # Operaciones a Cuenta de Terceros (LV)") — do NOT emit in LC.
-                if tot_iva_ret_total:
-                    self._elem(totales, "TotOpIVARetTotal", str(tot_op_iva_ret_total))
-                    self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
+                # TotImpSinCredito (LC, XSD line 364) — for FCE TpoDoc 46 with
+                # retencion total, the retained IVA goes here (not in
+                # TotOpIVARetTotal/TotIVARetTotal which are LV-only per XSD).
+                if tot_imp_sin_credito:
+                    self._elem(totales, "TotImpSinCredito", str(tot_imp_sin_credito))
+                # TotOpIVARetTotal / TotIVARetTotal are (LV) per XSD lines
+                # 369/379 — only emit when tipo_operacion == VENTA.
+            if data.tipo_operacion == "VENTA" and tot_iva_ret_total:
+                self._elem(totales, "TotOpIVARetTotal", str(tot_op_iva_ret_total))
+                self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
 
             self._elem(totales, "TotMntTotal", str(tot_total))
 
@@ -299,7 +310,8 @@ class LibroXMLGenerator:
 
         # Libro de Compras: strict XSD Detalle sequence per LibroCV_v10.xsd:
         # MntIVA → IVANoRec* → IVAUsoComun → [IVAPropio is LV-only] →
-        # IVARetTotal → MntTotal → IVANoRetenido
+        # MntSinCred (LC) → MntTotal → IVANoRetenido
+        # Note: IVARetTotal/IVARetParcial at line 1239/1244 are (LV) per XSD.
         if tipo_operacion == "COMPRA":
             if det.iva_no_rec_cod and det.iva_no_rec_mnt:
                 iva_no_rec = etree.SubElement(detalle, "IVANoRec")
@@ -308,6 +320,10 @@ class LibroXMLGenerator:
             if det.iva_uso_comun:
                 self._elem(detalle, "IVAUsoComun", str(det.iva_uso_comun))
             # IVAPropio omitted — LV-semantic per XSD documentation.
+            # MntSinCred (XSD line 1234, LC) for FCE with retencion total.
+            if det.mnt_sin_cred:
+                self._elem(detalle, "MntSinCred", str(det.mnt_sin_cred))
+        elif tipo_operacion == "VENTA":
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
 

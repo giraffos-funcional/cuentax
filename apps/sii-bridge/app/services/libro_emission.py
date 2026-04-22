@@ -490,19 +490,22 @@ class LibroEmissionService:
             iva_no_retenido = 0
             iva_no_rec_cod = 0
             iva_no_rec_mnt = 0
+            mnt_sin_cred = 0
 
             if "RETENCION TOTAL" in observaciones or "RETENCI" in observaciones:
                 # Factura de compra (TpoDoc 46) con retencion total del IVA.
-                # Empirically validated against SII SET checker (iter 1 and 2):
-                #   - MntIVA must equal MntNeto * TasaImp (NOT 0) — SET checker
-                #     validates "El Monto IVA No Cuadra" when MntIVA=0.
-                #   - MntTotal = MntNeto + MntExe (NO IVA added) — since the
-                #     buyer retains 100% of the IVA, the amount payable is
-                #     just the net.  SET checker rejects "El Monto Total No
-                #     Cuadra" when MntTotal includes the retained IVA.
-                #   - IVARetTotal = iva_calc (amount retained, goes to SII).
-                iva_ret_total = iva_calc
-                mnt_iva = iva_calc
+                # Empirically validated against SII SET checker:
+                #   iter 1 (MntIVA=iva, MntTotal=Neto+IVA+Exe) → "Monto Total No Cuadra"
+                #   iter 2 (MntIVA=0, MntTotal=Neto+Exe)       → "Monto IVA No Cuadra"
+                #   iter 3 (MntIVA=iva, IVARetTotal=iva)       → "No Informa Adec. IVA Ret. Total"
+                # Root cause: IVARetTotal & TotOpIVARetTotal/TotIVARetTotal are
+                # (LV) fields per XSD LibroCV_v10 lines 369/379/1239. In LC
+                # the retained IVA must be reported via:
+                #   Detalle: MntIVA=0, MntSinCred=iva_calc (XSD line 1234, LC).
+                #   Resumen: TotMntIVA=0, TotImpSinCredito=iva_calc (XSD line 364, LC).
+                # MntTotal = Neto + Exe (buyer retains 100% of IVA, pays only net).
+                mnt_iva = 0
+                mnt_sin_cred = iva_calc
                 mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
@@ -561,6 +564,7 @@ class LibroEmissionService:
                     iva_no_retenido=iva_no_retenido,
                     iva_no_rec_cod=iva_no_rec_cod,
                     iva_no_rec_mnt=iva_no_rec_mnt,
+                    mnt_sin_cred=mnt_sin_cred,
                     es_nota_credito=es_nc,
                 )
             )
