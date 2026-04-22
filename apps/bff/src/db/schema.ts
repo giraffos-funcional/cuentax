@@ -491,6 +491,8 @@ export const transactionClassifications = pgTable('transaction_classifications',
   confidence:          real('confidence'),  // 0.0 to 1.0
   classification_source: classificationSourceEnum('classification_source').default('ai'),
   ai_reasoning:        text('ai_reasoning'),
+  // Cost center (analytic dimension): tags the posting for per-center P&L
+  cost_center_id:      integer('cost_center_id'),  // FK added post-migration to avoid cycle
   // Approval workflow
   approved:            boolean('approved').default(false),
   approved_by:         integer('approved_by'),
@@ -504,6 +506,7 @@ export const transactionClassifications = pgTable('transaction_classifications',
   companyIdx:    index('tc_company_idx').on(t.company_id),
   approvedIdx:   index('tc_approved_idx').on(t.company_id, t.approved),
   dateIdx:       index('tc_date_idx').on(t.original_date),
+  costCenterIdx: index('tc_cost_center_idx').on(t.cost_center_id),
 }))
 
 export const classificationRules = pgTable('classification_rules', {
@@ -521,6 +524,42 @@ export const classificationRules = pgTable('classification_rules', {
   patternIdx:    index('cr_pattern_idx').on(t.company_id, t.vendor_pattern),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// COST CENTERS (Analytic Accounts)
+// ══════════════════════════════════════════════════════════════
+// Each cost center mirrors an Odoo account.analytic.account. The local row
+// adds: keyword matching for AI-assisted tagging and Airbnb listing names.
+// Clients use this generic dimension for properties, projects, cases, stores,
+// departments, etc. — whatever makes sense for their business.
+//
+export const costCenters = pgTable('cost_centers', {
+  id:               serial('id').primaryKey(),
+  company_id:       integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  odoo_analytic_id: integer('odoo_analytic_id').notNull(),
+  odoo_plan_id:     integer('odoo_plan_id'),
+  plan_name:        varchar('plan_name', { length: 100 }),
+  name:             varchar('name', { length: 200 }).notNull(),
+  code:             varchar('code', { length: 50 }),
+  // Keywords to match in bank transaction descriptions. Array of strings.
+  // When any keyword appears (case-insensitive) in a description, the AI
+  // classifier will suggest this cost center.
+  keywords:         jsonb('keywords').default([]).notNull(),
+  // Exact Listing name as it appears in an Airbnb Transaction History export.
+  // Used to map Airbnb earnings to the right cost center.
+  airbnb_listing:   varchar('airbnb_listing', { length: 200 }),
+  // Optional hierarchy (parent cost center). Most clients won't use this.
+  parent_id:        integer('parent_id'),
+  active:           boolean('active').default(true),
+  notes:            text('notes'),
+  created_at:       timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:       timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx:  index('cc_company_idx').on(t.company_id),
+  odooIdx:     uniqueIndex('cc_company_odoo_idx').on(t.company_id, t.odoo_analytic_id),
+  activeIdx:   index('cc_active_idx').on(t.company_id, t.active),
+  listingIdx:  index('cc_airbnb_listing_idx').on(t.company_id, t.airbnb_listing),
+}))
+
 // ── Relations ─────────────────────────────────────────────────
 export const transactionClassificationsRelations = relations(transactionClassifications, ({ one }) => ({
   company: one(companies, { fields: [transactionClassifications.company_id], references: [companies.id] }),
@@ -529,6 +568,11 @@ export const transactionClassificationsRelations = relations(transactionClassifi
 
 export const classificationRulesRelations = relations(classificationRules, ({ one }) => ({
   company: one(companies, { fields: [classificationRules.company_id], references: [companies.id] }),
+}))
+
+export const costCentersRelations = relations(costCenters, ({ one, many }) => ({
+  company: one(companies, { fields: [costCenters.company_id], references: [companies.id] }),
+  classifications: many(transactionClassifications),
 }))
 
 export const companiesRelations = relations(companies, ({ many }) => ({
@@ -545,6 +589,7 @@ export const companiesRelations = relations(companies, ({ many }) => ({
   gastos: many(gastos),
   transactionClassifications: many(transactionClassifications),
   classificationRules: many(classificationRules),
+  costCenters: many(costCenters),
 }))
 
 export const purchaseOrdersRelations = relations(purchaseOrders, ({ one }) => ({

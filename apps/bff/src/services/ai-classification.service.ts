@@ -11,6 +11,7 @@ import { db } from '@/db/client'
 import { transactionClassifications, classificationRules } from '@/db/schema'
 import { logger } from '@/core/logger'
 import type { ParsedStatementLine } from './bank-import.service'
+import { matchCostCenterByKeywords, type CostCenterRow } from './cost-center.service'
 
 // ── Types ────────────────────────────────────────────────────
 export interface ClassifiedTransaction {
@@ -21,6 +22,7 @@ export interface ClassifiedTransaction {
   confidence: number    // 0.0 to 1.0
   reasoning: string
   source: 'ai' | 'rule'
+  cost_center_id?: number | null   // Matched cost center from keywords (post-classify)
 }
 
 export interface ClassificationBatch {
@@ -302,6 +304,7 @@ export async function classifyTransactions(
   accounts: ChartAccount[],
   bankTransactionIds?: number[],
   country: ClassifyCountry = 'US',
+  costCenters: CostCenterRow[] = [],
 ): Promise<ClassificationBatch> {
   const errors: string[] = []
 
@@ -359,6 +362,14 @@ export async function classifyTransactions(
     }
   }
 
+  // 2.5 Attach cost_center_id by keyword match (uses each line's description)
+  if (costCenters.length > 0) {
+    for (const c of allClassified) {
+      const matchedId = matchCostCenterByKeywords(c.original.description, costCenters)
+      if (matchedId) c.cost_center_id = matchedId
+    }
+  }
+
   // 3. Save to DB
   const dbRows = allClassified.map(c => ({
     company_id: companyId,
@@ -372,6 +383,7 @@ export async function classifyTransactions(
     confidence: c.confidence,
     classification_source: c.source as 'ai' | 'manual' | 'rule',
     ai_reasoning: c.reasoning,
+    cost_center_id: c.cost_center_id ?? null,
     approved: c.confidence >= HIGH_CONFIDENCE,
     approved_at: c.confidence >= HIGH_CONFIDENCE ? new Date() : null,
   }))

@@ -5,9 +5,9 @@
  * Creates proper double-entry bookkeeping: Bank ↔ Expense/Revenue accounts.
  */
 
-import { eq, and, isNull } from 'drizzle-orm'
+import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { transactionClassifications } from '@/db/schema'
+import { transactionClassifications, costCenters } from '@/db/schema'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
 import { logger } from '@/core/logger'
 
@@ -55,6 +55,16 @@ export async function generateJournalEntries(
     return { created: [], errors: [] }
   }
 
+  // Preload cost centers for this company so we can attach analytic_distribution
+  // to each line. One SELECT, then an O(1) lookup per classification.
+  const ccRows = await db.select({
+    id: costCenters.id,
+    odoo_analytic_id: costCenters.odoo_analytic_id,
+  })
+    .from(costCenters)
+    .where(eq(costCenters.company_id, companyId))
+  const ccByLocalId = new Map(ccRows.map(r => [r.id, r.odoo_analytic_id]))
+
   const results: JournalEntryResult[] = []
   const errors: string[] = []
 
@@ -80,9 +90,24 @@ export async function generateJournalEntries(
       continue
     }
 
-    // Build double-entry journal entry
+    // If this classification is tagged with a cost center, attach the
+    // analytic distribution so the move lines feed per-center P&L reports.
+    // Format (Odoo 18): { "<analytic_account_id>": <percent> }
+    const analyticDist = classification.cost_center_id
+      ? (() => {
+          const odooId = ccByLocalId.get(classification.cost_center_id!)
+          return odooId ? { [String(odooId)]: 100 } : undefined
+        })()
+      : undefined
+
+    // Build double-entry journal entry.
     // Deposit: Debit Bank, Credit Revenue/Income
     // Payment: Debit Expense, Credit Bank
+    // The non-bank line gets the analytic distribution (the cost center
+    // pertains to the income/expense, not to the bank balance).
+    const nonBankLineExtras: Record<string, unknown> = {}
+    if (analyticDist) nonBankLineExtras.analytic_distribution = analyticDist
+
     const lines = isDeposit
       ? [
           [0, 0, {
@@ -96,6 +121,7 @@ export async function generateJournalEntries(
             name: classification.original_description ?? 'Bank deposit',
             debit: 0,
             credit: absAmount,
+            ...nonBankLineExtras,
           }],
         ]
       : [
@@ -104,6 +130,7 @@ export async function generateJournalEntries(
             name: classification.original_description ?? 'Bank payment',
             debit: absAmount,
             credit: 0,
+            ...nonBankLineExtras,
           }],
           [0, 0, {
             account_id: bankAccountId,

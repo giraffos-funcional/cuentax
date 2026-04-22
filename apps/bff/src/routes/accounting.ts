@@ -47,7 +47,19 @@ import {
   ensureDefaultBankAccount,
 } from '@/services/bank-reconciliation.service'
 import { generatePnlPdf, type PnlData } from '@/services/pnl-pdf.service'
-import { companies } from '@/db/schema'
+import {
+  createCostCenter,
+  listCostCenters,
+  updateCostCenter,
+  deactivateCostCenter,
+  syncCostCentersFromOdoo,
+  autoTagClassifications,
+  assignCostCenter,
+  bulkAssignCostCenter,
+  buildCostCenterPnl,
+} from '@/services/cost-center.service'
+import { parseAirbnbCsv } from '@/services/airbnb-parser.service'
+import { companies, costCenters as costCentersTable } from '@/db/schema'
 import { getLocalCompanyId } from '@/core/company-resolver'
 
 interface AuthedUser {
@@ -158,6 +170,9 @@ export async function accountingRoutes(fastify: FastifyInstance) {
       logger.warn({ err }, 'Failed to fetch chart of accounts')
     }
 
+    // Preload cost centers so the classifier can auto-tag by keywords
+    const companyCostCenters = await listCostCenters(localCompanyId)
+
     let classification = null as null | { stats: any; classified: any[]; errors: string[] }
     if (!body.skip_classify) {
       try {
@@ -174,6 +189,7 @@ export async function accountingRoutes(fastify: FastifyInstance) {
           accounts,
           txIds,
           classifyCountry,
+          companyCostCenters,
         )
         classification = result
       } catch (err) {
@@ -609,6 +625,210 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     await db.delete(classificationRules)
       .where(eq(classificationRules.id, Number(id)))
     return reply.send({ ok: true })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // COST CENTERS (analytic dimensions — works for any business)
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /cost-centers ────────────────────────────────────
+  fastify.get('/cost-centers', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const rows = await listCostCenters(localCompanyId)
+    return reply.send({ cost_centers: rows, total: rows.length })
+  })
+
+  // ── POST /cost-centers ───────────────────────────────────
+  fastify.post('/cost-centers', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as {
+      name: string
+      code?: string
+      plan_name?: string
+      keywords?: string[]
+      airbnb_listing?: string
+      notes?: string
+    }
+    if (!body.name || body.name.trim().length === 0) {
+      return reply.status(400).send({ error: 'name is required' })
+    }
+    try {
+      const row = await createCostCenter(localCompanyId, user.company_id, {
+        name: body.name.trim(),
+        code: body.code?.trim(),
+        plan_name: body.plan_name?.trim(),
+        keywords: (body.keywords ?? []).map(k => k.trim()).filter(Boolean),
+        airbnb_listing: body.airbnb_listing?.trim(),
+        notes: body.notes,
+      })
+      return reply.send(row)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown'
+      return reply.status(500).send({ error: 'create_failed', message: msg })
+    }
+  })
+
+  // ── PUT /cost-centers/:id ────────────────────────────────
+  fastify.put('/cost-centers/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as {
+      name?: string
+      code?: string
+      keywords?: string[]
+      airbnb_listing?: string
+      notes?: string
+    }
+    const updated = await updateCostCenter(Number(id), {
+      name: body.name,
+      code: body.code,
+      keywords: body.keywords,
+      airbnb_listing: body.airbnb_listing,
+      notes: body.notes,
+    })
+    if (!updated) return reply.status(404).send({ error: 'not_found' })
+    return reply.send(updated)
+  })
+
+  // ── DELETE /cost-centers/:id ─────────────────────────────
+  // Soft-delete (deactivates). Classifications already tagged remain tagged.
+  fastify.delete('/cost-centers/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await deactivateCostCenter(Number(id))
+    return reply.send({ ok: true, id: Number(id) })
+  })
+
+  // ── POST /cost-centers/sync ──────────────────────────────
+  // Pull analytic accounts already in Odoo that aren't in our local mirror.
+  // Useful when customer already had analytic setup before CuentaX.
+  fastify.post('/cost-centers/sync', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const result = await syncCostCentersFromOdoo(localCompanyId, user.company_id)
+    return reply.send(result)
+  })
+
+  // ── POST /cost-centers/auto-tag ──────────────────────────
+  // Re-run keyword matching over every untagged classification for this
+  // company. Call after adding/editing keywords to tag historical data.
+  fastify.post('/cost-centers/auto-tag', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const result = await autoTagClassifications(localCompanyId)
+    return reply.send(result)
+  })
+
+  // ── POST /classifications/:id/assign-cost-center ────────
+  fastify.post('/classifications/:id/assign-cost-center', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as { cost_center_id: number | null }
+    await assignCostCenter(Number(id), body.cost_center_id ?? null)
+    return reply.send({ ok: true, id: Number(id), cost_center_id: body.cost_center_id ?? null })
+  })
+
+  // ── POST /bulk-assign-cost-center ────────────────────────
+  fastify.post('/bulk-assign-cost-center', async (req, reply) => {
+    const body = req.body as { ids: number[]; cost_center_id: number | null }
+    if (!Array.isArray(body.ids) || body.ids.length === 0) {
+      return reply.status(400).send({ error: 'ids array required' })
+    }
+    const n = await bulkAssignCostCenter(body.ids, body.cost_center_id ?? null)
+    return reply.send({ ok: true, assigned_count: n })
+  })
+
+  // ── GET /cost-center-pnl?year=YYYY&month=M ──────────────
+  fastify.get('/cost-center-pnl', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const query = req.query as { year?: string; month?: string }
+    const year = query.year ? Number(query.year) : new Date().getFullYear()
+    const month = query.month ? Number(query.month) : undefined
+    if (Number.isNaN(year)) return reply.status(400).send({ error: 'invalid year' })
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildCostCenterPnl(
+      localCompanyId, user.company_id, year, month, currency,
+    )
+    return reply.send(report)
+  })
+
+  // ── GET /cost-center-pnl.pdf?year=YYYY&month=M ──────────
+  // Same data, rendered as a multi-page PDF: one page per cost center +
+  // one consolidated summary page.
+  fastify.get('/cost-center-pnl.pdf', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const query = req.query as { year?: string; month?: string }
+    const year = query.year ? Number(query.year) : new Date().getFullYear()
+    const month = query.month ? Number(query.month) : undefined
+    if (Number.isNaN(year)) return reply.status(400).send({ error: 'invalid year' })
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildCostCenterPnl(
+      localCompanyId, user.company_id, year, month, currency,
+    )
+
+    // Fetch company for header
+    const [company] = await db.select().from(companies)
+      .where(eq(companies.id, localCompanyId)).limit(1)
+
+    const { generateCostCenterPnlPdf } = await import('@/services/cost-center-pnl-pdf.service.js')
+    const buffer = await generateCostCenterPnlPdf({
+      country: (user.country_code === 'US' ? 'US' : 'CL'),
+      company_name: company?.razon_social ?? user.company_name ?? 'Company',
+      company_tax_id: company?.tax_id ?? company?.rut ?? '',
+      report,
+    })
+    const filename = `pnl-por-centro-${year}${month ? '-' + String(month).padStart(2, '0') : ''}.pdf`
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(buffer)
+  })
+
+  // ── POST /airbnb/import ──────────────────────────────────
+  // Upload an Airbnb Transaction History CSV. Returns detected reservations
+  // + listings, plus mapping status (which listings have a matching cost
+  // center). Does NOT create journal entries yet — use /airbnb/post to commit
+  // once mappings are reviewed.
+  fastify.post('/airbnb/import', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as { content: string }
+    if (!body.content) return reply.status(400).send({ error: 'content required' })
+
+    const parsed = parseAirbnbCsv(body.content)
+    const centers = await listCostCenters(localCompanyId)
+
+    // Map each detected listing → cost center (by exact airbnb_listing match,
+    // then by name containment as a fallback suggestion)
+    const byListing = new Map(centers
+      .filter(c => c.airbnb_listing)
+      .map(c => [c.airbnb_listing!.toLowerCase(), c]))
+    const listingMap = parsed.listings.map(l => {
+      const exact = byListing.get(l.name.toLowerCase())
+      // Fallback: partial match on center name
+      const fallback = !exact
+        ? centers.find(c => c.name.toLowerCase().includes(l.name.toLowerCase().split(' ')[0] ?? ''))
+        : null
+      return {
+        listing: l.name,
+        reservation_count: l.count,
+        total_gross: l.total_gross,
+        matched_cost_center_id: exact?.id ?? null,
+        matched_cost_center_name: exact?.name ?? null,
+        suggested_cost_center_id: fallback?.id ?? null,
+        suggested_cost_center_name: fallback?.name ?? null,
+      }
+    })
+
+    return reply.send({
+      currency: parsed.detected_currency,
+      date_range: parsed.date_range,
+      unsupported_rows: parsed.unsupported_rows,
+      parse_errors: parsed.parse_errors,
+      reservation_count: parsed.reservations.length,
+      reservations: parsed.reservations.slice(0, 100),
+      listings: listingMap,
+    })
   })
 
   // ── GET /vendor-spend.csv?year=YYYY&threshold=600 ─────────
