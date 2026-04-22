@@ -16,7 +16,9 @@ import {
 } from 'recharts'
 import {
   useYearSummary, usePnl, useBalanceSheetV2 as useBalanceSheet, useCashFlowV2 as useCashFlow, useBudgetVariance, useCostCenterPnl,
+  useAlerts, useCompanyMetrics,
 } from '@/hooks'
+import { AlertTriangle, Info } from 'lucide-react'
 import { useLocale } from '@/contexts/locale-context'
 
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#84cc16']
@@ -33,6 +35,8 @@ export default function AccountingDashboard() {
   const { report: cf } = useCashFlow(year)
   const { report: variance } = useBudgetVariance(year)
   const { report: ccPnl } = useCostCenterPnl(year)
+  const { alerts } = useAlerts()
+  const { metrics } = useCompanyMetrics()
 
   const isCL = country === 'CL'
   const L = isCL
@@ -80,6 +84,57 @@ export default function AccountingDashboard() {
           {[currentYear, currentYear - 1, currentYear - 2].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
       </div>
+
+      {/* Alerts banner */}
+      {alerts.length > 0 && (
+        <section className="space-y-2">
+          {alerts.slice(0, 3).map((a: any) => {
+            const sevColor = a.severity === 'critical' ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                          : a.severity === 'warning'  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                          : 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+            const Icon = a.severity === 'critical' ? AlertTriangle : a.severity === 'warning' ? AlertCircle : Info
+            const title = isCL ? a.title_es : a.title
+            const detail = isCL ? a.detail_es : a.detail
+            return (
+              <div key={a.id} className={`rounded-lg border px-4 py-3 flex items-start gap-3 ${sevColor}`}>
+                <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{title}</p>
+                  <p className="text-xs opacity-75 mt-0.5">{detail}</p>
+                </div>
+                {a.action_href && (
+                  <a href={a.action_href} className="text-xs font-medium hover:underline whitespace-nowrap">
+                    {isCL ? 'Ver →' : 'View →'}
+                  </a>
+                )}
+              </div>
+            )
+          })}
+          {alerts.length > 3 && (
+            <p className="text-xs text-zinc-500 pl-2">
+              {isCL ? `Y ${alerts.length - 3} más alertas...` : `+${alerts.length - 3} more alerts`}
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Metrics strip */}
+      {metrics && (
+        <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+            <MiniKpi label={isCL ? 'Tx banco (año)' : 'Bank txs (year)'}
+                     value={metrics.bank.this_year} />
+            <MiniKpi label={isCL ? 'Pendientes' : 'Pending review'}
+                     value={metrics.classification.pending} />
+            <MiniKpi label={isCL ? 'Confianza IA' : 'AI confidence'}
+                     value={`${(metrics.classification.avg_confidence * 100).toFixed(0)}%`} />
+            <MiniKpi label={isCL ? 'Asientos posteados' : 'Posted entries'}
+                     value={metrics.journal_entries.total_posted} />
+            <MiniKpi label={isCL ? 'Costo IA aprox' : 'AI cost est.'}
+                     value={`$${metrics.ai_cost_estimate.estimated_usd.toFixed(2)}`} />
+          </div>
+        </section>
+      )}
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -228,6 +283,15 @@ export default function AccountingDashboard() {
         <QuickLink href="/dashboard/accounting/budgets"           label={L.budget}      icon={<Activity className="w-5 h-5" />} />
         <QuickLink href="/dashboard/accounting/reports"           label={L.balance}     icon={<Scale className="w-5 h-5" />} />
       </div>
+    </div>
+  )
+}
+
+function MiniKpi({ label, value }: any) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-zinc-500 truncate">{label}</span>
+      <span className="font-mono font-bold text-white shrink-0">{value}</span>
     </div>
   )
 }

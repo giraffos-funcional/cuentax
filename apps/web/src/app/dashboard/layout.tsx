@@ -80,6 +80,7 @@ const NAV_ALL: NavEntry[] = [
       { href: '/dashboard/accounting/entries',           icon: BookText,       label: 'Journal Entries' },
       { href: '/dashboard/accounting/summary',           icon: TrendingUp,     label: 'Year Summary + P&L' },
       { href: '/dashboard/accounting/reports',           icon: Scale,          label: 'Balance & Cash Flow' },
+      { href: '/dashboard/accounting/advanced-reports',  icon: FileText,       label: 'Trial Balance & Ledger' },
       { href: '/dashboard/accounting/cost-centers',      icon: Folders,        label: 'Cost Centers' },
       { href: '/dashboard/accounting/cost-center-pnl',   icon: PieChart,       label: 'P&L by Cost Center' },
       { href: '/dashboard/accounting/budgets',           icon: Tag,            label: 'Budgets vs Actuals' },
@@ -101,6 +102,7 @@ const NAV_ALL: NavEntry[] = [
       { href: '/dashboard/accounting/entries',           icon: BookText,       label: 'Generar Asientos' },
       { href: '/dashboard/accounting/summary',           icon: TrendingUp,     label: 'Resumen Anual + PDF' },
       { href: '/dashboard/accounting/reports',           icon: Scale,          label: 'Balance y Flujo de Caja' },
+      { href: '/dashboard/accounting/advanced-reports',  icon: FileText,       label: 'Balance Comprob. y Libro Mayor' },
       { href: '/dashboard/accounting/cost-centers',      icon: Folders,        label: 'Centros de Costo' },
       { href: '/dashboard/accounting/cost-center-pnl',   icon: PieChart,       label: 'P&L por Centro' },
       { href: '/dashboard/accounting/budgets',           icon: Tag,            label: 'Presupuestos' },
@@ -308,8 +310,15 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
   const [companyList, setCompanyList] = useState<Array<{ id: number, name: string, rut: string }>>([])
   const [favoriteId, setFavoriteId] = useState<number | null>(null)
   const [form, setForm] = useState({
-    rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '',
+    country_code: 'CL' as 'CL' | 'US',
+    // Chile fields
+    rut: '', giro: '',
+    // US fields
+    ein: '', state: '', zip_code: '',
+    // Shared
+    razon_social: '', direccion: '', comuna: '', ciudad: '', email: '', telefono: '',
   })
+  const [einError, setEinError] = useState('')
 
   // Fetch companies and favorite from API
   const fetchCompanies = () => {
@@ -374,6 +383,24 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     }
   }
 
+  const validateEIN = (ein: string): boolean => {
+    // US EIN format: XX-XXXXXXX (2 digits, dash, 7 digits) — empty is allowed (optional)
+    if (!ein) return true
+    return /^\d{2}-?\d{7}$/.test(ein.trim())
+  }
+  const formatEIN = (ein: string): string => {
+    const clean = ein.replace(/[^\d]/g, '')
+    if (clean.length > 2) return `${clean.slice(0, 2)}-${clean.slice(2, 9)}`
+    return clean
+  }
+  const handleEinChange = (value: string) => {
+    const formatted = formatEIN(value)
+    setForm(f => ({ ...f, ein: formatted }))
+    if (formatted.length >= 10) {
+      setEinError(validateEIN(formatted) ? '' : 'EIN inválido — formato XX-XXXXXXX')
+    } else { setEinError('') }
+  }
+
   const validateRut = (rut: string): boolean => {
     const cleaned = rut.replace(/\./g, '').replace(/-/g, '').toUpperCase()
     if (cleaned.length < 8 || cleaned.length > 9) return false
@@ -419,17 +446,49 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     }
   }
 
+  const resetForm = () => setForm({
+    country_code: 'CL',
+    rut: '', giro: '',
+    ein: '', state: '', zip_code: '',
+    razon_social: '', direccion: '', comuna: '', ciudad: '', email: '', telefono: '',
+  })
+
   const handleCreate = async () => {
-    if (!form.rut.trim() || !form.razon_social.trim() || !form.giro.trim()) return
-    if (!validateRut(form.rut)) { setRutError('RUT inválido'); return }
+    // Country-specific validation
+    if (form.country_code === 'CL') {
+      if (!form.rut.trim() || !form.razon_social.trim() || !form.giro.trim()) return
+      if (!validateRut(form.rut)) { setRutError('RUT inválido'); return }
+    } else {
+      // US: razon_social required; EIN optional but must be valid format if provided
+      if (!form.razon_social.trim()) return
+      if (form.ein && !validateEIN(form.ein)) { setEinError('EIN inválido'); return }
+    }
     setCreating(true)
     try {
-      await apiClient.post('/api/v1/companies', form)
+      // Build country-specific payload
+      const payload: any = {
+        country_code: form.country_code,
+        razon_social: form.razon_social,
+        direccion: form.direccion,
+        email: form.email,
+        telefono: form.telefono,
+      }
+      if (form.country_code === 'CL') {
+        payload.rut = form.rut
+        payload.giro = form.giro
+        payload.comuna = form.comuna
+      } else {
+        if (form.ein) payload.ein = form.ein
+        payload.ciudad = form.ciudad
+        payload.state = form.state
+        payload.zip_code = form.zip_code
+      }
+      await apiClient.post('/api/v1/companies', payload)
       setShowCreate(false)
-      setForm({ rut: '', razon_social: '', giro: '', direccion: '', comuna: '', email: '', telefono: '' })
+      resetForm()
       fetchCompanies()
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'Error creando empresa'
+      const msg = err?.response?.data?.message ?? err?.response?.data?.error ?? 'Error creando empresa'
       alert(msg)
     } finally {
       setCreating(false)
@@ -543,66 +602,175 @@ function CompanySwitcher({ collapsed }: { collapsed: boolean }) {
     </>
   )
 
-  function renderCreateModal() { return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="card p-6 w-full max-w-lg mx-4 shadow-xl">
-            <h2 className="text-base font-bold text-[var(--cx-text-primary)] mb-4">Nueva Empresa</h2>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+  function renderCreateModal() {
+    const isCL = form.country_code === 'CL'
+    const isFormValid = isCL
+      ? (form.rut.trim() && form.razon_social.trim() && form.giro.trim() && !rutError)
+      : (form.razon_social.trim() && !einError)
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+        <div className="card p-6 w-full max-w-lg mx-4 shadow-xl max-h-[90vh] overflow-y-auto">
+          <h2 className="text-base font-bold text-[var(--cx-text-primary)] mb-4">
+            {isCL ? 'Nueva Empresa' : 'New Company'}
+          </h2>
+
+          {/* Country selector */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-2">
+              {isCL ? 'País' : 'Country'} *
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button"
+                onClick={() => setForm(f => ({ ...f, country_code: 'CL' }))}
+                className={`py-2 rounded-lg text-sm font-medium border transition ${
+                  isCL ? 'bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] text-[var(--cx-active-text)]'
+                       : 'bg-[var(--cx-bg-surface)] border-[var(--cx-border-light)] text-[var(--cx-text-secondary)]'
+                }`}>
+                🇨🇱 Chile
+              </button>
+              <button type="button"
+                onClick={() => setForm(f => ({ ...f, country_code: 'US' }))}
+                className={`py-2 rounded-lg text-sm font-medium border transition ${
+                  !isCL ? 'bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] text-[var(--cx-active-text)]'
+                        : 'bg-[var(--cx-bg-surface)] border-[var(--cx-border-light)] text-[var(--cx-text-secondary)]'
+                }`}>
+                🇺🇸 United States
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {/* Country-specific tax ID + business name */}
+            <div className="grid grid-cols-2 gap-3">
+              {isCL ? (
                 <div>
                   <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT *</label>
                   <div className="flex gap-2">
-                    <input value={form.rut} onChange={e => handleRutChange(e.target.value)} placeholder="76.543.210-K" className={`input-field text-sm flex-1 ${rutError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : ''}`} />
-                    <button
-                      type="button"
-                      onClick={handleLookupSII}
+                    <input value={form.rut} onChange={e => handleRutChange(e.target.value)}
+                      placeholder="76.543.210-K"
+                      className={`input-field text-sm flex-1 ${rutError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : ''}`} />
+                    <button type="button" onClick={handleLookupSII}
                       disabled={lookingUp || !form.rut.trim() || !!rutError}
-                      className="btn-secondary text-xs px-3 py-2 whitespace-nowrap shrink-0"
-                    >
+                      className="btn-secondary text-xs px-3 py-2 whitespace-nowrap shrink-0">
                       {lookingUp ? '...' : 'Buscar SII'}
                     </button>
                   </div>
                   {rutError && <p className="text-[11px] text-[var(--cx-status-error-text)] mt-0.5">{rutError}</p>}
                 </div>
+              ) : (
                 <div>
-                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razón Social *</label>
-                  <input value={form.razon_social} onChange={e => setForm(f => ({ ...f, razon_social: e.target.value }))} placeholder="Mi Empresa SpA" className="input-field text-sm" />
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">EIN</label>
+                  <input value={form.ein} onChange={e => handleEinChange(e.target.value)}
+                    placeholder="XX-XXXXXXX"
+                    maxLength={10}
+                    className={`input-field text-sm ${einError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : ''}`} />
+                  {einError
+                    ? <p className="text-[11px] text-[var(--cx-status-error-text)] mt-0.5">{einError}</p>
+                    : <p className="text-[11px] text-[var(--cx-text-muted)] mt-0.5">Optional — Employer Identification Number</p>}
                 </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">
+                  {isCL ? 'Razón Social *' : 'Company Name *'}
+                </label>
+                <input value={form.razon_social}
+                  onChange={e => setForm(f => ({ ...f, razon_social: e.target.value }))}
+                  placeholder={isCL ? 'Mi Empresa SpA' : 'My Company Inc'}
+                  className="input-field text-sm" />
               </div>
+            </div>
+
+            {/* Giro only for CL */}
+            {isCL && (
               <div>
                 <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Giro *</label>
-                <input value={form.giro} onChange={e => setForm(f => ({ ...f, giro: e.target.value }))} placeholder="Desarrollo de Software" className="input-field text-sm" />
+                <input value={form.giro}
+                  onChange={e => setForm(f => ({ ...f, giro: e.target.value }))}
+                  placeholder="Desarrollo de Software"
+                  className="input-field text-sm" />
               </div>
+            )}
+
+            {/* Address fields (different layout per country) */}
+            {isCL ? (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Dirección</label>
-                  <input value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} placeholder="Av. Providencia 123" className="input-field text-sm" />
+                  <input value={form.direccion}
+                    onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))}
+                    placeholder="Av. Providencia 123" className="input-field text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Comuna</label>
-                  <input value={form.comuna} onChange={e => setForm(f => ({ ...f, comuna: e.target.value }))} placeholder="Providencia" className="input-field text-sm" />
+                  <input value={form.comuna}
+                    onChange={e => setForm(f => ({ ...f, comuna: e.target.value }))}
+                    placeholder="Providencia" className="input-field text-sm" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+            ) : (
+              <>
                 <div>
-                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Email</label>
-                  <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="contacto@empresa.cl" className="input-field text-sm" type="email" />
+                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Street Address</label>
+                  <input value={form.direccion}
+                    onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))}
+                    placeholder="123 Main St" className="input-field text-sm" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Teléfono</label>
-                  <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} placeholder="+56 9 1234 5678" className="input-field text-sm" />
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">City</label>
+                    <input value={form.ciudad}
+                      onChange={e => setForm(f => ({ ...f, ciudad: e.target.value }))}
+                      placeholder="Miami" className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">State</label>
+                    <input value={form.state}
+                      onChange={e => setForm(f => ({ ...f, state: e.target.value.toUpperCase() }))}
+                      maxLength={2} placeholder="FL" className="input-field text-sm font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">ZIP</label>
+                    <input value={form.zip_code}
+                      onChange={e => setForm(f => ({ ...f, zip_code: e.target.value }))}
+                      maxLength={10} placeholder="33101" className="input-field text-sm font-mono" />
+                  </div>
                 </div>
+              </>
+            )}
+
+            {/* Contact (same for both) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Email</label>
+                <input type="email" value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder={isCL ? 'contacto@empresa.cl' : 'contact@company.com'}
+                  className="input-field text-sm" />
               </div>
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button onClick={handleCreate} disabled={creating || !form.rut.trim() || !form.razon_social.trim() || !form.giro.trim() || !!rutError} className="btn-primary flex-1 justify-center">
-                {creating ? 'Creando...' : 'Crear Empresa'}
-              </button>
-              <button onClick={() => setShowCreate(false)} className="btn-secondary">Cancelar</button>
+              <div>
+                <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">
+                  {isCL ? 'Teléfono' : 'Phone'}
+                </label>
+                <input value={form.telefono}
+                  onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))}
+                  placeholder={isCL ? '+56 9 1234 5678' : '+1 305 555 1234'}
+                  className="input-field text-sm" />
+              </div>
             </div>
           </div>
+
+          <div className="flex gap-3 mt-5">
+            <button onClick={handleCreate} disabled={creating || !isFormValid}
+              className="btn-primary flex-1 justify-center">
+              {creating ? (isCL ? 'Creando...' : 'Creating...') : (isCL ? 'Crear Empresa' : 'Create Company')}
+            </button>
+            <button onClick={() => { setShowCreate(false); resetForm() }} className="btn-secondary">
+              {isCL ? 'Cancelar' : 'Cancel'}
+            </button>
+          </div>
         </div>
-      )
+      </div>
+    )
   }
 }
 

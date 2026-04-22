@@ -6,8 +6,11 @@
  */
 
 import { useState } from 'react'
-import { CheckCircle2, XCircle, ChevronDown, Loader2, CheckCheck } from 'lucide-react'
-import { useClassifications, useApproveClassification, useBulkApprove } from '@/hooks'
+import { CheckCircle2, XCircle, ChevronDown, Loader2, CheckCheck, Home, Tag } from 'lucide-react'
+import {
+  useClassifications, useApproveClassification, useBulkApprove,
+  useBulkAssignCostCenter, useCostCentersV2 as useCostCenters,
+} from '@/hooks'
 import { useLocale } from '@/contexts/locale-context'
 
 export default function ClassifyPage() {
@@ -16,9 +19,25 @@ export default function ClassifyPage() {
   const { classifications, total, isLoading, mutate } = useClassifications(statusFilter)
   const { approve } = useApproveClassification()
   const { bulkApprove } = useBulkApprove()
+  const { bulk: bulkAssignCC } = useBulkAssignCostCenter()
+  const { costCenters } = useCostCenters()
 
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [approving, setApproving] = useState(false)
+  const [bulkCcId, setBulkCcId] = useState<string>('')
+  const [assigningCc, setAssigningCc] = useState(false)
+
+  const handleBulkAssignCostCenter = async () => {
+    if (selected.size === 0 || bulkCcId === '') return
+    setAssigningCc(true)
+    try {
+      const ccId = bulkCcId === 'null' ? null : Number(bulkCcId)
+      await bulkAssignCC(Array.from(selected), ccId)
+      setSelected(new Set())
+      setBulkCcId('')
+      mutate()
+    } finally { setAssigningCc(false) }
+  }
 
   const toggleSelect = (id: number) => {
     setSelected(prev => {
@@ -82,16 +101,38 @@ export default function ClassifyPage() {
             <option value="all">All</option>
           </select>
 
-          {/* Bulk Approve */}
+          {/* Bulk actions appear only when rows are selected */}
           {selected.size > 0 && (
-            <button
-              onClick={handleBulkApprove}
-              disabled={approving}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-            >
-              {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCheck className="w-4 h-4" />}
-              Approve {selected.size} selected
-            </button>
+            <>
+              {/* Bulk assign cost center */}
+              <div className="flex items-center gap-1">
+                <Home className="w-4 h-4 text-zinc-400" />
+                <select value={bulkCcId} onChange={e => setBulkCcId(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white min-w-[160px]">
+                  <option value="">Assign cost center...</option>
+                  <option value="null">(Clear / no center)</option>
+                  {costCenters.map((c: any) => (
+                    <option key={c.id} value={String(c.id)}>{c.name}</option>
+                  ))}
+                </select>
+                <button onClick={handleBulkAssignCostCenter}
+                  disabled={!bulkCcId || assigningCc}
+                  className="flex items-center gap-1 bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+                  {assigningCc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Tag className="w-4 h-4" />}
+                  Apply
+                </button>
+              </div>
+
+              {/* Bulk Approve */}
+              <button
+                onClick={handleBulkApprove}
+                disabled={approving}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+              >
+                {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCheck className="w-4 h-4" />}
+                Approve {selected.size} selected
+              </button>
+            </>
           )}
         </div>
       </div>

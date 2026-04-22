@@ -18,6 +18,11 @@ const US_BANKS = [
   { value: 'chase',       label: 'Chase' },
   { value: 'bofa',        label: 'Bank of America' },
   { value: 'wells_fargo', label: 'Wells Fargo' },
+  { value: 'mercury',     label: 'Mercury' },
+  { value: 'brex',        label: 'Brex' },
+  { value: 'ramp',        label: 'Ramp' },
+  { value: 'relay',       label: 'Relay' },
+  { value: 'stripe',      label: 'Stripe (Payouts)' },
   { value: 'generic_us',  label: 'Other / Generic (US)' },
 ]
 
@@ -27,6 +32,8 @@ const CL_BANKS = [
   { value: 'santander',   label: 'Santander' },
   { value: 'bancochile',  label: 'Banco de Chile' },
   { value: 'itau',        label: 'Itaú' },
+  { value: 'tenpo',       label: 'Tenpo' },
+  { value: 'mach',        label: 'Mach' },
   { value: 'generic',     label: 'Otro / Genérico' },
 ]
 

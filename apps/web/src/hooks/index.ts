@@ -1706,3 +1706,155 @@ export function useDeleteExchangeRate() {
   }
   return { remove }
 }
+
+// ══════════════════════════════════════════════════════════════
+// Trial Balance / General Ledger / Aged AR-AP / 1099 / Alerts / Metrics
+// ══════════════════════════════════════════════════════════════
+
+export function useTrialBalance(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  const { data, error, isLoading, mutate } = useSWR(`/api/v1/accounting/trial-balance?${qs}`, fetcher)
+  return { report: data, isLoading, error, mutate }
+}
+
+export function downloadTrialBalancePdf(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  return apiClient.get(`/api/v1/accounting/trial-balance.pdf?${qs}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `trial-balance-${year}${month ? '-' + String(month).padStart(2, '0') : ''}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export function useGeneralLedgerV2(year: number, accountCode?: string) {
+  const params = new URLSearchParams({ year: String(year) })
+  if (accountCode) params.set('account_code', accountCode)
+  const { data, error, isLoading, mutate } = useSWR(`/api/v1/accounting/general-ledger?${params}`, fetcher)
+  return { report: data, isLoading, error, mutate }
+}
+
+export function downloadGeneralLedgerCsv(year: number, accountCode?: string) {
+  const params = new URLSearchParams({ year: String(year) })
+  if (accountCode) params.set('account_code', accountCode)
+  return apiClient.get(`/api/v1/accounting/general-ledger.csv?${params}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `general-ledger-${year}.csv`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export function useAgedReport(kind: 'AR' | 'AP', asOf?: string) {
+  const date = asOf ?? new Date().toISOString().slice(0, 10)
+  const path = kind === 'AR' ? 'aged-ar' : 'aged-ap'
+  const { data, error, isLoading, mutate } = useSWR(`/api/v1/accounting/${path}?as_of=${date}`, fetcher)
+  return { report: data, isLoading, error, mutate }
+}
+
+export function downloadAgedCsv(kind: 'AR' | 'AP', asOf?: string) {
+  const date = asOf ?? new Date().toISOString().slice(0, 10)
+  const path = kind === 'AR' ? 'aged-ar' : 'aged-ap'
+  return apiClient.get(`/api/v1/accounting/${path}.csv?as_of=${date}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `${path}-${date}.csv`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export function download1099Pdf(year: number, threshold: number = 600) {
+  return apiClient.get(`/api/v1/accounting/1099-nec.pdf?year=${year}&threshold=${threshold}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `1099-nec-${year}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export function useAlerts(config?: { budget_variance_pct?: number; low_cash?: number; pending_days?: number; no_import_days?: number }) {
+  const params = new URLSearchParams()
+  if (config?.budget_variance_pct !== undefined) params.set('budget_variance_pct', String(config.budget_variance_pct))
+  if (config?.low_cash !== undefined) params.set('low_cash', String(config.low_cash))
+  if (config?.pending_days !== undefined) params.set('pending_days', String(config.pending_days))
+  if (config?.no_import_days !== undefined) params.set('no_import_days', String(config.no_import_days))
+  const qs = params.toString()
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/accounting/alerts${qs ? '?' + qs : ''}`, fetcher,
+    { refreshInterval: 60_000 },
+  )
+  return { alerts: data?.alerts ?? [], total: data?.total ?? 0, isLoading, error, mutate }
+}
+
+export function useCompanyMetrics() {
+  const { data, error, isLoading, mutate } = useSWR('/api/v1/accounting/metrics', fetcher)
+  return { metrics: data, isLoading, error, mutate }
+}
+
+export function useKeywordTemplates() {
+  const { data, error, isLoading } = useSWR('/api/v1/accounting/keyword-templates', fetcher)
+  return { templates: data?.templates ?? [], isLoading, error }
+}
+
+export function useBulkUpdateClassifications() {
+  const bulkUpdate = async (payload: {
+    ids: number[]
+    classified_account_id?: number | null
+    classified_account_name?: string | null
+    classified_category?: string | null
+    cost_center_id?: number | null
+    approve?: boolean
+  }) => {
+    const r = await apiClient.post('/api/v1/accounting/classifications/bulk-update', payload).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/classifications'))
+    return r
+  }
+  return { bulkUpdate }
+}
+
+// Async import for large files
+export function useAsyncImport() {
+  const [loading, setLoading] = useState(false)
+  const importAsync = async (body: any) => {
+    setLoading(true)
+    try {
+      return await apiClient.post('/api/v1/accounting/import-and-classify/async', body).then(res => res.data)
+    } finally { setLoading(false) }
+  }
+  return { importAsync, loading }
+}
+
+export function useImportJobStatus(jobId: string | null) {
+  const { data, error, isLoading } = useSWR(
+    jobId ? `/api/v1/accounting/import-jobs/${jobId}` : null,
+    fetcher,
+    { refreshInterval: 2000 },
+  )
+  return { status: data, isLoading, error }
+}
+
+// Budget period expansion (quarterly/annual)
+export function usePeriodBudget() {
+  const setPeriod = async (payload: {
+    account_code: string
+    account_name?: string
+    cost_center_id?: number | null
+    period: 'month' | 'quarter' | 'year'
+    year: number
+    quarter_or_month?: number
+    amount: number
+  }) => {
+    const r = await apiClient.post('/api/v1/accounting/budgets/period', payload).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && (k.includes('/budgets') || k.includes('/budget-variance')))
+    return r
+  }
+  return { setPeriod }
+}
