@@ -567,6 +567,11 @@ async function bootstrap() {
     await startDTEStatusPoller()
     await startPreviredScraper()
     await startRCVSync()
+
+    // Bank import async worker (for large CSVs)
+    const { startBankImportWorker } = await import('./jobs/bank-import.js')
+    startBankImportWorker()
+    logger.info('🔄 Bank import worker started')
   } catch (err) {
     logger.error(err, 'Error al iniciar BFF')
     process.exit(1)

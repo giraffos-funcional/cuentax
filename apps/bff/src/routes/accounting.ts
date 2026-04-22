@@ -22,7 +22,7 @@
  */
 
 import type { FastifyInstance } from 'fastify'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { authGuard } from '@/middlewares/auth-guard'
 import { logger } from '@/core/logger'
 import { db } from '@/db/client'
@@ -52,8 +52,12 @@ import { generateBalanceSheetPdf } from '@/services/balance-sheet-pdf.service'
 import { buildCashFlow } from '@/services/cash-flow.service'
 import { generateCashFlowPdf } from '@/services/cash-flow-pdf.service'
 import {
-  listBudgets, upsertBudget, bulkUpsertBudgets, deleteBudget, buildBudgetVariance,
+  listBudgets, upsertBudget, bulkUpsertBudgets, deleteBudget, buildBudgetVariance, expandPeriodBudget,
 } from '@/services/budget.service'
+import { buildAlerts } from '@/services/alerts.service'
+import { buildTrialBalance, buildGeneralLedger } from '@/services/trial-balance.service'
+import { generateTrialBalancePdf } from '@/services/trial-balance-pdf.service'
+import { buildAgedReport } from '@/services/aged-ar-ap.service'
 import {
   listRates, setRate, bulkSetRates, deleteRate, convert,
 } from '@/services/exchange-rate.service'
@@ -95,6 +99,51 @@ function countryDefaults(country: string): {
 
 export async function accountingRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
+
+  // ── POST /import-and-classify/async ──────────────────────
+  // Queue a large CSV import as a background job. Returns job_id, poll
+  // GET /import-jobs/:id for progress. Use this when synchronous import
+  // would risk a browser timeout (>1000 transactions recommended).
+  fastify.post('/import-and-classify/async', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const body = req.body as {
+      content: string
+      format: 'csv' | 'ofx'
+      bank?: string
+      opening_balance?: number
+      closing_balance?: number
+      skip_classify?: boolean
+    }
+    if (!body.content || !body.format) {
+      return reply.status(400).send({ error: 'content and format are required' })
+    }
+    const defaults = countryDefaults(user.country_code)
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const { bankImportQueue } = await import('@/jobs/bank-import.js')
+    const job = await bankImportQueue.add('import', {
+      company_id: localCompanyId,
+      odoo_company_id: user.company_id,
+      company_name: user.company_name,
+      country_code: user.country_code,
+      content: body.content,
+      format: body.format,
+      bank: body.bank ?? defaults.defaultBank,
+      currency: defaults.currency,
+      opening_balance: body.opening_balance,
+      closing_balance: body.closing_balance,
+      skip_classify: body.skip_classify,
+    })
+    return reply.send({ job_id: String(job.id), status: 'queued' })
+  })
+
+  // ── GET /import-jobs/:id ─────────────────────────────────
+  fastify.get('/import-jobs/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const { getImportJobStatus } = await import('@/jobs/bank-import.js')
+    const status = await getImportJobStatus(id)
+    if (!status) return reply.status(404).send({ error: 'job_not_found' })
+    return reply.send({ job_id: id, ...status })
+  })
 
   // ── POST /import-and-classify ─────────────────────────────
   fastify.post('/import-and-classify', async (req, reply) => {
@@ -161,24 +210,9 @@ export async function accountingRoutes(fastify: FastifyInstance) {
       reconciliation = reconcileBalances(parsed.lines, body.opening_balance, body.closing_balance)
     }
 
-    // Fetch chart of accounts (Odoo 18 company_ids M2M)
-    let accounts: Array<{ id: number; code: string; name: string; account_type: string }> = []
-    try {
-      const raw = await odooAccountingAdapter.searchRead(
-        'account.account',
-        [['company_ids', 'in', [user.company_id]]],
-        ['id', 'code', 'name', 'account_type'],
-        { limit: 500, context: { allowed_company_ids: [user.company_id], company_id: user.company_id } },
-      ) as Array<{ id: number; code: string | false; name: string; account_type: string }>
-      accounts = raw.map(a => ({
-        id: a.id,
-        code: a.code === false ? '' : (a.code ?? ''),
-        name: a.name ?? '',
-        account_type: a.account_type ?? '',
-      }))
-    } catch (err) {
-      logger.warn({ err }, 'Failed to fetch chart of accounts')
-    }
+    // Fetch chart of accounts (Redis-cached for 5 min)
+    const { getChartOfAccounts } = await import('@/services/chart-of-accounts-cache.service.js')
+    const accounts = await getChartOfAccounts(user.company_id)
 
     // Preload cost centers so the classifier can auto-tag by keywords
     const companyCostCenters = await listCostCenters(localCompanyId)
@@ -498,6 +532,145 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     return reply.send(buffer)
   })
 
+  // ── GET /aged-ar?as_of=YYYY-MM-DD ───────────────────────
+  // Accounts Receivable aging — unpaid customer invoices bucketed by days overdue.
+  fastify.get('/aged-ar', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const q = req.query as { as_of?: string }
+    const asOf = q.as_of ?? new Date().toISOString().slice(0, 10)
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildAgedReport(user.company_id, 'AR', asOf, currency)
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ── GET /aged-ap?as_of=YYYY-MM-DD ───────────────────────
+  // Accounts Payable aging — unpaid vendor bills bucketed by days overdue.
+  fastify.get('/aged-ap', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const q = req.query as { as_of?: string }
+    const asOf = q.as_of ?? new Date().toISOString().slice(0, 10)
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildAgedReport(user.company_id, 'AP', asOf, currency)
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ── GET /aged-ar.csv / /aged-ap.csv ─────────────────────
+  const bindAgedCsv = (kind: 'AR' | 'AP') => async (req: any, reply: any) => {
+    const user = req.user as AuthedUser
+    const q = req.query as { as_of?: string }
+    const asOf = q.as_of ?? new Date().toISOString().slice(0, 10)
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildAgedReport(user.company_id, kind, asOf, currency)
+    const isCL = user.country_code === 'CL'
+    const hdr = isCL
+      ? ['Partner','Al día','1-30 días','31-60 días','61-90 días','+90 días','Total','Facturas']
+      : ['Partner','Current','1-30 days','31-60 days','61-90 days','90+ days','Total','Invoices']
+    const esc = (v: unknown) => {
+      const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines = [hdr.join(',')]
+    for (const r of report.rows) {
+      lines.push([
+        r.partner_name, r.current, r.days_1_30, r.days_31_60, r.days_61_90, r.days_over_90, r.total, r.invoice_count,
+      ].map(esc).join(','))
+    }
+    reply.header('Content-Type', 'text/csv; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="aged-${kind.toLowerCase()}-${asOf}.csv"`)
+    return reply.send(lines.join('\n'))
+  }
+  fastify.get('/aged-ar.csv', bindAgedCsv('AR'))
+  fastify.get('/aged-ap.csv', bindAgedCsv('AP'))
+
+  // ── GET /trial-balance?from=YYYY-MM-DD&to=YYYY-MM-DD ─────
+  fastify.get('/trial-balance', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const q = req.query as { from?: string; to?: string; year?: string; month?: string }
+    // Support year/month shorthand: ?year=2025[&month=4]
+    let from = q.from, to = q.to
+    if (!from && q.year) {
+      const y = Number(q.year)
+      from = q.month ? `${y}-${String(Number(q.month)).padStart(2, '0')}-01` : `${y}-01-01`
+    }
+    if (!to && q.year) {
+      const y = Number(q.year)
+      to = q.month ? `${y}-${String(Number(q.month)).padStart(2, '0')}-31` : `${y}-12-31`
+    }
+    if (!from || !to) return reply.status(400).send({ error: 'from + to (or year) required' })
+
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildTrialBalance(user.company_id, from, to, currency)
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ── GET /trial-balance.pdf ───────────────────────────────
+  fastify.get('/trial-balance.pdf', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const q = req.query as { from?: string; to?: string; year?: string }
+    let from = q.from, to = q.to
+    if (!from && q.year) { from = `${q.year}-01-01`; to = `${q.year}-12-31` }
+    if (!from || !to) return reply.status(400).send({ error: 'from + to required' })
+
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildTrialBalance(user.company_id, from, to, currency)
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const [company] = await db.select().from(companies).where(eq(companies.id, localCompanyId)).limit(1)
+    const buffer = await generateTrialBalancePdf({
+      country: user.country_code === 'US' ? 'US' : 'CL',
+      company_name: company?.razon_social ?? user.company_name ?? 'Company',
+      company_tax_id: company?.tax_id ?? company?.rut ?? '',
+      report,
+    })
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="trial-balance-${from}-${to}.pdf"`)
+    return reply.send(buffer)
+  })
+
+  // ── GET /general-ledger?from=YYYY-MM-DD&to=YYYY-MM-DD&account_code=XXXX ─
+  fastify.get('/general-ledger', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const q = req.query as { from?: string; to?: string; account_code?: string; year?: string }
+    let from = q.from, to = q.to
+    if (!from && q.year) { from = `${q.year}-01-01`; to = `${q.year}-12-31` }
+    if (!from || !to) return reply.status(400).send({ error: 'from + to required' })
+
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildGeneralLedger(user.company_id, from, to, currency, q.account_code)
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ── GET /general-ledger.csv ──────────────────────────────
+  fastify.get('/general-ledger.csv', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const q = req.query as { from?: string; to?: string; account_code?: string; year?: string }
+    let from = q.from, to = q.to
+    if (!from && q.year) { from = `${q.year}-01-01`; to = `${q.year}-12-31` }
+    if (!from || !to) return reply.status(400).send({ error: 'from + to required' })
+
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildGeneralLedger(user.company_id, from, to, currency, q.account_code)
+
+    const isCL = user.country_code === 'CL'
+    const headers = isCL
+      ? ['Fecha','Asiento','Cuenta Código','Cuenta Nombre','Tercero','Descripción','Débito','Crédito','Saldo','Centro de Costo']
+      : ['Date','Move','Account Code','Account Name','Partner','Description','Debit','Credit','Balance','Cost Center']
+    const esc = (v: unknown) => {
+      const s = String(v ?? '')
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines = [headers.join(',')]
+    for (const r of report.rows) {
+      lines.push([
+        r.date, r.move_name, r.account_code, r.account_name,
+        r.partner ?? '', r.description, r.debit.toFixed(2), r.credit.toFixed(2),
+        r.balance.toFixed(2), r.cost_center ?? '',
+      ].map(esc).join(','))
+    }
+
+    reply.header('Content-Type', 'text/csv; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="general-ledger-${from}-${to}.csv"`)
+    return reply.send(lines.join('\n'))
+  })
+
   // ── GET /cash-flow?year=YYYY&month=M ─────────────────────
   fastify.get('/cash-flow', async (req, reply) => {
     const user = (req as any).user as AuthedUser
@@ -695,6 +868,47 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     })
   })
 
+  // ── GET /keyword-templates ───────────────────────────────
+  // Prebuilt keyword sets per vertical. Users pick when creating a center.
+  fastify.get('/keyword-templates', async (req, reply) => {
+    const { KEYWORD_TEMPLATES } = await import('@/data/keyword-templates.js')
+    return reply.send({ templates: KEYWORD_TEMPLATES })
+  })
+
+  // ── POST /classifications/bulk-update ─────────────────────
+  // Update account/category/cost_center on many classifications at once.
+  // Accepts a single `update` object applied to all ids.
+  fastify.post('/classifications/bulk-update', async (req, reply) => {
+    const body = req.body as {
+      ids: number[]
+      classified_account_id?: number | null
+      classified_account_name?: string | null
+      classified_category?: string | null
+      cost_center_id?: number | null
+      approve?: boolean
+    }
+    if (!Array.isArray(body.ids) || body.ids.length === 0) {
+      return reply.status(400).send({ error: 'ids array required' })
+    }
+
+    const update: Record<string, any> = { updated_at: new Date() }
+    if (body.classified_account_id !== undefined) update.classified_account_id = body.classified_account_id
+    if (body.classified_account_name !== undefined) update.classified_account_name = body.classified_account_name
+    if (body.classified_category !== undefined) update.classified_category = body.classified_category
+    if (body.cost_center_id !== undefined) update.cost_center_id = body.cost_center_id
+    if (body.approve) {
+      update.approved = true
+      update.approved_at = new Date()
+    }
+
+    if (Object.keys(update).length <= 1) {
+      return reply.status(400).send({ error: 'at least one field to update must be provided' })
+    }
+
+    await db.update(transactionClassifications).set(update).where(inArray(transactionClassifications.id, body.ids))
+    return reply.send({ ok: true, updated_count: body.ids.length })
+  })
+
   // ── DELETE /classification-rules/:id ──────────────────────
   fastify.delete('/classification-rules/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
@@ -736,6 +950,52 @@ export async function accountingRoutes(fastify: FastifyInstance) {
       notes: body.notes,
     })
     return reply.send(row)
+  })
+
+  // ── POST /budgets/period — quarterly or annual spread ──
+  fastify.post('/budgets/period', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as {
+      account_code: string
+      account_name?: string
+      cost_center_id?: number | null
+      period: 'month' | 'quarter' | 'year'
+      year: number
+      quarter_or_month?: number   // 1-4 for quarter, 1-12 for month, ignored for year
+      amount: number
+    }
+    if (!body.account_code || !body.year || body.amount === undefined || !body.period) {
+      return reply.status(400).send({ error: 'account_code, year, amount, period required' })
+    }
+    const entries = expandPeriodBudget(
+      {
+        account_code: body.account_code,
+        account_name: body.account_name,
+        cost_center_id: body.cost_center_id ?? null,
+        year: body.year,
+      },
+      body.period,
+      body.quarter_or_month ?? 1,
+      Number(body.amount),
+    )
+    const result = await bulkUpsertBudgets(localCompanyId, entries)
+    return reply.send({ ...result, entries })
+  })
+
+  // ── GET /alerts ──────────────────────────────────────────
+  fastify.get('/alerts', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const q = req.query as { budget_variance_pct?: string; low_cash?: string; pending_days?: string; no_import_days?: string }
+    const { currency } = countryDefaults(user.country_code)
+    const alerts = await buildAlerts(localCompanyId, user.company_id, currency, {
+      budget_variance_pct_threshold: q.budget_variance_pct ? Number(q.budget_variance_pct) : undefined,
+      low_cash_absolute: q.low_cash ? Number(q.low_cash) : undefined,
+      pending_classification_days: q.pending_days ? Number(q.pending_days) : undefined,
+      no_import_days: q.no_import_days ? Number(q.no_import_days) : undefined,
+    })
+    return reply.send({ alerts, total: alerts.length })
   })
 
   fastify.post('/budgets/bulk', async (req, reply) => {
@@ -1055,6 +1315,42 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     })
   })
 
+  // ── GET /metrics ────────────────────────────────────────
+  // Operational metrics for the per-company health dashboard.
+  fastify.get('/metrics', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const { buildCompanyMetrics } = await import('@/services/metrics.service.js')
+    const metrics = await buildCompanyMetrics(localCompanyId)
+    return reply.send({ country: user.country_code, ...metrics })
+  })
+
+  // ── GET /1099-nec.pdf?year=YYYY&threshold=600 ────────────
+  // US 1099-NEC summary (not the IRS form itself — bookkeeping support).
+  fastify.get('/1099-nec.pdf', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const q = req.query as { year?: string; threshold?: string }
+    const year = q.year ? Number(q.year) : new Date().getFullYear() - 1
+    const threshold = q.threshold ? Number(q.threshold) : 600
+
+    const { build1099Entries, generate1099Pdf } = await import('@/services/form-1099-pdf.service.js')
+    const vendors = await build1099Entries(localCompanyId, year, threshold)
+    const [company] = await db.select().from(companies).where(eq(companies.id, localCompanyId)).limit(1)
+    const addressParts = [company?.direccion, company?.ciudad, company?.state, company?.zip_code]
+      .filter(Boolean).join(', ')
+
+    const buffer = await generate1099Pdf({
+      company_name: company?.razon_social ?? user.company_name ?? 'Company',
+      company_tax_id: company?.tax_id ?? company?.rut ?? '',
+      company_address: addressParts || undefined,
+      year, threshold, vendors,
+    })
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="1099-nec-summary-${year}.pdf"`)
+    return reply.send(buffer)
+  })
+
   // ── GET /vendor-spend.csv?year=YYYY&threshold=600 ─────────
   // Export vendor spend as CSV. For US 1099-NEC compliance the threshold
   // defaults to $600/year (IRS requirement for contractor reporting).
@@ -1159,6 +1455,10 @@ export async function accountingRoutes(fastify: FastifyInstance) {
         }
       }
     }
+
+    // Invalidate chart cache so next import picks up the new accounts
+    const { invalidateChartCache } = await import('@/services/chart-of-accounts-cache.service.js')
+    await invalidateChartCache(odooCompanyId)
 
     logger.info({ odooCompanyId, country, ...results }, 'Company accounting setup complete')
     return reply.send({ ...results, country })

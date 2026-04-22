@@ -129,6 +129,56 @@ const BANK_MAPPINGS: Record<string, CSVMapping> = {
     dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: false,
     country: 'US',
   },
+  // ── US Fintechs ─────────────────────────────────────────────
+  // Mercury Transaction Export CSV:
+  // Date,Description,Amount,Status,Reference,Note,Account
+  mercury: {
+    date: 0, description: 1, amount: 2, reference: 4,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  // Brex Transaction Export CSV:
+  // Date,Description,Memo,Amount,Category,Card,User
+  brex: {
+    date: 0, description: 1, amount: 3, reference: 2,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  // Ramp Transaction Export CSV:
+  // Date,Merchant,Amount,User,Category,Memo,Transaction ID
+  ramp: {
+    date: 0, description: 1, amount: 2, reference: 6,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  // Relay Transaction Export CSV:
+  // Date,Description,Amount,Balance,Account,Reference
+  relay: {
+    date: 0, description: 1, amount: 2, reference: 5,
+    dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  // Stripe Payouts CSV:
+  // automatic_payout_effective_at_(UTC),description,gross,fees,net,automatic_payout_id
+  // Amount column (net) is a positive deposit per payout.
+  stripe: {
+    date: 0, description: 1, amount: 4, reference: 5,
+    dateFormat: 'YYYY-MM-DD', separator: ',', skipHeader: true,
+    country: 'US',
+  },
+  // ── Chilean Fintechs ────────────────────────────────────────
+  // Tenpo CSV:
+  // Fecha,Descripción,Referencia,Monto,Saldo
+  tenpo: {
+    date: 0, description: 1, amount: 3, reference: 2,
+    dateFormat: 'DD/MM/YYYY', separator: ';', skipHeader: true,
+  },
+  // Mach CSV (Banco BCI):
+  // Fecha,Detalle,Cargo,Abono,Saldo
+  mach: {
+    date: 0, description: 1, amount: -1, debit: 2, credit: 3,
+    dateFormat: 'DD/MM/YYYY', separator: ';', skipHeader: true,
+  },
   generic_us: {
     date: 0, description: 1, amount: 2, reference: 3,
     dateFormat: 'MM/DD/YYYY', separator: ',', skipHeader: true,
@@ -148,7 +198,11 @@ function parseDate(raw: string, format: string): string {
     const parts = clean.split('/')
     if (parts.length === 3) return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
   }
-  if (format === 'YYYY-MM-DD') return clean
+  if (format === 'YYYY-MM-DD') {
+    // May include time component: "2025-04-15 18:30:00" or "2025-04-15T18:30:00Z"
+    const datePart = clean.split(/[ T]/)[0]
+    if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart
+  }
   return clean // Fallback
 }
 

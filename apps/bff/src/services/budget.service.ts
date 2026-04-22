@@ -36,6 +36,31 @@ export interface BudgetInput {
   notes?: string
 }
 
+/**
+ * Spread a quarterly/annual budget across its component months by even
+ * division. Quarter 1 = Jan/Feb/Mar, etc.
+ *
+ * Example: amount=12000, period='year' → 12 monthly rows of 1000 each.
+ */
+export function expandPeriodBudget(
+  base: Omit<BudgetInput, 'month' | 'amount'>,
+  period: 'month' | 'quarter' | 'year',
+  quarterOrMonth: number,         // 1-12 for month, 1-4 for quarter, ignored for year
+  totalAmount: number,
+): BudgetInput[] {
+  if (period === 'month') {
+    return [{ ...base, month: quarterOrMonth, amount: totalAmount }]
+  }
+  if (period === 'quarter') {
+    const firstMonth = (quarterOrMonth - 1) * 3 + 1
+    const per = round2(totalAmount / 3)
+    return [0, 1, 2].map(i => ({ ...base, month: firstMonth + i, amount: per }))
+  }
+  // year: spread across 12 months
+  const per = round2(totalAmount / 12)
+  return Array.from({ length: 12 }, (_, i) => ({ ...base, month: i + 1, amount: per }))
+}
+
 export async function listBudgets(
   companyId: number, year?: number, month?: number,
 ): Promise<BudgetRow[]> {
