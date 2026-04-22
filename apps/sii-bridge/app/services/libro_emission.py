@@ -514,18 +514,19 @@ class LibroEmissionService:
                 #   iter 8 (MntIVA=iva, MntSinCred=iva, Total=N+IVA) → LBR-2 MntTotal
                 #   iter 9 (MntIVA=iva, IVARetTotal=iva, Total=Neto+Exe,
                 #           TotOpIVARetTotal+TotIVARetTotal) → LBR-2 MntTotal
-                # FINAL (iter 12): setmail 247772910 mostró que iter 11
-                # (MntIVA=iva, MntTotal=Neto) satisface SET checker pero
-                # deja reparo LBR-2 "Reparo en Calculo de MntTotal"
-                # (SII valida identity: MntTotal == MntNeto + MntIVA + MntExe).
-                # Solución: MntIVA = 0 (el IVA está íntegramente retenido y
-                # se informa en <IVARetTotal>), MntTotal = Neto + Exe.
-                # Identity: 9878 == 9878 + 0 + 0 ✓
-                # SET checker: MntTotal (9878) == expected 9878 ✓
-                # Retención informada vía IVARetTotal + TotIVARetTotal.
-                mnt_iva = 0
+                # FINAL (iter 13): setmail 247774464 mostró que iter 12
+                # (MntIVA=0) arroja "LBR-2 MntIVA distinto a MntNeto*TasaImp"
+                # y envelope LNC. SII requiere AMBAS identidades:
+                #   (a) MntIVA  = MntNeto * TasaImp (19%)
+                #   (b) MntTotal = MntNeto + MntIVA + MntExe
+                # Por tanto FC46 con retención total se informa como factura
+                # afecta "normal" (MntNeto=9878, MntIVA=1877, MntTotal=11755)
+                # y la retención se acumula vía IVARetTotal (detalle) +
+                # TotIVARetTotal (resumen). El SET checker valida MntNeto
+                # contra MONTO AFECTO=9878 del SET, no MntTotal.
+                mnt_iva = iva_calc
                 iva_ret_total = iva_calc
-                mnt_total = mnt_neto + mnt_exe
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in
