@@ -163,6 +163,8 @@ class LibrosRequest(BaseModel):
     raw_test_set_path: Optional[str] = None  # path to test set file on server
     tipo_envio: Optional[str] = "TOTAL"  # TOTAL | RECTIFICA — use RECTIFICA when a prior TOTAL exists for period
     envio_dte_xml_b64: Optional[str] = None  # explicit EnvioDTE XML to use (overrides session batch_result)
+    only_lc: Optional[bool] = False  # skip LV generation (when LV already REVISADO CONFORME)
+    only_lv: Optional[bool] = False  # skip LC generation (when LC already REVISADO CONFORME)
 
 
 # ── Prerequisites check ───────────────────────────────────────
@@ -809,7 +811,12 @@ async def generate_libros(req: LibrosRequest):
 
     # AJUSTE can be sent empty (zero-totals envelope for re-submission)
     _tipo_envio_early = (req.tipo_envio or "TOTAL").upper()
-    if not batch_result and not inline_resultados and _tipo_envio_early != "AJUSTE":
+    if (
+        not batch_result
+        and not inline_resultados
+        and _tipo_envio_early != "AJUSTE"
+        and not req.only_lc
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
@@ -848,7 +855,11 @@ async def generate_libros(req: LibrosRequest):
     # 1. Generate and send Libro de Ventas
     # Priority: explicit request XML > EnvioDTE XML from batch > inline resultados > session resultados
     xml_b64 = req.envio_dte_xml_b64 or batch_result.get("xml_envio_b64")
-    if xml_b64:
+    resultado_ventas = None
+    if req.only_lc:
+        # Skip LV entirely — used when LV already REVISADO CONFORME at SII
+        pass
+    elif xml_b64:
         resultado_ventas = libro_emission_service.emit_libro_ventas(
             envio_dte_xml_b64=xml_b64,
             rut_emisor=rut_emisor,
@@ -891,24 +902,30 @@ async def generate_libros(req: LibrosRequest):
         )
 
     # 2. Generate and send Libro de Compras
-    # For empty AJUSTE (zero-totals re-send), force empty detalles
-    _compras_entries = [] if (tipo_envio_libros == "AJUSTE" and not inline_resultados and not batch_result) else compras_entries
-    resultado_compras = libro_emission_service.emit_libro_compras(
-        compras_entries=_compras_entries,
-        rut_emisor=rut_emisor,
-        periodo=periodo,
-        folio_notificacion=folio_compras,
-        fct_prop=fct_prop,
-        fecha_doc=fecha_emision,
-        tipo_envio=tipo_envio_libros,
-    )
+    resultado_compras = None
+    if not req.only_lv:
+        # For empty AJUSTE (zero-totals re-send), force empty detalles
+        _compras_entries = [] if (tipo_envio_libros == "AJUSTE" and not inline_resultados and not batch_result) else compras_entries
+        resultado_compras = libro_emission_service.emit_libro_compras(
+            compras_entries=_compras_entries,
+            rut_emisor=rut_emisor,
+            periodo=periodo,
+            folio_notificacion=folio_compras,
+            fct_prop=fct_prop,
+            fecha_doc=fecha_emision,
+            tipo_envio=tipo_envio_libros,
+        )
 
     # Store results in session
-    session["libro_ventas_result"] = resultado_ventas
-    session["libro_compras_result"] = resultado_compras
+    if session is not None:
+        if resultado_ventas is not None:
+            session["libro_ventas_result"] = resultado_ventas
+        if resultado_compras is not None:
+            session["libro_compras_result"] = resultado_compras
 
-    overall_success = resultado_ventas.get("success") and resultado_compras.get(
-        "success"
+    overall_success = (
+        (resultado_ventas is None or resultado_ventas.get("success"))
+        and (resultado_compras is None or resultado_compras.get("success"))
     )
 
     return {
