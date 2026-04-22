@@ -510,17 +510,16 @@ class LibroEmissionService:
 
             if "RETENCION TOTAL" in observaciones or "RETENCI" in observaciones:
                 # Factura de compra (TpoDoc 46) con retencion total del IVA.
-                # Empirically validated against SII SET checker:
+                # Empirically validated against SII SET checker + LBR-2 reparos:
                 #   iter 1 (MntIVA=iva, MntTotal=Neto+IVA+Exe) → "Monto Total No Cuadra"
                 #   iter 2 (MntIVA=0, MntTotal=Neto+Exe)       → "Monto IVA No Cuadra"
                 #   iter 3 (MntIVA=iva, IVARetTotal=iva)       → "No Informa Adec. IVA Ret. Total"
-                # Root cause: IVARetTotal & TotOpIVARetTotal/TotIVARetTotal are
-                # (LV) fields per XSD LibroCV_v10 lines 369/379/1239. In LC
-                # the retained IVA must be reported via:
-                #   Detalle: MntIVA=0, MntSinCred=iva_calc (XSD line 1234, LC).
-                #   Resumen: TotMntIVA=0, TotImpSinCredito=iva_calc (XSD line 364, LC).
-                # MntTotal = Neto + Exe (buyer retains 100% of IVA, pays only net).
-                mnt_iva = 0
+                #   iter 6 (MntIVA=0, MntSinCred=iva)          → LBR-2 "MntIVA distinto MntNeto*TasaImp"
+                #                                               + LBR-2 "Reparo MntTotal"
+                # SII validates LBR-2 rule: MntIVA MUST equal MntNeto * TasaImp.
+                # For retencion total: MntIVA=iva (computed), MntSinCred=iva (no credit),
+                # MntTotal = MntNeto + MntExe (buyer pays only net; IVA retained to fiscus).
+                mnt_iva = iva_calc
                 mnt_sin_cred = iva_calc
                 mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
