@@ -575,6 +575,60 @@ export const costCentersRelations = relations(costCenters, ({ one, many }) => ({
   classifications: many(transactionClassifications),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// BUDGETS (planning vs actual)
+// ══════════════════════════════════════════════════════════════
+// Monthly budget amount per (company, account_code, cost_center?).
+// Comparing vs posted moves in the same period gives "Budget vs Actuals".
+// account_code is the account's code string (e.g. "6100"); cost_center_id
+// optional — null means the budget applies at company level.
+export const budgets = pgTable('budgets', {
+  id:                serial('id').primaryKey(),
+  company_id:        integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  cost_center_id:    integer('cost_center_id'),   // null = company-wide
+  account_code:      varchar('account_code', { length: 50 }).notNull(),
+  account_name:      varchar('account_name', { length: 200 }),
+  year:              integer('year').notNull(),
+  month:             integer('month').notNull(),  // 1-12
+  amount:            decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  notes:             text('notes'),
+  created_at:        timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx:  index('bd_company_idx').on(t.company_id),
+  periodIdx:   index('bd_period_idx').on(t.company_id, t.year, t.month),
+  uniqueIdx:   uniqueIndex('bd_unique_idx').on(t.company_id, t.year, t.month, t.account_code, t.cost_center_id),
+}))
+
+export const budgetsRelations = relations(budgets, ({ one }) => ({
+  company: one(companies, { fields: [budgets.company_id], references: [companies.id] }),
+  costCenter: one(costCenters, { fields: [budgets.cost_center_id], references: [costCenters.id] }),
+}))
+
+// ══════════════════════════════════════════════════════════════
+// EXCHANGE RATES (multi-currency)
+// ══════════════════════════════════════════════════════════════
+// Store rates as: 1 unit of from_currency = <rate> of to_currency, on <date>.
+// Lookups use the most recent date ≤ requested date.
+export const exchangeRates = pgTable('exchange_rates', {
+  id:             serial('id').primaryKey(),
+  company_id:     integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  date:           text('date').notNull(),             // YYYY-MM-DD
+  from_currency:  varchar('from_currency', { length: 5 }).notNull(),
+  to_currency:    varchar('to_currency', { length: 5 }).notNull(),
+  rate:           decimal('rate', { precision: 18, scale: 8 }).notNull(),
+  source:         varchar('source', { length: 30 }),
+  created_at:     timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx: index('er_company_idx').on(t.company_id),
+  pairIdx:    index('er_pair_idx').on(t.company_id, t.from_currency, t.to_currency, t.date),
+  uniqueIdx:  uniqueIndex('er_unique_idx').on(t.company_id, t.date, t.from_currency, t.to_currency),
+}))
+
+export const exchangeRatesRelations = relations(exchangeRates, ({ one }) => ({
+  company: one(companies, { fields: [exchangeRates.company_id], references: [companies.id] }),
+}))
+
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
   quotations: many(quotations),

@@ -47,6 +47,16 @@ import {
   ensureDefaultBankAccount,
 } from '@/services/bank-reconciliation.service'
 import { generatePnlPdf, type PnlData } from '@/services/pnl-pdf.service'
+import { buildBalanceSheet } from '@/services/balance-sheet.service'
+import { generateBalanceSheetPdf } from '@/services/balance-sheet-pdf.service'
+import { buildCashFlow } from '@/services/cash-flow.service'
+import { generateCashFlowPdf } from '@/services/cash-flow-pdf.service'
+import {
+  listBudgets, upsertBudget, bulkUpsertBudgets, deleteBudget, buildBudgetVariance,
+} from '@/services/budget.service'
+import {
+  listRates, setRate, bulkSetRates, deleteRate, convert,
+} from '@/services/exchange-rate.service'
 import {
   createCostCenter,
   listCostCenters,
@@ -456,6 +466,72 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     return reply.send(buffer)
   })
 
+  // ── GET /balance-sheet?as_of=YYYY-MM-DD ──────────────────
+  fastify.get('/balance-sheet', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const query = req.query as { as_of?: string }
+    const asOf = query.as_of ?? new Date().toISOString().slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return reply.status(400).send({ error: 'invalid as_of date' })
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildBalanceSheet(user.company_id, asOf, currency)
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ── GET /balance-sheet.pdf?as_of=YYYY-MM-DD ──────────────
+  fastify.get('/balance-sheet.pdf', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const query = req.query as { as_of?: string }
+    const asOf = query.as_of ?? new Date().toISOString().slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return reply.status(400).send({ error: 'invalid as_of date' })
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildBalanceSheet(user.company_id, asOf, currency)
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const [company] = await db.select().from(companies).where(eq(companies.id, localCompanyId)).limit(1)
+    const buffer = await generateBalanceSheetPdf({
+      country: user.country_code === 'US' ? 'US' : 'CL',
+      company_name: company?.razon_social ?? user.company_name ?? 'Company',
+      company_tax_id: company?.tax_id ?? company?.rut ?? '',
+      report,
+    })
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="balance-sheet-${asOf}.pdf"`)
+    return reply.send(buffer)
+  })
+
+  // ── GET /cash-flow?year=YYYY&month=M ─────────────────────
+  fastify.get('/cash-flow', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const query = req.query as { year?: string; month?: string }
+    const year = query.year ? Number(query.year) : new Date().getFullYear()
+    const month = query.month ? Number(query.month) : undefined
+    if (Number.isNaN(year)) return reply.status(400).send({ error: 'invalid year' })
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildCashFlow(user.company_id, year, month, currency)
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ── GET /cash-flow.pdf?year=YYYY&month=M ─────────────────
+  fastify.get('/cash-flow.pdf', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const query = req.query as { year?: string; month?: string }
+    const year = query.year ? Number(query.year) : new Date().getFullYear()
+    const month = query.month ? Number(query.month) : undefined
+    if (Number.isNaN(year)) return reply.status(400).send({ error: 'invalid year' })
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildCashFlow(user.company_id, year, month, currency)
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const [company] = await db.select().from(companies).where(eq(companies.id, localCompanyId)).limit(1)
+    const buffer = await generateCashFlowPdf({
+      country: user.country_code === 'US' ? 'US' : 'CL',
+      company_name: company?.razon_social ?? user.company_name ?? 'Company',
+      company_tax_id: company?.tax_id ?? company?.rut ?? '',
+      report,
+    })
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="cash-flow-${year}${month ? '-' + String(month).padStart(2, '0') : ''}.pdf"`)
+    return reply.send(buffer)
+  })
+
   // ── POST /generate-entries ────────────────────────────────
   fastify.post('/generate-entries', async (req, reply) => {
     const user = (req as any).user as AuthedUser
@@ -625,6 +701,154 @@ export async function accountingRoutes(fastify: FastifyInstance) {
     await db.delete(classificationRules)
       .where(eq(classificationRules.id, Number(id)))
     return reply.send({ ok: true })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // BUDGETS (planning vs actual)
+  // ══════════════════════════════════════════════════════════
+
+  fastify.get('/budgets', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const q = req.query as { year?: string; month?: string }
+    const rows = await listBudgets(
+      localCompanyId,
+      q.year ? Number(q.year) : undefined,
+      q.month ? Number(q.month) : undefined,
+    )
+    return reply.send({ budgets: rows, total: rows.length })
+  })
+
+  fastify.post('/budgets', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as any
+    if (!body.account_code || !body.year || !body.month || body.amount === undefined) {
+      return reply.status(400).send({ error: 'account_code, year, month, amount required' })
+    }
+    const row = await upsertBudget(localCompanyId, {
+      account_code: body.account_code,
+      account_name: body.account_name,
+      cost_center_id: body.cost_center_id ?? null,
+      year: Number(body.year),
+      month: Number(body.month),
+      amount: Number(body.amount),
+      notes: body.notes,
+    })
+    return reply.send(row)
+  })
+
+  fastify.post('/budgets/bulk', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as { budgets: any[] }
+    if (!Array.isArray(body.budgets)) return reply.status(400).send({ error: 'budgets array required' })
+    const result = await bulkUpsertBudgets(localCompanyId, body.budgets.map(b => ({
+      account_code: b.account_code,
+      account_name: b.account_name,
+      cost_center_id: b.cost_center_id ?? null,
+      year: Number(b.year),
+      month: Number(b.month),
+      amount: Number(b.amount),
+      notes: b.notes,
+    })))
+    return reply.send(result)
+  })
+
+  fastify.delete('/budgets/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await deleteBudget(Number(id))
+    return reply.send({ ok: true, id: Number(id) })
+  })
+
+  fastify.get('/budget-variance', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const q = req.query as { year?: string; month?: string }
+    const year = q.year ? Number(q.year) : new Date().getFullYear()
+    const month = q.month ? Number(q.month) : undefined
+    if (Number.isNaN(year)) return reply.status(400).send({ error: 'invalid year' })
+
+    // Build odooId → localId lookup for cost centers
+    const centers = await db.select({
+      id: costCentersTable.id,
+      odoo_analytic_id: costCentersTable.odoo_analytic_id,
+      name: costCentersTable.name,
+    }).from(costCentersTable).where(eq(costCentersTable.company_id, localCompanyId))
+    const localToOdoo = new Map<number, number>(centers.map(c => [c.id, c.odoo_analytic_id]))
+    const nameLookup = new Map<number, string>(centers.map(c => [c.id, c.name]))
+
+    const { currency } = countryDefaults(user.country_code)
+    const report = await buildBudgetVariance(
+      localCompanyId, user.company_id, year, month, currency, localToOdoo, nameLookup,
+    )
+    return reply.send({ country: user.country_code, ...report })
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // EXCHANGE RATES (multi-currency)
+  // ══════════════════════════════════════════════════════════
+
+  fastify.get('/exchange-rates', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const q = req.query as { from?: string; to?: string }
+    const rows = await listRates(localCompanyId, q.from, q.to)
+    return reply.send({ rates: rows, total: rows.length })
+  })
+
+  fastify.post('/exchange-rates', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as any
+    if (!body.date || !body.from_currency || !body.to_currency || body.rate === undefined) {
+      return reply.status(400).send({ error: 'date, from_currency, to_currency, rate required' })
+    }
+    const row = await setRate(localCompanyId, {
+      date: body.date,
+      from_currency: body.from_currency,
+      to_currency: body.to_currency,
+      rate: Number(body.rate),
+      source: body.source,
+    })
+    return reply.send(row)
+  })
+
+  fastify.post('/exchange-rates/bulk', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const body = req.body as { rates: any[] }
+    if (!Array.isArray(body.rates)) return reply.status(400).send({ error: 'rates array required' })
+    const result = await bulkSetRates(localCompanyId, body.rates.map(r => ({
+      date: r.date, from_currency: r.from_currency, to_currency: r.to_currency,
+      rate: Number(r.rate), source: r.source,
+    })))
+    return reply.send(result)
+  })
+
+  fastify.delete('/exchange-rates/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await deleteRate(Number(id))
+    return reply.send({ ok: true, id: Number(id) })
+  })
+
+  fastify.get('/exchange-rates/convert', async (req, reply) => {
+    const user = (req as any).user as AuthedUser
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const q = req.query as { amount: string; from: string; to: string; date?: string }
+    if (!q.amount || !q.from || !q.to) {
+      return reply.status(400).send({ error: 'amount, from, to required' })
+    }
+    const date = q.date ?? new Date().toISOString().slice(0, 10)
+    try {
+      const result = await convert(localCompanyId, Number(q.amount), q.from, q.to, date)
+      return reply.send({ ...result, from: q.from, to: q.to, date })
+    } catch (err) {
+      return reply.status(404).send({
+        error: 'no_rate',
+        message: err instanceof Error ? err.message : 'Rate not found',
+      })
+    }
   })
 
   // ══════════════════════════════════════════════════════════

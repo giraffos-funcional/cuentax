@@ -1574,3 +1574,135 @@ export function useAirbnbImport() {
   }
   return { importCsv, loading }
 }
+
+// ══════════════════════════════════════════════════════════════
+// Balance Sheet / Cash Flow / Budgets / Exchange Rates
+// ══════════════════════════════════════════════════════════════
+
+export function useBalanceSheetV2(asOf?: string) {
+  const date = asOf ?? new Date().toISOString().slice(0, 10)
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/accounting/balance-sheet?as_of=${date}`, fetcher,
+  )
+  return { report: data, isLoading, error, mutate }
+}
+
+export function downloadBalanceSheetPdf(asOf?: string) {
+  const date = asOf ?? new Date().toISOString().slice(0, 10)
+  return apiClient.get(`/api/v1/accounting/balance-sheet.pdf?as_of=${date}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `balance-sheet-${date}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export function useCashFlowV2(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  const { data, error, isLoading, mutate } = useSWR(`/api/v1/accounting/cash-flow?${qs}`, fetcher)
+  return { report: data, isLoading, error, mutate }
+}
+
+export function downloadCashFlowPdf(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  return apiClient.get(`/api/v1/accounting/cash-flow.pdf?${qs}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `cash-flow-${year}${month ? '-' + String(month).padStart(2, '0') : ''}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export interface Budget {
+  id: number
+  company_id: number
+  cost_center_id: number | null
+  account_code: string
+  account_name: string | null
+  year: number
+  month: number
+  amount: number
+  notes: string | null
+}
+
+export function useBudgets(year?: number, month?: number) {
+  const params = new URLSearchParams()
+  if (year) params.set('year', String(year))
+  if (month) params.set('month', String(month))
+  const qs = params.toString()
+  const { data, error, isLoading, mutate } = useSWR<{ budgets: Budget[]; total: number }>(
+    `/api/v1/accounting/budgets${qs ? '?' + qs : ''}`, fetcher,
+  )
+  return { budgets: data?.budgets ?? [], total: data?.total ?? 0, isLoading, error, mutate }
+}
+
+export function useUpsertBudget() {
+  const upsert = async (input: {
+    account_code: string; account_name?: string; cost_center_id?: number | null;
+    year: number; month: number; amount: number; notes?: string
+  }) => {
+    const r = await apiClient.post('/api/v1/accounting/budgets', input).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/budgets'))
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/budget-variance'))
+    return r
+  }
+  return { upsert }
+}
+
+export function useDeleteBudget() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/accounting/budgets/${id}`)
+    globalMutate((k: string) => typeof k === 'string' && (k.includes('/budgets') || k.includes('/budget-variance')))
+  }
+  return { remove }
+}
+
+export function useBudgetVariance(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  const { data, error, isLoading, mutate } = useSWR(`/api/v1/accounting/budget-variance?${qs}`, fetcher)
+  return { report: data, isLoading, error, mutate }
+}
+
+export interface ExchangeRate {
+  id: number
+  company_id: number
+  date: string
+  from_currency: string
+  to_currency: string
+  rate: number
+  source: string | null
+}
+
+export function useExchangeRates(from?: string, to?: string) {
+  const params = new URLSearchParams()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  const qs = params.toString()
+  const { data, error, isLoading, mutate } = useSWR<{ rates: ExchangeRate[]; total: number }>(
+    `/api/v1/accounting/exchange-rates${qs ? '?' + qs : ''}`, fetcher,
+  )
+  return { rates: data?.rates ?? [], total: data?.total ?? 0, isLoading, error, mutate }
+}
+
+export function useSetExchangeRate() {
+  const set = async (input: { date: string; from_currency: string; to_currency: string; rate: number; source?: string }) => {
+    const r = await apiClient.post('/api/v1/accounting/exchange-rates', input).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/exchange-rates'))
+    return r
+  }
+  return { set }
+}
+
+export function useDeleteExchangeRate() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/accounting/exchange-rates/${id}`)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/exchange-rates'))
+  }
+  return { remove }
+}
