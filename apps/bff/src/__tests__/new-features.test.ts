@@ -128,40 +128,40 @@ describe('KEYWORD_TEMPLATES', () => {
 
 describe('service module load', () => {
   it('trial-balance.service loads', async () => {
-    const m = await import('@/services/trial-balance.service')
+    const m = await import('@/services/trial-balance.service.js')
     expect(typeof m.buildTrialBalance).toBe('function')
     expect(typeof m.buildGeneralLedger).toBe('function')
   })
 
   it('aged-ar-ap.service loads', async () => {
-    const m = await import('@/services/aged-ar-ap.service')
+    const m = await import('@/services/aged-ar-ap.service.js')
     expect(typeof m.buildAgedReport).toBe('function')
   })
 
   it('form-1099-pdf.service loads', async () => {
-    const m = await import('@/services/form-1099-pdf.service')
+    const m = await import('@/services/form-1099-pdf.service.js')
     expect(typeof m.generate1099Pdf).toBe('function')
     expect(typeof m.build1099Entries).toBe('function')
   })
 
   it('alerts.service loads', async () => {
-    const m = await import('@/services/alerts.service')
+    const m = await import('@/services/alerts.service.js')
     expect(typeof m.buildAlerts).toBe('function')
   })
 
   it('report-conversion.service loads', async () => {
-    const m = await import('@/services/report-conversion.service')
+    const m = await import('@/services/report-conversion.service.js')
     expect(typeof m.convertToReportCurrency).toBe('function')
     expect(typeof m.batchConvert).toBe('function')
   })
 
   it('metrics.service loads', async () => {
-    const m = await import('@/services/metrics.service')
+    const m = await import('@/services/metrics.service.js')
     expect(typeof m.buildCompanyMetrics).toBe('function')
   })
 
   it('chart-of-accounts-cache.service loads', async () => {
-    const m = await import('@/services/chart-of-accounts-cache.service')
+    const m = await import('@/services/chart-of-accounts-cache.service.js')
     expect(typeof m.getChartOfAccounts).toBe('function')
     expect(typeof m.invalidateChartCache).toBe('function')
   })
@@ -169,7 +169,7 @@ describe('service module load', () => {
 
 describe('PDF generators produce valid PDFs', () => {
   it('1099-NEC PDF (empty vendors)', async () => {
-    const { generate1099Pdf } = await import('@/services/form-1099-pdf.service')
+    const { generate1099Pdf } = await import('@/services/form-1099-pdf.service.js')
     const buf = await generate1099Pdf({
       company_name: 'Test Inc', company_tax_id: '12-3456789',
       year: 2025, threshold: 600, vendors: [],
@@ -178,7 +178,7 @@ describe('PDF generators produce valid PDFs', () => {
   })
 
   it('1099-NEC PDF (with vendors)', async () => {
-    const { generate1099Pdf } = await import('@/services/form-1099-pdf.service')
+    const { generate1099Pdf } = await import('@/services/form-1099-pdf.service.js')
     const buf = await generate1099Pdf({
       company_name: 'Test Inc', company_tax_id: '12-3456789',
       year: 2025, threshold: 600,
@@ -192,7 +192,7 @@ describe('PDF generators produce valid PDFs', () => {
   })
 
   it('Trial Balance PDF (empty report)', async () => {
-    const { generateTrialBalancePdf } = await import('@/services/trial-balance-pdf.service')
+    const { generateTrialBalancePdf } = await import('@/services/trial-balance-pdf.service.js')
     const buf = await generateTrialBalancePdf({
       country: 'CL',
       company_name: 'Test Ltda', company_tax_id: '76.123.456-7',
