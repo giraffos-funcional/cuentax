@@ -514,17 +514,16 @@ class LibroEmissionService:
                 #   iter 8 (MntIVA=iva, MntSinCred=iva, Total=N+IVA) → LBR-2 MntTotal
                 #   iter 9 (MntIVA=iva, IVARetTotal=iva, Total=Neto+Exe,
                 #           TotOpIVARetTotal+TotIVARetTotal) → LBR-2 MntTotal
-                # FINAL (iter 11, per rev-sii reference impl that PASSED SII
-                # cert — see boletax/country/chl/models/sales_book.py:199,203
-                # and certification_service.py:159):
-                #   MntIVA   = iva_calc       (IVA reportado en detalle)
-                #   MntTotal = Neto + Exe     (NO suma IVA — el comprador
-                #                              retiene el IVA, proveedor cobra
-                #                              sólo neto)
-                #   IVARetTotal = iva_calc    (aggregate en TotalesPeriodo)
-                # Esto rompe la identidad Neto+IVA+Exe pero es lo que el SET
-                # checker SII espera (MONTO AFECTO 9878 == MntTotal).
-                mnt_iva = iva_calc
+                # FINAL (iter 12): setmail 247772910 mostró que iter 11
+                # (MntIVA=iva, MntTotal=Neto) satisface SET checker pero
+                # deja reparo LBR-2 "Reparo en Calculo de MntTotal"
+                # (SII valida identity: MntTotal == MntNeto + MntIVA + MntExe).
+                # Solución: MntIVA = 0 (el IVA está íntegramente retenido y
+                # se informa en <IVARetTotal>), MntTotal = Neto + Exe.
+                # Identity: 9878 == 9878 + 0 + 0 ✓
+                # SET checker: MntTotal (9878) == expected 9878 ✓
+                # Retención informada vía IVARetTotal + TotIVARetTotal.
+                mnt_iva = 0
                 iva_ret_total = iva_calc
                 mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
