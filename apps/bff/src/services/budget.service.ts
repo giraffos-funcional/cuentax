@@ -8,7 +8,7 @@
  * favorable).
  */
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { budgets } from '@/db/schema'
 import { odooAccountingAdapter } from '@/adapters/odoo-accounting.adapter'
@@ -49,7 +49,9 @@ export async function listBudgets(
 export async function upsertBudget(
   companyId: number, input: BudgetInput,
 ): Promise<BudgetRow> {
-  // Manual upsert since drizzle's onConflictDoUpdate is picky about unique constraints
+  // Manual upsert. Use isNull() for null cost_center_id — SQL equality
+  // doesn't match NULL to NULL, so a plain eq(..., null) returns nothing
+  // and we'd end up creating duplicates instead of updating.
   const existing = await db.select().from(budgets).where(and(
     eq(budgets.company_id, companyId),
     eq(budgets.year, input.year),
@@ -57,7 +59,7 @@ export async function upsertBudget(
     eq(budgets.account_code, input.account_code),
     input.cost_center_id != null
       ? eq(budgets.cost_center_id, input.cost_center_id)
-      : eq(budgets.cost_center_id, null as any),
+      : isNull(budgets.cost_center_id),
   )).limit(1)
 
   if (existing.length > 0) {
