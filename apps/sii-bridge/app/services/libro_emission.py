@@ -517,14 +517,15 @@ class LibroEmissionService:
                 #   iter 6 (MntIVA=0,   MntSinCred=iva)              → LBR-2 MntIVA + MntTotal
                 #   iter 7 (MntIVA=iva, MntSinCred=iva, Total=Neto)  → LBR-2 MntTotal
                 #   iter 8 (MntIVA=iva, MntSinCred=iva, Total=N+IVA) → LBR-2 MntTotal
-                # FINAL (iter 9, validated vs LibroCV_v10.xsd + SII compliance agent):
-                #   Detalle: MntIVA=iva, IVARetTotal=iva, MntTotal=Neto+Exe
-                #   TotalesPeriodo: TotOpIVARetTotal=count, TotIVARetTotal=sum(iva),
-                #                   TotMntTotal=sum(Neto+Exe), NO TotImpSinCredito
-                # Identity: Neto + IVA - IVARetTotal = MntTotal  →  9878+1877-1877=9878
+                #   iter 9 (MntIVA=iva, IVARetTotal=iva, Total=Neto+Exe,
+                #           TotOpIVARetTotal+TotIVARetTotal) → LBR-2 MntTotal
+                # FINAL (iter 10): SII parece validar siempre
+                #   MntTotal == MntNeto + MntIVA + MntExe (identity contable)
+                # regardless of retention subelements. IVARetTotal queda como
+                # informativo — aggregate en TotalesPeriodo también.
                 mnt_iva = iva_calc
                 iva_ret_total = iva_calc
-                mnt_total = mnt_neto + mnt_exe
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in
