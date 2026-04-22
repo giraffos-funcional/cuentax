@@ -296,6 +296,16 @@ class LibroEmissionService:
                 force_refresh=True, rut_emisor=rut_emisor
             )
 
+        # Log totals summary per TpoDoc before send (helps debugging REPAROS)
+        by_tpo: dict = {}
+        for d in libro_data.detalles:
+            t = by_tpo.setdefault(d.tipo_doc, {"count": 0, "tot": 0})
+            t["count"] += 1
+            t["tot"] += int(d.mnt_total or 0)
+        logger.info(
+            f"Libro {libro_data.tipo_operacion} totals before send: {by_tpo}"
+        )
+
         send_response_raw = None
         if token:
             try:
@@ -342,26 +352,42 @@ class LibroEmissionService:
         """
         Parse the EnvioDTE XML and extract per-DTE data
         as LibroDetalle entries for the Libro de Ventas.
+
+        Deduplicates by (tipo_doc, nro_doc) — the SII rejects libros that
+        contain the same folio twice for a given TpoDoc.
         """
         xml_bytes = base64.b64decode(envio_dte_xml_b64)
         root = etree.fromstring(xml_bytes)
 
-        detalles = []
         # Find all DTE elements
         dtes = root.findall(".//{%s}DTE" % SII_DTE_NS)
         if not dtes:
             dtes = root.findall(".//DTE")
 
+        seen = set()
+        detalles = []
+        duplicates = 0
         for dte in dtes:
             try:
                 det = self._parse_dte_for_libro(dte)
-                if det:
-                    detalles.append(det)
+                if not det:
+                    continue
+                key = (det.tipo_doc, det.nro_doc)
+                if key in seen:
+                    duplicates += 1
+                    logger.warning(
+                        f"Skipping duplicate DTE in EnvioDTE: "
+                        f"tipo={det.tipo_doc} folio={det.nro_doc}"
+                    )
+                    continue
+                seen.add(key)
+                detalles.append(det)
             except Exception as e:
                 logger.warning(f"Error parsing DTE for libro: {e}")
 
         logger.info(
-            f"Extracted {len(detalles)} detalles from EnvioDTE for Libro de Ventas"
+            f"Extracted {len(detalles)} unique detalles from EnvioDTE "
+            f"(skipped {duplicates} duplicates)"
         )
         return detalles
 

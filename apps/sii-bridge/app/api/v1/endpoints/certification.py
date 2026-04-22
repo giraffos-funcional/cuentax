@@ -162,6 +162,7 @@ class LibrosRequest(BaseModel):
     resultados: Optional[list[dict]] = None
     raw_test_set_path: Optional[str] = None  # path to test set file on server
     tipo_envio: Optional[str] = "TOTAL"  # TOTAL | RECTIFICA — use RECTIFICA when a prior TOTAL exists for period
+    envio_dte_xml_b64: Optional[str] = None  # explicit EnvioDTE XML to use (overrides session batch_result)
 
 
 # ── Prerequisites check ───────────────────────────────────────
@@ -399,6 +400,16 @@ async def upload_test_set(
     for p in session[f"payloads_{set_type}"]:
         if not p.get("rut_emisor"):
             p["rut_emisor"] = rut_emisor
+
+    # Invalidate prior batch + libro results so we don't mix a stale SET's
+    # DTEs with this newly-uploaded SET's raw_test_set_content.
+    session["last_batch_result"] = None
+    session.pop("libro_ventas_result", None)
+    session.pop("libro_compras_result", None)
+    logger.info(
+        f"Invalidated last_batch_result and libro_*_result for {rut_emisor} "
+        f"after uploading new {set_type} SET"
+    )
 
     return {
         "success": True,
@@ -835,8 +846,8 @@ async def generate_libros(req: LibrosRequest):
         )
 
     # 1. Generate and send Libro de Ventas
-    # Priority: EnvioDTE XML > inline resultados > session resultados
-    xml_b64 = batch_result.get("xml_envio_b64")
+    # Priority: explicit request XML > EnvioDTE XML from batch > inline resultados > session resultados
+    xml_b64 = req.envio_dte_xml_b64 or batch_result.get("xml_envio_b64")
     if xml_b64:
         resultado_ventas = libro_emission_service.emit_libro_ventas(
             envio_dte_xml_b64=xml_b64,
