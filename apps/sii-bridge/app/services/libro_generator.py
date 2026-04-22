@@ -252,13 +252,17 @@ class LibroXMLGenerator:
                         self._elem(totales, "TotCredIVAUsoComun", str(cred_iva))
                 # TotIVAPropio is LV-semantic per XSD docs ("IVA Propio en
                 # Operaciones a Cuenta de Terceros (LV)") — do NOT emit in LC.
-                # TotImpSinCredito (LC, XSD line 364) — for FCE TpoDoc 46 with
-                # retencion total, the retained IVA goes here (not in
-                # TotOpIVARetTotal/TotIVARetTotal which are LV-only per XSD).
+                # TotImpSinCredito (LC, XSD line 364) — for impuestos sin
+                # derecho a credito distintos de retencion total.
                 if tot_imp_sin_credito:
                     self._elem(totales, "TotImpSinCredito", str(tot_imp_sin_credito))
-                # TotOpIVARetTotal / TotIVARetTotal are (LV) per XSD lines
-                # 369/379 — only emit when tipo_operacion == VENTA.
+                # TotOpIVARetTotal / TotIVARetTotal (XSD lines 369/379) —
+                # valid for LC (FC46 retencion total) per SII compliance
+                # review. Iter 3 emitted IVARetTotal in Detalle only,
+                # omitting these aggregates → "No Informa Adec IVA Ret Total".
+                if tot_iva_ret_total:
+                    self._elem(totales, "TotOpIVARetTotal", str(tot_op_iva_ret_total))
+                    self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
             if data.tipo_operacion == "VENTA" and tot_iva_ret_total:
                 self._elem(totales, "TotOpIVARetTotal", str(tot_op_iva_ret_total))
                 self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
@@ -324,9 +328,14 @@ class LibroXMLGenerator:
             if det.iva_uso_comun:
                 self._elem(detalle, "IVAUsoComun", str(det.iva_uso_comun))
             # IVAPropio omitted — LV-semantic per XSD documentation.
-            # MntSinCred (XSD line 1234, LC) for FCE with retencion total.
+            # MntSinCred (XSD line 1234, LC).
             if det.mnt_sin_cred:
                 self._elem(detalle, "MntSinCred", str(det.mnt_sin_cred))
+            # IVARetTotal (XSD line 1239) — valid for LC (FC46 with retencion
+            # total) per SII compliance review. Must come AFTER MntSinCred and
+            # BEFORE MntTotal per XSD sequence.
+            if det.iva_ret_total:
+                self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
         elif tipo_operacion == "VENTA":
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))

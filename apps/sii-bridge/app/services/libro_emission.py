@@ -510,20 +510,21 @@ class LibroEmissionService:
 
             if "RETENCION TOTAL" in observaciones or "RETENCI" in observaciones:
                 # Factura de compra (TpoDoc 46) con retencion total del IVA.
-                # Empirically validated against SII SET checker + LBR-2 reparos:
-                #   iter 1 (MntIVA=iva, MntTotal=Neto+IVA+Exe) → "Monto Total No Cuadra"
-                #   iter 2 (MntIVA=0, MntTotal=Neto+Exe)       → "Monto IVA No Cuadra"
-                #   iter 3 (MntIVA=iva, IVARetTotal=iva)       → "No Informa Adec. IVA Ret. Total"
-                #   iter 6 (MntIVA=0, MntSinCred=iva)          → LBR-2 "MntIVA distinto MntNeto*TasaImp"
-                #                                               + LBR-2 "Reparo MntTotal"
-                #   iter 7 (MntIVA=iva, MntTotal=Neto)         → LBR-2 "Reparo MntTotal" only
-                # SII LBR-2: MntIVA == MntNeto*TasaImp, AND MntTotal == face value
-                # of the invoice (MntNeto+MntIVA+MntExe). The MntSinCred subelement
-                # already informs that the IVA was retained and no credit is claimed;
-                # MntTotal itself must reflect what the proveedor documento says.
+                # Iter history (certificacion Zyncro):
+                #   iter 1 (MntIVA=iva, MntTotal=Neto+IVA)           → "Monto Total No Cuadra"
+                #   iter 2 (MntIVA=0,   MntTotal=Neto)               → "Monto IVA No Cuadra"
+                #   iter 3 (MntIVA=iva, IVARetTotal=iva, det-only)   → "No Informa Adec. IVA Ret. Total"
+                #   iter 6 (MntIVA=0,   MntSinCred=iva)              → LBR-2 MntIVA + MntTotal
+                #   iter 7 (MntIVA=iva, MntSinCred=iva, Total=Neto)  → LBR-2 MntTotal
+                #   iter 8 (MntIVA=iva, MntSinCred=iva, Total=N+IVA) → LBR-2 MntTotal
+                # FINAL (iter 9, validated vs LibroCV_v10.xsd + SII compliance agent):
+                #   Detalle: MntIVA=iva, IVARetTotal=iva, MntTotal=Neto+Exe
+                #   TotalesPeriodo: TotOpIVARetTotal=count, TotIVARetTotal=sum(iva),
+                #                   TotMntTotal=sum(Neto+Exe), NO TotImpSinCredito
+                # Identity: Neto + IVA - IVARetTotal = MntTotal  →  9878+1877-1877=9878
                 mnt_iva = iva_calc
-                mnt_sin_cred = iva_calc
-                mnt_total = mnt_neto + iva_calc + mnt_exe
+                iva_ret_total = iva_calc
+                mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in
