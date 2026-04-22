@@ -514,13 +514,19 @@ class LibroEmissionService:
                 #   iter 8 (MntIVA=iva, MntSinCred=iva, Total=N+IVA) → LBR-2 MntTotal
                 #   iter 9 (MntIVA=iva, IVARetTotal=iva, Total=Neto+Exe,
                 #           TotOpIVARetTotal+TotIVARetTotal) → LBR-2 MntTotal
-                # FINAL (iter 10): SII parece validar siempre
-                #   MntTotal == MntNeto + MntIVA + MntExe (identity contable)
-                # regardless of retention subelements. IVARetTotal queda como
-                # informativo — aggregate en TotalesPeriodo también.
+                # FINAL (iter 11, per rev-sii reference impl that PASSED SII
+                # cert — see boletax/country/chl/models/sales_book.py:199,203
+                # and certification_service.py:159):
+                #   MntIVA   = iva_calc       (IVA reportado en detalle)
+                #   MntTotal = Neto + Exe     (NO suma IVA — el comprador
+                #                              retiene el IVA, proveedor cobra
+                #                              sólo neto)
+                #   IVARetTotal = iva_calc    (aggregate en TotalesPeriodo)
+                # Esto rompe la identidad Neto+IVA+Exe pero es lo que el SET
+                # checker SII espera (MONTO AFECTO 9878 == MntTotal).
                 mnt_iva = iva_calc
                 iva_ret_total = iva_calc
-                mnt_total = mnt_neto + iva_calc + mnt_exe
+                mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in
