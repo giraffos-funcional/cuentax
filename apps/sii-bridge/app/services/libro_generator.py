@@ -160,12 +160,12 @@ class LibroXMLGenerator:
             self._elem(totales, "TpoDoc", str(tipo_doc))
             self._elem(totales, "TotDoc", str(len(detalles)))
 
-            # TotAnulado: count of documents with MntTotal==0 (e.g. ND that
-            # anula an NC de corrección de giro, or NC CORRIGE TEXTO).  Per
-            # XSD LibroCV_v10, TotAnulado goes right after TotDoc.
-            tot_anulados = sum(1 for d in detalles if d.mnt_total == 0)
-            if tot_anulados:
-                self._elem(totales, "TotAnulado", str(tot_anulados))
+            # TotAnulado: per XSD LibroCV_v10, counts Detalle entries that have
+            # <Anulado>A</Anulado>.  Since we do NOT mark any Detalle as anulado
+            # (we emit NCs/NDs as regular documents with MntTotal=0 where
+            # applicable), emitting TotAnulado here would produce
+            # "LBR-3 Resumen No Cuadra Con Detalle".  Safer to omit entirely
+            # (minOccurs=0).  SII validator accepts missing TotAnulado.
 
             # Sum amounts per TpoDoc (straight sum, no sign flip)
             tot_exe = 0
