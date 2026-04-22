@@ -46,6 +46,9 @@ class LibroDetalle:
     iva_uso_comun: int = 0       # IVA uso comun
     iva_ret_total: int = 0       # IVA retencion total (factura de compra)
     iva_no_retenido: int = 0     # IVA no retenido
+    # IVA No Recuperable (subelement IVANoRec)
+    iva_no_rec_cod: int = 0      # CodIVANoRec (1-9). 0 = no aplica
+    iva_no_rec_mnt: int = 0      # MntIVANoRec
     # Nota de credito sign
     es_nota_credito: bool = False
 
@@ -166,6 +169,8 @@ class LibroXMLGenerator:
             tot_iva_uso_comun = 0
             tot_iva_ret_total = 0
             tot_iva_no_retenido = 0
+            # IVA No Recuperable grouped by CodIVANoRec
+            iva_no_rec_by_cod: dict[int, dict[str, int]] = {}
 
             for d in detalles:
                 # TotalesPeriodo per TpoDoc must be the straight sum of its
@@ -182,6 +187,12 @@ class LibroXMLGenerator:
                 tot_iva_uso_comun += d.iva_uso_comun
                 tot_iva_ret_total += d.iva_ret_total
                 tot_iva_no_retenido += d.iva_no_retenido
+                if d.iva_no_rec_cod and d.iva_no_rec_mnt:
+                    bucket = iva_no_rec_by_cod.setdefault(
+                        d.iva_no_rec_cod, {"cnt": 0, "mnt": 0}
+                    )
+                    bucket["cnt"] += 1
+                    bucket["mnt"] += d.iva_no_rec_mnt
 
             # XSD sequence: TotMntExe, TotMntNeto, TotMntIVA are REQUIRED
             self._elem(totales, "TotMntExe", str(tot_exe))
@@ -208,6 +219,17 @@ class LibroXMLGenerator:
                     self._elem(totales, "TotIVAPropio", str(tot_iva_propio))
                 if tot_iva_ret_total:
                     self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
+
+            # TotIVANoRec must appear BEFORE TotMntTotal per LibroCV_v10.xsd
+            # sequence: ... TotIVAPropio → TotIVANoRec* → TotIVARetTotal →
+            # TotMntTotal → TotIVANoRetenido.  Emit one block per CodIVANoRec.
+            if data.tipo_operacion == "COMPRA" and iva_no_rec_by_cod:
+                for cod in sorted(iva_no_rec_by_cod.keys()):
+                    bucket = iva_no_rec_by_cod[cod]
+                    tot_iva_no_rec = etree.SubElement(totales, "TotIVANoRec")
+                    self._elem(tot_iva_no_rec, "CodIVANoRec", str(cod))
+                    self._elem(tot_iva_no_rec, "TotOpIVANoRec", str(bucket["cnt"]))
+                    self._elem(tot_iva_no_rec, "TotMntIVANoRec", str(bucket["mnt"]))
 
             self._elem(totales, "TotMntTotal", str(tot_total))
 
@@ -252,12 +274,18 @@ class LibroXMLGenerator:
         self._elem(detalle, "MntIVA", str(det.mnt_iva))
 
         # Libro de Compras: XSD Detalle sequence per LibroCV_v10.xsd:
-        # IVAUsoComun → IVAPropio → IVARetTotal → MntTotal → IVANoRetenido
+        # IVAUsoComun → IVAPropio → IVANoRec → IVARetTotal → MntTotal → IVANoRetenido
         if tipo_operacion == "COMPRA":
             if det.iva_uso_comun:
                 self._elem(detalle, "IVAUsoComun", str(det.iva_uso_comun))
             if det.iva_propio:
                 self._elem(detalle, "IVAPropio", str(det.iva_propio))
+            if det.iva_no_rec_cod and det.iva_no_rec_mnt:
+                # Entrega gratuita / IVA sin derecho a credito: emit IVANoRec
+                # subelement with CodIVANoRec (tabla SII) and MntIVANoRec.
+                iva_no_rec = etree.SubElement(detalle, "IVANoRec")
+                self._elem(iva_no_rec, "CodIVANoRec", str(det.iva_no_rec_cod))
+                self._elem(iva_no_rec, "MntIVANoRec", str(det.iva_no_rec_mnt))
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
 

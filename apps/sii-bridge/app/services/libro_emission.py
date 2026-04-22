@@ -441,40 +441,65 @@ class LibroEmissionService:
 
             # Calculate IVA from monto afecto
             mnt_neto = mnt_afecto
-            mnt_iva = int(
+            iva_calc = int(
                 (Decimal(str(mnt_afecto)) * IVA_RATE).quantize(
                     Decimal("1"), rounding=ROUND_HALF_UP
                 )
             )
-            mnt_total = mnt_neto + mnt_iva + mnt_exe
 
             es_nc = tipo_doc in NOTA_CREDITO_TIPOS
 
-            # Determine IVA classification based on observaciones
+            # Determine IVA classification based on observaciones.
+            # Per IECV manual (LibroCV_v10.xsd):
+            #   - MntIVA del detalle = IVA recuperable directo (propio).
+            #     Para uso comun / no recuperable / retencion total, MntIVA=0
+            #     y el monto se reporta en el campo especializado.
+            #   - MntTotal del detalle = Neto + IVA + Exe, EXCEPTO en
+            #     facturas de compra con retencion total, donde MntTotal=Neto
+            #     (el comprador retiene el IVA, proveedor cobra solo neto).
+            mnt_iva = 0
             iva_propio = 0
             iva_uso_comun = 0
             iva_ret_total = 0
             iva_no_retenido = 0
+            iva_no_rec_cod = 0
+            iva_no_rec_mnt = 0
 
             if "RETENCION TOTAL" in observaciones or "RETENCI" in observaciones:
-                # Factura de compra con retencion total del IVA
-                iva_ret_total = mnt_iva
-                iva_no_retenido = 0
+                # Factura de compra con retencion total del IVA.
+                # MntTotal = Neto (receptor retiene IVA, no lo paga al proveedor).
+                # MntIVA del detalle debe ir en 0; el IVA se informa en IVARetTotal.
+                iva_ret_total = iva_calc
+                mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
-                # IVA uso comun
-                iva_uso_comun = mnt_iva
+                # IVA uso comun: MntIVA=0, monto se reporta en IVAUsoComun.
+                # MntTotal = Neto + IVAUsoComun + Exe (el doc se paga completo).
+                iva_uso_comun = iva_calc
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "ENTREGA GRATUITA" in observaciones:
-                # Entrega gratuita: IVA goes to no retenido (no credit)
-                iva_no_retenido = mnt_iva
-            elif "CREDITO" in observaciones or "GIRO" in observaciones:
-                # Regular purchase with right to credit
-                iva_propio = mnt_iva
+                # Entrega gratuita: IVA no recuperable. Usar subelement IVANoRec
+                # con CodIVANoRec=4 ("IVA uso en bienes no del giro /
+                # entrega gratuita"). MntIVA=0 en el detalle.
+                # MntTotal = Neto + IVA + Exe (el proveedor facturó el IVA,
+                # solo que al comprador no le da credito fiscal).
+                iva_no_rec_cod = 4
+                iva_no_rec_mnt = iva_calc
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "DESCUENTO" in observaciones:
-                # NC por descuento: same classification as original
-                iva_propio = mnt_iva
+                # NC por descuento: same classification as original (propio).
+                iva_propio = iva_calc
+                mnt_iva = iva_calc
+                mnt_total = mnt_neto + iva_calc + mnt_exe
+            elif "CREDITO" in observaciones or "GIRO" in observaciones:
+                # Regular purchase with right to credit — IVA propio.
+                iva_propio = iva_calc
+                mnt_iva = iva_calc
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             else:
-                # Default: IVA propio
-                iva_propio = mnt_iva
+                # Default: IVA propio.
+                iva_propio = iva_calc
+                mnt_iva = iva_calc
+                mnt_total = mnt_neto + iva_calc + mnt_exe
 
             # For emisor's compras, the RUT is the supplier (we use a generic one for cert)
             rut_proveedor = "55555555-5"
@@ -495,6 +520,8 @@ class LibroEmissionService:
                     iva_uso_comun=iva_uso_comun,
                     iva_ret_total=iva_ret_total,
                     iva_no_retenido=iva_no_retenido,
+                    iva_no_rec_cod=iva_no_rec_cod,
+                    iva_no_rec_mnt=iva_no_rec_mnt,
                     es_nota_credito=es_nc,
                 )
             )
