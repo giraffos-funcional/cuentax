@@ -215,21 +215,19 @@ class LibroXMLGenerator:
                         )
                     )
                     self._elem(totales, "TotCredIVAUsoComun", str(cred_iva))
+                # TotIVANoRec* must come BEFORE TotIVAPropio per
+                # LibroCV_v10.xsd sequence.  Emit one block per CodIVANoRec.
+                if iva_no_rec_by_cod:
+                    for cod in sorted(iva_no_rec_by_cod.keys()):
+                        bucket = iva_no_rec_by_cod[cod]
+                        tot_iva_no_rec = etree.SubElement(totales, "TotIVANoRec")
+                        self._elem(tot_iva_no_rec, "CodIVANoRec", str(cod))
+                        self._elem(tot_iva_no_rec, "TotOpIVANoRec", str(bucket["cnt"]))
+                        self._elem(tot_iva_no_rec, "TotMntIVANoRec", str(bucket["mnt"]))
                 if tot_iva_propio:
                     self._elem(totales, "TotIVAPropio", str(tot_iva_propio))
                 if tot_iva_ret_total:
                     self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
-
-            # TotIVANoRec must appear BEFORE TotMntTotal per LibroCV_v10.xsd
-            # sequence: ... TotIVAPropio → TotIVANoRec* → TotIVARetTotal →
-            # TotMntTotal → TotIVANoRetenido.  Emit one block per CodIVANoRec.
-            if data.tipo_operacion == "COMPRA" and iva_no_rec_by_cod:
-                for cod in sorted(iva_no_rec_by_cod.keys()):
-                    bucket = iva_no_rec_by_cod[cod]
-                    tot_iva_no_rec = etree.SubElement(totales, "TotIVANoRec")
-                    self._elem(tot_iva_no_rec, "CodIVANoRec", str(cod))
-                    self._elem(tot_iva_no_rec, "TotOpIVANoRec", str(bucket["cnt"]))
-                    self._elem(tot_iva_no_rec, "TotMntIVANoRec", str(bucket["mnt"]))
 
             self._elem(totales, "TotMntTotal", str(tot_total))
 
