@@ -117,6 +117,10 @@ class LibroXMLGenerator:
             f"LibroCompraVenta generated: tipo={data.tipo_operacion}, "
             f"periodo={data.periodo_tributario}, detalles={len(data.detalles)}"
         )
+        # SII schema parser enforces CHR-00002 "Line too long (4090)".
+        # Pretty-print BEFORE signing so the digest includes the whitespace
+        # text nodes — signing after indent keeps the c14n self-consistent.
+        etree.indent(root, space="  ")
         return root
 
     def _build_caratula(self, parent: etree._Element, data: LibroData):
