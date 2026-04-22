@@ -501,11 +501,15 @@ class LibroEmissionService:
                 mnt_iva = iva_calc
                 mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "USO COMUN" in observaciones:
-                # IVA uso comun: MntIVA se reporta igual que cualquier afecto,
-                # el campo IVAUsoComun adicional marca la clasificación.
-                # MntTotal = Neto + IVA + Exe.
+                # IVA uso comun (IECV manual + LibroCV_v10.xsd):
+                # MntIVA del detalle MUST be 0 — the IVA amount goes only in
+                # <IVAUsoComun>.  Otherwise SII computes
+                #   MntTotal expected = MntNeto + MntIVA + IVAUsoComun + MntExe
+                # and flags "Reparo en MntTotal" + "MntIVA distinto a
+                # MntNeto*TasaImp" (because the detalle is classified as
+                # uso común, SII expects MntIVA=0 in that field).
                 iva_uso_comun = iva_calc
-                mnt_iva = iva_calc
+                mnt_iva = 0
                 mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "ENTREGA GRATUITA" in observaciones:
                 # Entrega gratuita: IVA no recuperable. Usar subelement IVANoRec
