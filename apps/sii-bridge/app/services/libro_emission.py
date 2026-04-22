@@ -516,12 +516,14 @@ class LibroEmissionService:
                 #   iter 3 (MntIVA=iva, IVARetTotal=iva)       → "No Informa Adec. IVA Ret. Total"
                 #   iter 6 (MntIVA=0, MntSinCred=iva)          → LBR-2 "MntIVA distinto MntNeto*TasaImp"
                 #                                               + LBR-2 "Reparo MntTotal"
-                # SII validates LBR-2 rule: MntIVA MUST equal MntNeto * TasaImp.
-                # For retencion total: MntIVA=iva (computed), MntSinCred=iva (no credit),
-                # MntTotal = MntNeto + MntExe (buyer pays only net; IVA retained to fiscus).
+                #   iter 7 (MntIVA=iva, MntTotal=Neto)         → LBR-2 "Reparo MntTotal" only
+                # SII LBR-2: MntIVA == MntNeto*TasaImp, AND MntTotal == face value
+                # of the invoice (MntNeto+MntIVA+MntExe). The MntSinCred subelement
+                # already informs that the IVA was retained and no credit is claimed;
+                # MntTotal itself must reflect what the proveedor documento says.
                 mnt_iva = iva_calc
                 mnt_sin_cred = iva_calc
-                mnt_total = mnt_neto + mnt_exe
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in
