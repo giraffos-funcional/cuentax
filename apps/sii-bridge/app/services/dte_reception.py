@@ -12,7 +12,9 @@ Functions:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+_CHILE_TZ = timezone(timedelta(hours=-4))
 from typing import Optional
 from lxml import etree
 
@@ -119,7 +121,7 @@ class DTEReceptionService:
         Returns:
             Signed RecepcionDTE XML string
         """
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
         nsmap = {None: SII_DTE_NS}
 
         recepcion = etree.Element("RespuestaDTE", attrib={"version": "1.0"}, nsmap=nsmap)
@@ -194,7 +196,7 @@ class DTEReceptionService:
         Returns:
             Signed ResultadoDTE XML string
         """
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
         nsmap = {None: SII_DTE_NS}
 
         resp = etree.Element("RespuestaDTE", attrib={"version": "1.0"}, nsmap=nsmap)

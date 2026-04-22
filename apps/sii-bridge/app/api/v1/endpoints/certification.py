@@ -15,7 +15,9 @@ Each step tracks its own state in a session dict keyed by rut_emisor.
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
+
+_CHILE_TZ = timezone(timedelta(hours=-4))
 from decimal import Decimal
 from enum import IntEnum
 from typing import Optional
@@ -102,7 +104,7 @@ def _get_session(rut_emisor: str) -> dict:
             "rut_emisor": rut_emisor,
             "current_step": Step.POSTULACION,
             "steps_completed": set(),
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(_CHILE_TZ).isoformat(),
             "set_pruebas_factura": None,
             "set_pruebas_boleta": None,
             "payloads_factura": None,
@@ -627,7 +629,7 @@ async def intercambio_receive(
 
     session = _get_session(rut_receptor)
     session["intercambio_results"].append({
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(_CHILE_TZ).isoformat(),
         "parsed": result,
     })
 
@@ -752,8 +754,8 @@ async def generate_libros(req: LibrosRequest):
     4. Returns both track IDs
     """
     rut_emisor = req.rut_emisor
-    periodo = req.periodo or date.today().strftime("%Y-%m")
-    fecha_emision = req.fecha_emision or date.today().strftime("%Y-%m-%d")
+    periodo = req.periodo or datetime.now(_CHILE_TZ).date().strftime("%Y-%m")
+    fecha_emision = req.fecha_emision or datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")
 
     # Try session first, then fall back to inline data
     session = None

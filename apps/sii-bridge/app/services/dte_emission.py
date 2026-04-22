@@ -216,7 +216,7 @@ class DTEEmissionService:
                 # Set ref_fecha to fecha_emision if not provided
                 if payload.get("ref_tipo_doc") and not payload.get("ref_fecha"):
                     payload["ref_fecha"] = payload.get(
-                        "fecha_emision", date.today().strftime("%Y-%m-%d")
+                        "fecha_emision", datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")
                     )
 
                 result = self._build_unsigned_dte(payload)
@@ -572,7 +572,7 @@ class DTEEmissionService:
         return DTEDocumento(
             tipo_dte=p["tipo_dte"],
             folio=folio,
-            fecha_emision=p.get("fecha_emision", date.today().strftime("%Y-%m-%d")),
+            fecha_emision=p.get("fecha_emision", datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")),
             emisor=emisor,
             receptor=receptor,
             items=items,

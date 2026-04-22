@@ -16,7 +16,9 @@ Libro de Compras (IEC): Built from parsed compras entries in the test set.
 import base64
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
+
+_CHILE_TZ = timezone(timedelta(hours=-4))
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
@@ -135,8 +137,7 @@ class LibroEmissionService:
         monto_iva, monto_total, rut_receptor, razon_social_receptor
         """
         if not fecha_doc:
-            from datetime import date as _date
-            fecha_doc = _date.today().strftime("%Y-%m-%d")
+            fecha_doc = datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")
 
         detalles = []
         for r in resultados:
@@ -217,7 +218,7 @@ class LibroEmissionService:
             Result dict with track_id, xml_b64, etc.
         """
         if not fecha_doc:
-            fecha_doc = date.today().strftime("%Y-%m-%d")
+            fecha_doc = datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")
 
         detalles = self._build_compras_detalles(compras_entries, fecha_doc, rut_emisor)
 
