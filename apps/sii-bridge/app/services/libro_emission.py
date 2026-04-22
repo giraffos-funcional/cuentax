@@ -492,15 +492,20 @@ class LibroEmissionService:
             iva_no_rec_mnt = 0
 
             if "RETENCION TOTAL" in observaciones or "RETENCI" in observaciones:
-                # Factura de compra con retencion total del IVA.
-                # MntTotal = Neto (receptor retiene IVA, no lo paga al proveedor).
-                # MntIVA del detalle debe ir en 0; el IVA se informa en IVARetTotal.
+                # Factura de compra (TpoDoc 46) con retencion total del IVA.
+                # Per SII LibroCV spec: MntIVA del detalle = IVA de la operación
+                # (se informa igualmente), IVARetTotal marca que el comprador
+                # retuvo el IVA.  MntTotal = Neto + IVA + Exe (monto facturado).
+                # El flag de retención se lleva por IVARetTotal en el Resumen.
                 iva_ret_total = iva_calc
-                mnt_total = mnt_neto + mnt_exe
+                mnt_iva = iva_calc
+                mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "USO COMUN" in observaciones:
-                # IVA uso comun: MntIVA=0, monto se reporta en IVAUsoComun.
-                # MntTotal = Neto + IVAUsoComun + Exe (el doc se paga completo).
+                # IVA uso comun: MntIVA se reporta igual que cualquier afecto,
+                # el campo IVAUsoComun adicional marca la clasificación.
+                # MntTotal = Neto + IVA + Exe.
                 iva_uso_comun = iva_calc
+                mnt_iva = iva_calc
                 mnt_total = mnt_neto + iva_calc + mnt_exe
             elif "ENTREGA GRATUITA" in observaciones:
                 # Entrega gratuita: IVA no recuperable. Usar subelement IVANoRec

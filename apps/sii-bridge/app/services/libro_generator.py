@@ -160,6 +160,13 @@ class LibroXMLGenerator:
             self._elem(totales, "TpoDoc", str(tipo_doc))
             self._elem(totales, "TotDoc", str(len(detalles)))
 
+            # TotAnulado: count of documents with MntTotal==0 (e.g. ND that
+            # anula an NC de corrección de giro, or NC CORRIGE TEXTO).  Per
+            # XSD LibroCV_v10, TotAnulado goes right after TotDoc.
+            tot_anulados = sum(1 for d in detalles if d.mnt_total == 0)
+            if tot_anulados:
+                self._elem(totales, "TotAnulado", str(tot_anulados))
+
             # Sum amounts per TpoDoc (straight sum, no sign flip)
             tot_exe = 0
             tot_neto = 0
@@ -279,6 +286,12 @@ class LibroXMLGenerator:
             self._elem(detalle, "MntExe", str(det.mnt_exe))
         if det.mnt_neto:
             self._elem(detalle, "MntNeto", str(det.mnt_neto))
+        elif not det.mnt_exe and det.mnt_total == 0:
+            # XSD LibroCV_v10 requires at least one of MntExe / MntNeto.
+            # For anulatoria documents (NC CORRIGE TEXTO / ND anulatoria)
+            # MntTotal=0 with no exento/neto — emit explicit <MntNeto>0</MntNeto>
+            # to satisfy the schema.
+            self._elem(detalle, "MntNeto", "0")
         # MntIVA is obligatoriedad=1 (siempre) per IECV spec section 2.4
         # campo 20: "Es un dato obligatorio... En los documentos exentos, el
         # campo debe ir con un cero." Emit always — value 0 is valid.
