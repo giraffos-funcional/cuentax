@@ -1415,3 +1415,162 @@ export function useChartOfAccountsSetup() {
 export function useUSSetup() {
   return useChartOfAccountsSetup()
 }
+
+// ══════════════════════════════════════════════════════════════
+// Cost Centers (analytic dimensions — properties, projects, cases, etc.)
+// ══════════════════════════════════════════════════════════════
+
+export interface CostCenter {
+  id: number
+  company_id: number
+  odoo_analytic_id: number
+  odoo_plan_id: number | null
+  plan_name: string | null
+  name: string
+  code: string | null
+  keywords: string[]
+  airbnb_listing: string | null
+  parent_id: number | null
+  active: boolean
+  notes: string | null
+}
+
+export function useCostCentersV2() {
+  const { data, error, isLoading, mutate } = useSWR<{ cost_centers: CostCenter[]; total: number }>(
+    '/api/v1/accounting/cost-centers', fetcher,
+  )
+  return {
+    costCenters: data?.cost_centers ?? [],
+    total: data?.total ?? 0,
+    isLoading,
+    error,
+    mutate,
+  }
+}
+
+export function useCreateCostCenterV2() {
+  const [loading, setLoading] = useState(false)
+  const create = async (input: {
+    name: string
+    code?: string
+    plan_name?: string
+    keywords?: string[]
+    airbnb_listing?: string
+    notes?: string
+  }) => {
+    setLoading(true)
+    try {
+      const r = await apiClient.post('/api/v1/accounting/cost-centers', input).then(res => res.data)
+      globalMutate((k: string) => typeof k === 'string' && k.includes('/cost-centers'))
+      return r
+    } finally {
+      setLoading(false)
+    }
+  }
+  return { create, loading }
+}
+
+export function useUpdateCostCenter() {
+  const update = async (id: number, input: Partial<{
+    name: string
+    code: string
+    keywords: string[]
+    airbnb_listing: string
+    notes: string
+  }>) => {
+    const r = await apiClient.put(`/api/v1/accounting/cost-centers/${id}`, input).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/cost-centers'))
+    return r
+  }
+  return { update }
+}
+
+export function useDeleteCostCenter() {
+  const remove = async (id: number) => {
+    await apiClient.delete(`/api/v1/accounting/cost-centers/${id}`)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/cost-centers'))
+  }
+  return { remove }
+}
+
+export function useSyncCostCenters() {
+  const [loading, setLoading] = useState(false)
+  const sync = async () => {
+    setLoading(true)
+    try {
+      const r = await apiClient.post('/api/v1/accounting/cost-centers/sync', {}).then(res => res.data)
+      globalMutate((k: string) => typeof k === 'string' && k.includes('/cost-centers'))
+      return r
+    } finally { setLoading(false) }
+  }
+  return { sync, loading }
+}
+
+export function useAutoTagCostCenters() {
+  const [loading, setLoading] = useState(false)
+  const autoTag = async () => {
+    setLoading(true)
+    try {
+      const r = await apiClient.post('/api/v1/accounting/cost-centers/auto-tag', {}).then(res => res.data)
+      globalMutate((k: string) => typeof k === 'string' && (k.includes('/classifications') || k.includes('/cost-centers')))
+      return r
+    } finally { setLoading(false) }
+  }
+  return { autoTag, loading }
+}
+
+export function useAssignCostCenter() {
+  const assign = async (classificationId: number, costCenterId: number | null) => {
+    const r = await apiClient.post(
+      `/api/v1/accounting/classifications/${classificationId}/assign-cost-center`,
+      { cost_center_id: costCenterId },
+    ).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/classifications'))
+    return r
+  }
+  return { assign }
+}
+
+export function useBulkAssignCostCenter() {
+  const bulk = async (ids: number[], costCenterId: number | null) => {
+    const r = await apiClient.post('/api/v1/accounting/bulk-assign-cost-center', {
+      ids, cost_center_id: costCenterId,
+    }).then(res => res.data)
+    globalMutate((k: string) => typeof k === 'string' && k.includes('/classifications'))
+    return r
+  }
+  return { bulk }
+}
+
+export function useCostCenterPnl(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  const { data, error, isLoading, mutate } = useSWR(
+    `/api/v1/accounting/cost-center-pnl?${qs}`, fetcher,
+  )
+  return { report: data, isLoading, error, mutate }
+}
+
+export function downloadCostCenterPnlPdf(year: number, month?: number) {
+  const qs = month ? `year=${year}&month=${month}` : `year=${year}`
+  return apiClient.get(`/api/v1/accounting/cost-center-pnl.pdf?${qs}`, { responseType: 'blob' })
+    .then(res => {
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `pnl-por-centro-${year}${month ? '-' + String(month).padStart(2, '0') : ''}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    })
+}
+
+export function useAirbnbImport() {
+  const [loading, setLoading] = useState(false)
+  const importCsv = async (content: string) => {
+    setLoading(true)
+    try {
+      return await apiClient.post('/api/v1/accounting/airbnb/import', { content }).then(res => res.data)
+    } finally { setLoading(false) }
+  }
+  return { importCsv, loading }
+}

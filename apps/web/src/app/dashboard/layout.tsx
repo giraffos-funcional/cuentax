@@ -25,7 +25,7 @@ import {
   Tag, Users, FileX, BarChart3, Folders, Send, PieChart, ShoppingCart,
   ListTree, BookText, Scale, TrendingUp, ArrowLeftRight,
   UserCircle, Receipt, CalendarDays, Briefcase, ClipboardList, Clock4, Activity,
-  Wrench, ShieldCheck, RefreshCw
+  Wrench, ShieldCheck, RefreshCw, Home
 } from 'lucide-react'
 
 // ── Navigation structure ─────────────────────────────────────
@@ -74,10 +74,13 @@ const NAV_ALL: NavEntry[] = [
     collapsible: true,
     country: 'US',
     items: [
-      { href: '/dashboard/accounting/import',   icon: FileText,       label: 'Import & Classify' },
-      { href: '/dashboard/accounting/classify',  icon: CheckCircle2,   label: 'Review Classifications' },
-      { href: '/dashboard/accounting/entries',   icon: BookText,       label: 'Journal Entries' },
-      { href: '/dashboard/accounting/summary',   icon: TrendingUp,     label: 'Year Summary + P&L' },
+      { href: '/dashboard/accounting/import',           icon: FileText,       label: 'Import & Classify' },
+      { href: '/dashboard/accounting/classify',          icon: CheckCircle2,   label: 'Review Classifications' },
+      { href: '/dashboard/accounting/entries',           icon: BookText,       label: 'Journal Entries' },
+      { href: '/dashboard/accounting/summary',           icon: TrendingUp,     label: 'Year Summary + P&L' },
+      { href: '/dashboard/accounting/cost-centers',      icon: Folders,        label: 'Cost Centers' },
+      { href: '/dashboard/accounting/cost-center-pnl',   icon: PieChart,       label: 'P&L by Cost Center' },
+      { href: '/dashboard/accounting/airbnb',            icon: Home,           label: 'Airbnb Import' },
     ],
   },
 
@@ -88,10 +91,13 @@ const NAV_ALL: NavEntry[] = [
     collapsible: true,
     country: 'CL',
     items: [
-      { href: '/dashboard/accounting/import',   icon: FileText,       label: 'Importar Cartola' },
-      { href: '/dashboard/accounting/classify',  icon: CheckCircle2,   label: 'Revisar Clasificaciones' },
-      { href: '/dashboard/accounting/entries',   icon: BookText,       label: 'Generar Asientos' },
-      { href: '/dashboard/accounting/summary',   icon: TrendingUp,     label: 'Resumen Anual + PDF' },
+      { href: '/dashboard/accounting/import',           icon: FileText,       label: 'Importar Cartola' },
+      { href: '/dashboard/accounting/classify',          icon: CheckCircle2,   label: 'Revisar Clasificaciones' },
+      { href: '/dashboard/accounting/entries',           icon: BookText,       label: 'Generar Asientos' },
+      { href: '/dashboard/accounting/summary',           icon: TrendingUp,     label: 'Resumen Anual + PDF' },
+      { href: '/dashboard/accounting/cost-centers',      icon: Folders,        label: 'Centros de Costo' },
+      { href: '/dashboard/accounting/cost-center-pnl',   icon: PieChart,       label: 'P&L por Centro' },
+      { href: '/dashboard/accounting/airbnb',            icon: Home,           label: 'Importar Airbnb' },
     ],
   },
 
