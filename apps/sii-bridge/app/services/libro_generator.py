@@ -177,25 +177,28 @@ class LibroXMLGenerator:
     }
 
     def _build_resumen_periodo(self, parent: etree._Element, data: LibroData):
-        """Build the ResumenPeriodo with TotalesPeriodo per (tipo_doc, eje)."""
+        """Build the ResumenPeriodo with ONE TotalesPeriodo per (TpoDoc, TipoImp).
+
+        SII SET Checker (track 247885358, 2026-03) proved the earlier hypothesis
+        of (TpoDoc, eje) grouping wrong:
+
+            "LBR-3 Libro no debe incluir Resumenes de Documento(s)
+             - Repetido(s) TipoDoc:[33] TipoImp:[1]"
+
+        The correct format: a single TotalesPeriodo per TpoDoc, with ALL axis
+        subelements (TotIVANoRec*, TotOpIVAUsoComun, TotIVAUsoComun, FctProp,
+        TotOpIVARetTotal, TotIVARetTotal, etc.) co-existing inside that block
+        and derived from the mixed detalles of that TpoDoc.
+        """
         resumen = etree.SubElement(parent, "ResumenPeriodo")
 
-        # Group detalles.
-        # - COMPRA: compound key (tipo_doc, eje) so each tax axis gets its own
-        #   TotalesPeriodo row (required by SII SET Checker).
-        # - VENTA: single key (tipo_doc,) — ventas are homogeneous per TpoDoc.
+        # Group detalles by TpoDoc for both COMPRA and VENTA — the per-axis
+        # subelement computation happens inside the block using the flags of
+        # each detalle row (d.iva_uso_comun, d.iva_no_rec_cod, d.iva_ret_total).
         by_key: dict[tuple, list[LibroDetalle]] = defaultdict(list)
-        if data.tipo_operacion == "COMPRA":
-            for d in data.detalles:
-                by_key[(d.tipo_doc, self._detalle_eje(d))].append(d)
-            keys = sorted(
-                by_key.keys(),
-                key=lambda k: (k[0], self._EJE_ORDER.get(k[1], 99)),
-            )
-        else:
-            for d in data.detalles:
-                by_key[(d.tipo_doc,)].append(d)
-            keys = sorted(by_key.keys())
+        for d in data.detalles:
+            by_key[(d.tipo_doc,)].append(d)
+        keys = sorted(by_key.keys())
 
         # For empty AJUSTE (zero-totals): emit a single TotalesPeriodo with TpoDoc=33
         # and all amounts zero so the XSD requirement for at least one TotalesPeriodo
