@@ -33,6 +33,7 @@ from app.services.pdf_generator import pdf_generator
 from app.services.sii_soap_client import sii_soap_client
 from app.services.certificate import certificate_service
 from app.services.caf_manager import caf_manager
+from app.services import session_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -93,27 +94,111 @@ STEP_INFO = {
 
 
 # ── Session storage (per rut_emisor) ─────────────────────────
+#
+# _sessions is the in-memory cache. session_store persists a JSON snapshot
+# to disk so deploys / pod restarts do not nuke signed XMLs, CAF state, etc.
+# See app/services/session_store.py for the persistence contract.
 
 _sessions: dict[str, dict] = {}
 
+# Fields that survive a restart. Everything else either regenerates on
+# demand (set_pruebas_* dataclass via re-upload) or is derived state.
+_PERSIST_FIELDS: tuple[str, ...] = (
+    "rut_emisor",
+    "current_step",
+    "steps_completed",
+    "created_at",
+    "payloads_factura",
+    "payloads_boleta",
+    "last_batch_result",
+    "intercambio_results",
+    "muestras_generadas",
+    "raw_test_set_content",
+    "libro_ventas_result",
+    "libro_compras_result",
+    # Lightweight counts so /wizard/status still reports cases after restart
+    # even when the full SetPruebasData dataclass is gone.
+    "set_summary_factura",
+    "set_summary_boleta",
+)
+
+
+def _persist_session(rut_emisor: str) -> None:
+    """Write the current session snapshot to disk (best-effort, never raises)."""
+    sess = _sessions.get(rut_emisor)
+    if not sess:
+        return
+    snapshot = {k: sess[k] for k in _PERSIST_FIELDS if k in sess}
+    # Enum is not JSON native.
+    cs = snapshot.get("current_step")
+    if hasattr(cs, "value"):
+        snapshot["current_step"] = int(cs)
+    session_store.save(rut_emisor, snapshot)
+
+
+def _default_session(rut_emisor: str) -> dict:
+    return {
+        "rut_emisor": rut_emisor,
+        "current_step": Step.POSTULACION,
+        "steps_completed": set(),
+        "created_at": datetime.now(_CHILE_TZ).isoformat(),
+        "set_pruebas_factura": None,
+        "set_pruebas_boleta": None,
+        "payloads_factura": None,
+        "payloads_boleta": None,
+        "last_batch_result": None,
+        "intercambio_results": [],
+        "muestras_generadas": 0,
+    }
+
 
 def _get_session(rut_emisor: str) -> dict:
-    """Get or create a certification session for a company."""
-    if rut_emisor not in _sessions:
-        _sessions[rut_emisor] = {
-            "rut_emisor": rut_emisor,
-            "current_step": Step.POSTULACION,
-            "steps_completed": set(),
-            "created_at": datetime.now(_CHILE_TZ).isoformat(),
-            "set_pruebas_factura": None,
-            "set_pruebas_boleta": None,
-            "payloads_factura": None,
-            "payloads_boleta": None,
-            "last_batch_result": None,
-            "intercambio_results": [],
-            "muestras_generadas": 0,
-        }
+    """Get or create a certification session for a company.
+
+    Disk is the source of truth: uvicorn runs multiple workers, each with its
+    own process memory. A write from worker A never reaches worker B's cache,
+    so we re-read the persisted JSON on every call. The cache is only
+    consulted when the file does not exist (new sessions) — cost of reading a
+    small JSON on each request is negligible compared to SII round-trips.
+    """
+    persisted = session_store.load(rut_emisor)
+    if persisted:
+        cs = persisted.get("current_step")
+        if isinstance(cs, int):
+            try:
+                persisted["current_step"] = Step(cs)
+            except ValueError:
+                persisted["current_step"] = Step.POSTULACION
+        base = _default_session(rut_emisor)
+        base.update(persisted)
+        # Preserve any live-only fields (e.g. set_pruebas_* dataclass) that
+        # were cached in this worker but are not serialized to disk.
+        if rut_emisor in _sessions:
+            cached = _sessions[rut_emisor]
+            for key in ("set_pruebas_factura", "set_pruebas_boleta"):
+                if cached.get(key) is not None and base.get(key) is None:
+                    base[key] = cached[key]
+        _sessions[rut_emisor] = base
+        return _sessions[rut_emisor]
+
+    if rut_emisor in _sessions:
+        return _sessions[rut_emisor]
+
+    _sessions[rut_emisor] = _default_session(rut_emisor)
     return _sessions[rut_emisor]
+
+
+def restore_sessions_from_disk() -> int:
+    """Preload every persisted session into the in-memory cache at startup."""
+    restored = session_store.load_all()
+    count = 0
+    for rut, data in restored.items():
+        # Run through _get_session branch to normalize.
+        _sessions.pop(rut, None)  # ensure _get_session takes the disk path
+        session_store.save(rut, data)  # rewrite normalized copy (no-op if same)
+        _get_session(rut)
+        count += 1
+    return count
 
 
 # ── Request models ────────────────────────────────────────────
@@ -308,6 +393,7 @@ async def complete_step(req: StepCompleteRequest):
 
     session["steps_completed"].add(step)
     _advance_step(session)
+    _persist_session(req.rut_emisor)
 
     return {
         "success": True,
@@ -397,6 +483,13 @@ async def upload_test_set(
         session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
     # Store raw content for libro de compras parsing later
     session["raw_test_set_content"] = text
+    # Lightweight summary that survives a restart when the full dataclass
+    # cannot be round-tripped through JSON.
+    session[f"set_summary_{set_type}"] = {
+        "casos_count": len(parsed.casos),
+        "rut_emisor": parsed.rut_emisor,
+        "razon_social_emisor": parsed.razon_social_emisor,
+    }
 
     # Ensure all payloads have the correct rut_emisor
     for p in session[f"payloads_{set_type}"]:
@@ -412,6 +505,7 @@ async def upload_test_set(
         f"Invalidated last_batch_result and libro_*_result for {rut_emisor} "
         f"after uploading new {set_type} SET"
     )
+    _persist_session(rut_emisor)
 
     return {
         "success": True,
@@ -585,6 +679,8 @@ async def process_test_set(req: ProcessRequest):
             )
             result["success"] = True  # Mark as success for wizard advancement
 
+    _persist_session(rut_emisor)
+
     return {
         **result,
         "set_type": set_type,
@@ -616,6 +712,7 @@ async def simulacion_send(payloads: list[dict]):
     if result.get("success"):
         session["steps_completed"].add(Step.SIMULACION)
         _advance_step(session)
+    _persist_session(rut_emisor)
 
     return {
         **result,
@@ -645,6 +742,7 @@ async def intercambio_receive(
         "timestamp": datetime.now(_CHILE_TZ).isoformat(),
         "parsed": result,
     })
+    _persist_session(rut_receptor)
 
     return result
 
@@ -708,6 +806,7 @@ async def intercambio_respond(req: InterceptRequest):
     if all_ok:
         session["steps_completed"].add(Step.INTERCAMBIO)
         _advance_step(session)
+    _persist_session(req.rut_receptor)
 
     return {
         "success": all_ok,
@@ -740,11 +839,109 @@ async def generate_muestra_pdf(req: PDFRequest):
         if session["muestras_generadas"] >= 1:
             session["steps_completed"].add(Step.MUESTRAS)
             _advance_step(session)
+        _persist_session(rut_emisor)
 
     return {
         "success": True,
         "pdf_b64": base64.b64encode(pdf_bytes).decode(),
         "size_bytes": len(pdf_bytes),
+    }
+
+
+@router.post("/wizard/muestras/generate-bulk")
+async def generate_muestras_bulk(
+    rut_emisor: str = Query(..., description="RUT emisor whose session holds the signed EnvioDTE"),
+    folios: Optional[str] = Query(
+        None,
+        description="Comma-separated folio list to include (e.g. '1,2,3'). Omit to generate PDFs for ALL documents in the last batch.",
+    ),
+):
+    """
+    Step 5 (bulk): Generate PDFs for every signed DTE in the last batch result.
+
+    Input:
+      * ``rut_emisor`` — locates the session.
+      * ``folios`` (optional) — filter to a subset by folio number.
+
+    Flow:
+      1. Pull ``last_batch_result.xml_envio_b64`` from the session (disk-backed).
+      2. Parse the ``EnvioDTE`` envelope.
+      3. For each inner ``<Documento>``:
+           - extract ``TED`` as a serialized string for the PDF417 barcode,
+           - project the DTE XML into the dict shape ``pdf_generator.generate``
+             expects (emisor/receptor/items/totales/referencia),
+           - render a PDF.
+      4. Return one ``{tipo_dte, folio, pdf_b64, size_bytes}`` per document.
+
+    Rationale:
+      SII certification Paso 5 (Muestras Impresas) needs a printed PDF for
+      every DTE of the SET Básico. Calling ``/generate-pdf`` N times forces
+      the client to already hold the parsed DTE data; this endpoint works
+      directly from the signed envelope the bridge already has so no client
+      state is required.
+    """
+    session = _get_session(rut_emisor)
+    batch = session.get("last_batch_result") or {}
+    envio_b64 = batch.get("xml_envio_b64")
+    if not envio_b64:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No signed EnvioDTE in session for this rut_emisor. Run "
+                "/wizard/set-prueba/process first, or restore session state."
+            ),
+        )
+
+    import base64
+    from lxml import etree
+
+    try:
+        envio_bytes = base64.b64decode(envio_b64)
+        # EnvioDTE is serialized in ISO-8859-1 by sii-bridge; lxml handles the
+        # encoding declaration inside the payload, so we parse bytes directly.
+        root = etree.fromstring(envio_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot parse EnvioDTE: {e}")
+
+    wanted: Optional[set[int]] = None
+    if folios:
+        try:
+            wanted = {int(f.strip()) for f in folios.split(",") if f.strip()}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="folios must be comma-separated integers")
+
+    pdfs: list[dict] = []
+    errors: list[dict] = []
+
+    for doc_node, extract in _iter_documentos(root):
+        try:
+            dte_data, ted_string, tipo_dte, folio = extract()
+            if wanted is not None and folio not in wanted:
+                continue
+            pdf_bytes = pdf_generator.generate(dte_data, ted_string)
+            pdfs.append({
+                "tipo_dte": tipo_dte,
+                "folio": folio,
+                "pdf_b64": base64.b64encode(pdf_bytes).decode(),
+                "size_bytes": len(pdf_bytes),
+            })
+        except Exception as e:
+            logger.error(f"bulk PDF error on documento: {e}")
+            errors.append({"error": str(e)})
+
+    # Mark MUESTRAS complete once we have produced at least one PDF.
+    if pdfs:
+        session["muestras_generadas"] = session.get("muestras_generadas", 0) + len(pdfs)
+        session["steps_completed"].add(Step.MUESTRAS)
+        _advance_step(session)
+        _persist_session(rut_emisor)
+
+    return {
+        "success": len(errors) == 0,
+        "total": len(pdfs),
+        "pdfs": pdfs,
+        "errors": errors,
+        "current_step": session["current_step"],
     }
 
 
@@ -922,6 +1119,7 @@ async def generate_libros(req: LibrosRequest):
             session["libro_ventas_result"] = resultado_ventas
         if resultado_compras is not None:
             session["libro_compras_result"] = resultado_compras
+        _persist_session(session.get("rut_emisor") or rut_emisor)
 
     overall_success = (
         (resultado_ventas is None or resultado_ventas.get("success"))
@@ -948,14 +1146,39 @@ async def certification_status(rut_emisor: str = Query(...)):
     session = _get_session(rut_emisor)
     sii_conn = sii_soap_client.check_connectivity()
 
+    # Prefer the live dataclass when present; fall back to the persisted
+    # summary so /status still shows case counts after a restart.
+    factura_summary = session.get("set_summary_factura") or {}
+    boleta_summary = session.get("set_summary_boleta") or {}
+    set_factura_cargado = (
+        session.get("set_pruebas_factura") is not None
+        or bool(factura_summary)
+        or bool(session.get("payloads_factura"))
+    )
+    set_boleta_cargado = (
+        session.get("set_pruebas_boleta") is not None
+        or bool(boleta_summary)
+        or bool(session.get("payloads_boleta"))
+    )
+    total_factura = (
+        len(session["set_pruebas_factura"].casos)
+        if session.get("set_pruebas_factura")
+        else factura_summary.get("casos_count", len(session.get("payloads_factura") or []))
+    )
+    total_boleta = (
+        len(session["set_pruebas_boleta"].casos)
+        if session.get("set_pruebas_boleta")
+        else boleta_summary.get("casos_count", len(session.get("payloads_boleta") or []))
+    )
+
     return {
         "rut_emisor": rut_emisor,
         "current_step": session["current_step"],
         "steps_completed": [s.value for s in session["steps_completed"]],
-        "set_factura_cargado": session["set_pruebas_factura"] is not None,
-        "set_boleta_cargado": session["set_pruebas_boleta"] is not None,
-        "total_cases_factura": len(session["set_pruebas_factura"].casos) if session["set_pruebas_factura"] else 0,
-        "total_cases_boleta": len(session["set_pruebas_boleta"].casos) if session["set_pruebas_boleta"] else 0,
+        "set_factura_cargado": set_factura_cargado,
+        "set_boleta_cargado": set_boleta_cargado,
+        "total_cases_factura": total_factura,
+        "total_cases_boleta": total_boleta,
         "ultimo_resultado": session["last_batch_result"],
         "muestras_generadas": session["muestras_generadas"],
         "sii": sii_conn,
@@ -979,9 +1202,14 @@ async def sii_connectivity_check():
 
 @router.post("/wizard/reset")
 async def reset_wizard(rut_emisor: str = Query(...)):
-    """Reset the certification wizard for a company."""
+    """Reset the certification wizard for a company.
+
+    Clears both the in-memory cache and the persisted snapshot so a reset is
+    not silently undone by the next restart.
+    """
     if rut_emisor in _sessions:
         del _sessions[rut_emisor]
+    session_store.delete(rut_emisor)
     return {"success": True, "mensaje": f"Wizard reset for {rut_emisor}"}
 
 
@@ -994,3 +1222,145 @@ def _advance_step(session: dict):
             session["current_step"] = step
             return
     session["current_step"] = Step.DECLARACION
+
+
+# ── EnvioDTE → PDF projection helpers ─────────────────────────
+#
+# The signed envelope holds every field /muestras/generate-pdf needs; these
+# helpers extract a (dte_data, ted_string, tipo_dte, folio) tuple per Documento.
+# We use localname comparisons instead of fixed XPaths so we do not care about
+# whether the default SII namespace is declared on the root, Documento or both
+# (real envelopes from SOAP roundtrips sometimes strip it on inner nodes).
+
+def _iter_documentos(root):
+    """Yield (documento_node, extractor_callable) tuples.
+
+    The extractor is lazy so we can filter by folio before paying parse cost.
+    """
+    from lxml import etree  # local import to keep module import lean
+
+    def _lname(el) -> str:
+        return etree.QName(el.tag).localname if isinstance(el.tag, str) else ""
+
+    def _find(parent, name: str):
+        if parent is None:
+            return None
+        for child in parent:
+            if _lname(child) == name:
+                return child
+        return None
+
+    def _find_all(parent, name: str) -> list:
+        if parent is None:
+            return []
+        return [c for c in parent if _lname(c) == name]
+
+    def _text(parent, name: str, default: str = "") -> str:
+        el = _find(parent, name)
+        if el is None or el.text is None:
+            return default
+        return el.text.strip()
+
+    def _int(parent, name: str, default: int = 0) -> int:
+        raw = _text(parent, name, "")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default
+
+    for dte_wrapper in _find_all(root, "SetDTE") + [root]:
+        # SII EnvioDTE has this shape:
+        #   <EnvioDTE><SetDTE><DTE><Documento>...</Documento></DTE>...</SetDTE></EnvioDTE>
+        # We accept any depth by walking every <DTE> in the tree.
+        pass
+
+    from lxml import etree as _etree  # noqa: F401 — already imported above
+
+    for dte_node in [el for el in root.iter() if _lname(el) == "DTE"]:
+        documento = _find(dte_node, "Documento")
+        if documento is None:
+            continue
+
+        def make_extractor(doc_el):
+            def _extract():
+                encab = _find(doc_el, "Encabezado")
+                id_doc = _find(encab, "IdDoc")
+                emisor = _find(encab, "Emisor")
+                receptor = _find(encab, "Receptor")
+                totales = _find(encab, "Totales")
+
+                tipo_dte = _int(id_doc, "TipoDTE")
+                folio = _int(id_doc, "Folio")
+
+                # Detalle → items[]
+                items: list[dict] = []
+                for det in _find_all(doc_el, "Detalle"):
+                    items.append({
+                        "nombre": _text(det, "NmbItem"),
+                        "cantidad": _int(det, "QtyItem") or 1,
+                        "precio_unitario": _int(det, "PrcItem"),
+                        "monto_item": _int(det, "MontoItem"),
+                        "exento": _int(det, "IndExe") == 1,
+                    })
+
+                # Referencia (optional, for NC/ND)
+                ref_el = _find(doc_el, "Referencia")
+                referencia = None
+                if ref_el is not None:
+                    referencia = {
+                        "tipo_doc": _text(ref_el, "TpoDocRef"),
+                        "folio": _text(ref_el, "FolioRef"),
+                        "fecha": _text(ref_el, "FchRef"),
+                        "razon": _text(ref_el, "RazonRef"),
+                    }
+
+                dte_data = {
+                    "tipo_dte": tipo_dte,
+                    "folio": folio,
+                    "fecha_emision": _text(id_doc, "FchEmis"),
+                    "emisor": {
+                        "rut": _text(emisor, "RUTEmisor"),
+                        "razon_social": (
+                            _text(emisor, "RznSoc")
+                            or _text(emisor, "RznSocEmisor")
+                        ),
+                        "giro": (
+                            _text(emisor, "GiroEmis")
+                            or _text(emisor, "GiroEmisor")
+                        ),
+                        "direccion": _text(emisor, "DirOrigen"),
+                        "comuna": _text(emisor, "CmnaOrigen"),
+                        "ciudad": _text(emisor, "CiudadOrigen"),
+                    },
+                    "receptor": {
+                        "rut": _text(receptor, "RUTRecep"),
+                        "razon_social": _text(receptor, "RznSocRecep"),
+                        "giro": _text(receptor, "GiroRecep"),
+                        "direccion": _text(receptor, "DirRecep"),
+                        "comuna": _text(receptor, "CmnaRecep"),
+                        "ciudad": _text(receptor, "CiudadRecep"),
+                    },
+                    "items": items,
+                    "totales": {
+                        "neto": _int(totales, "MntNeto"),
+                        "iva": _int(totales, "IVA"),
+                        "exento": _int(totales, "MntExe"),
+                        "total": _int(totales, "MntTotal"),
+                    },
+                }
+                if referencia:
+                    dte_data["referencia"] = referencia
+
+                # Serialize TED as a compact string for the PDF417 encoder.
+                ted_el = _find(doc_el, "TED")
+                ted_string = None
+                if ted_el is not None:
+                    ted_string = _etree.tostring(
+                        ted_el, encoding="unicode", xml_declaration=False
+                    )
+
+                return dte_data, ted_string, tipo_dte, folio
+
+            return _extract
+
+        yield documento, make_extractor(documento)

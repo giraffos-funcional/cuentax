@@ -68,3 +68,13 @@ async def startup():
             logger.warning("Odoo not reachable — starting with empty state")
     except Exception as e:
         logger.error(f"Failed to restore from Odoo on startup: {e}")
+
+    # Restore certification wizard sessions from local disk so deploys / pod
+    # restarts do not drop signed EnvioDTE envelopes mid-certification.
+    try:
+        from app.api.v1.endpoints.certification import restore_sessions_from_disk
+        count = restore_sessions_from_disk()
+        if count:
+            logger.info(f"Restored {count} certification session(s) from disk")
+    except Exception as e:
+        logger.error(f"Failed to restore certification sessions: {e}")
