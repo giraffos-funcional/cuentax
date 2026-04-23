@@ -24,7 +24,13 @@ from typing import Optional
 
 from lxml import etree
 
-from app.services.libro_generator import LibroXMLGenerator, LibroData, LibroDetalle
+from app.services.libro_generator import (
+    LibroXMLGenerator,
+    LibroData,
+    LibroDetalle,
+    validate_libro_invariants,
+    validate_libro_xml_invariants,
+)
 from app.services.certificate import certificate_service
 from app.services.sii_soap_client import sii_soap_client
 from app.utils.rut import format_rut, clean_rut
@@ -255,7 +261,19 @@ class LibroEmissionService:
         """Generate XML, sign, and send to SII."""
         tipo = libro_data.tipo_operacion
 
-        # 1. Generate XML
+        # 1. Pre-generation invariant check (detalle formulas + FchDoc period)
+        pre_errs = validate_libro_invariants(libro_data)
+        if pre_errs:
+            logger.error(f"Libro {tipo} invariants failed: {pre_errs}")
+            return {
+                "success": False,
+                "tipo": tipo,
+                "estado": "error_cuadre_pre",
+                "mensaje": "Invariant check failed (pre-generate)",
+                "errores": pre_errs,
+            }
+
+        # 2. Generate XML
         try:
             libro_xml = self.generator.generate(libro_data)
         except Exception as e:
@@ -265,6 +283,18 @@ class LibroEmissionService:
                 "tipo": tipo,
                 "estado": "error_generacion",
                 "mensaje": f"Error generating XML: {e}",
+            }
+
+        # 3. Post-generation XML cuadre check (resumen vs detalle sums)
+        post_errs = validate_libro_xml_invariants(libro_xml)
+        if post_errs:
+            logger.error(f"Libro {tipo} XML cuadre failed: {post_errs}")
+            return {
+                "success": False,
+                "tipo": tipo,
+                "estado": "error_cuadre_post",
+                "mensaje": "Resumen no cuadra con detalle (pre-SII)",
+                "errores": post_errs,
             }
 
         # 2. Sign LibroCompraVenta — Signature appended as child,

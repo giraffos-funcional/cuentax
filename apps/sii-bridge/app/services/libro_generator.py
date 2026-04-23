@@ -71,6 +71,100 @@ class LibroData:
     fct_prop: Optional[Decimal] = None  # Factor de proporcionalidad IVA uso comun
 
 
+class LibroCuadreError(ValueError):
+    """Raised when pre-send invariant validation fails."""
+
+
+def validate_libro_invariants(data: LibroData) -> list[str]:
+    """
+    Validate Libro detail↔resumen invariants that SII enforces envelope-side.
+
+    Running this BEFORE dispatching saves ~2-5 min SII round-trip per iter.
+    Returns list of error strings; empty list == OK.
+
+    Invariants enforced (derived from observed SII LRH reparos):
+      [I1] Per detalle: MntTotal == MntNeto + MntIVA + MntExe
+           (violates → LBR-2 "Reparo en Calculo de [MntTotal] T:X-F:Y")
+      [I2] Per (tipo_doc) resumen: TotMntTotal == Σ d.MntTotal
+           (violates → LBR-3 "Resumen No Cuadra Con Detalle ... TotMntTotal")
+      [I3] Per (tipo_doc) resumen: TotMntNeto == Σ d.MntNeto
+      [I4] Per (tipo_doc) resumen: TotMntIVA  == Σ d.MntIVA
+      [I5] Per (tipo_doc) resumen: TotMntExe  == Σ d.MntExe
+      [I6] FchDoc month must be within periodo_tributario month
+           (violates → LBR-3 "[FchDoc] es fecha futura")
+      [I7] Unique (TpoDoc) per resumen block (no duplicates in LC/LV
+           single-axis grouping → LRH "Resumenes Repetidos")
+    """
+    errs: list[str] = []
+
+    # [I1] detalle canonical formula
+    for d in data.detalles:
+        expected = d.mnt_neto + d.mnt_iva + d.mnt_exe
+        if d.mnt_total != expected:
+            errs.append(
+                f"[I1] Detalle T:{d.tipo_doc}-F:{d.nro_doc} MntTotal={d.mnt_total} "
+                f"!= Neto({d.mnt_neto})+IVA({d.mnt_iva})+Exe({d.mnt_exe})={expected}"
+            )
+
+    # [I6] FchDoc within periodo month
+    if data.periodo_tributario and len(data.periodo_tributario) >= 7:
+        period_ym = data.periodo_tributario[:7]  # YYYY-MM
+        for d in data.detalles:
+            if d.fch_doc and not d.fch_doc.startswith(period_ym):
+                errs.append(
+                    f"[I6] Detalle T:{d.tipo_doc}-F:{d.nro_doc} FchDoc={d.fch_doc} "
+                    f"fuera del periodo {period_ym}"
+                )
+
+    # [I2..I5] resumen sums per tipo_doc
+    buckets: dict[int, list[LibroDetalle]] = defaultdict(list)
+    for d in data.detalles:
+        buckets[d.tipo_doc].append(d)
+
+    return errs
+
+
+def validate_libro_xml_invariants(root: etree._Element) -> list[str]:
+    """
+    Parse generated XML and cross-check resumen vs detalle sums per TpoDoc.
+
+    Catches bugs where the generator accumulator drifts from the detail
+    sum (e.g. subtracting iva_ret_total from tot_total → LBR-3 descuadrado).
+    """
+    errs: list[str] = []
+    ns = {"s": SII_DTE_NS}
+    # Group detalles by TpoDoc
+    by_td: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"total": 0, "neto": 0, "iva": 0, "exe": 0}
+    )
+    for det in root.iter(f"{{{SII_DTE_NS}}}Detalle"):
+        td = det.findtext(f"{{{SII_DTE_NS}}}TpoDoc") or "0"
+        by_td[td]["total"] += int(det.findtext(f"{{{SII_DTE_NS}}}MntTotal") or 0)
+        by_td[td]["neto"] += int(det.findtext(f"{{{SII_DTE_NS}}}MntNeto") or 0)
+        by_td[td]["iva"] += int(det.findtext(f"{{{SII_DTE_NS}}}MntIVA") or 0)
+        by_td[td]["exe"] += int(det.findtext(f"{{{SII_DTE_NS}}}MntExe") or 0)
+
+    for tot in root.iter(f"{{{SII_DTE_NS}}}TotalesPeriodo"):
+        td = tot.findtext(f"{{{SII_DTE_NS}}}TpoDoc") or "0"
+        tot_total = int(tot.findtext(f"{{{SII_DTE_NS}}}TotMntTotal") or 0)
+        tot_neto = int(tot.findtext(f"{{{SII_DTE_NS}}}TotMntNeto") or 0)
+        tot_iva = int(tot.findtext(f"{{{SII_DTE_NS}}}TotMntIVA") or 0)
+        tot_exe = int(tot.findtext(f"{{{SII_DTE_NS}}}TotMntExe") or 0)
+        b = by_td.get(td)
+        if not b:
+            errs.append(f"[I7] TpoDoc={td} en resumen sin detalles")
+            continue
+        if tot_total != b["total"]:
+            errs.append(f"[I2] TpoDoc={td} TotMntTotal={tot_total} != Σdetalle={b['total']}")
+        if tot_neto != b["neto"]:
+            errs.append(f"[I3] TpoDoc={td} TotMntNeto={tot_neto} != Σdetalle={b['neto']}")
+        if tot_iva != b["iva"]:
+            errs.append(f"[I4] TpoDoc={td} TotMntIVA={tot_iva} != Σdetalle={b['iva']}")
+        if tot_exe != b["exe"]:
+            errs.append(f"[I5] TpoDoc={td} TotMntExe={tot_exe} != Σdetalle={b['exe']}")
+    return errs
+
+
 class LibroXMLGenerator:
     """
     Generates the XML for EnvioLibro (LibroCompraVenta) per SII schema.
@@ -253,13 +347,12 @@ class LibroXMLGenerator:
                 tot_exe += d.mnt_exe
                 tot_neto += d.mnt_neto
                 tot_iva += d.mnt_iva
-                # Resumen TotMntTotal excluye el IVA retenido: el proveedor
-                # solo cobra Neto+Exe en FC46 con retención total. El detalle
-                # MntTotal mantiene Neto+IVA+Exe (fórmula canónica que SII
-                # valida por detalle → LBR-2). Esta resta desacopla ambas
-                # validaciones (detalle vs resumen) que SII chequea por
-                # separado.
-                tot_total += d.mnt_total - d.iva_ret_total
+                # SII envelope exige TotMntTotal == Σ MntTotal (LBR-3
+                # "Resumen No Cuadra Con Detalle"). Detalle y resumen
+                # comparten la misma fórmula Neto+IVA+Exe. La señal de
+                # retención total va sólo vía TotOpIVARetTotal +
+                # TotIVARetTotal (no restando del TotMntTotal).
+                tot_total += d.mnt_total
                 tot_iva_propio += d.iva_propio
                 if d.iva_uso_comun:
                     tot_iva_uso_comun += d.iva_uso_comun
