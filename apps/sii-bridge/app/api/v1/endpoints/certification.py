@@ -967,20 +967,23 @@ async def generate_libros(req: LibrosRequest):
     periodo = req.periodo or datetime.now(_CHILE_TZ).date().strftime("%Y-%m")
     fecha_emision = req.fecha_emision or datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")
 
-    # Try session first, then fall back to inline data
+    # Try session first, then fall back to inline data.
+    # IMPORTANT: use _get_session so disk-persisted state is rehydrated on any
+    # worker — uvicorn runs multi-worker and _sessions is per-process memory.
     session = None
     batch_result = {}
     raw_content = None
 
     if rut_emisor and rut_emisor != "auto":
-        candidate = _sessions.get(rut_emisor)
-        if candidate:
-            session = candidate
+        session = _get_session(rut_emisor)
 
-    # Fallback: search all sessions
-    if not session:
+    # Fallback: rehydrate every persisted session from disk and pick the one
+    # that has a prior batch_result. Covers the case where the caller didn't
+    # know the rut and sent "auto".
+    if not session or not session.get("raw_test_set_content"):
+        restore_sessions_from_disk()
         for session_rut, sess in _sessions.items():
-            if sess.get("last_batch_result"):
+            if sess.get("last_batch_result") or sess.get("raw_test_set_content"):
                 rut_emisor = session_rut
                 session = sess
                 break
@@ -1101,8 +1104,14 @@ async def generate_libros(req: LibrosRequest):
     # 2. Generate and send Libro de Compras
     resultado_compras = None
     if not req.only_lv:
-        # For empty AJUSTE (zero-totals re-send), force empty detalles
-        _compras_entries = [] if (tipo_envio_libros == "AJUSTE" and not inline_resultados and not batch_result) else compras_entries
+        # For AJUSTE we still submit the full parsed detalles when the SET is
+        # known — AJUSTE is a *corrected* libro, not a zero-totals envelope.
+        # We only fall back to empty detalles when we truly have no data to
+        # reconstruct the period from.
+        if tipo_envio_libros == "AJUSTE" and not compras_entries:
+            _compras_entries = []
+        else:
+            _compras_entries = compras_entries
         resultado_compras = libro_emission_service.emit_libro_compras(
             compras_entries=_compras_entries,
             rut_emisor=rut_emisor,
