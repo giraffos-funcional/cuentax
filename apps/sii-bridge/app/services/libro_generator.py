@@ -419,15 +419,21 @@ class LibroXMLGenerator:
                 # Operaciones a Cuenta de Terceros (LV)") — do NOT emit in LC.
                 # TotImpSinCredito (LC, XSD line 364) — for impuestos sin
                 # derecho a credito distintos de retencion total.
+                # TotOtrosImp (XSD line 345) — LC emplea este patrón genérico
+                # con CodImp=15 para informar IVA Retenido total en FC46,
+                # según "Formato IECV Resolucion 42 2004", sección 3.3
+                # Resumen Período Compras: Tabla Tipos de Impuesto o recargo
+                # (CodImp=15, Valor=IVA retenido).  TotOpIVARetTotal /
+                # TotIVARetTotal son (LV) per XSD — su uso en LC produce
+                # SRH "No Informa Adecuadamente IVA Retenido Total"
+                # (track 247893236, 2026-04-23).
+                # XSD sequence: TotOtrosImp DEBE ir antes de TotImpSinCredito.
+                if tot_iva_ret_total:
+                    tot_otros = etree.SubElement(totales, "TotOtrosImp")
+                    self._elem(tot_otros, "CodImp", "15")
+                    self._elem(tot_otros, "TotMntImp", str(tot_iva_ret_total))
                 if tot_imp_sin_credito:
                     self._elem(totales, "TotImpSinCredito", str(tot_imp_sin_credito))
-                # TotOpIVARetTotal / TotIVARetTotal (XSD lines 369/379) —
-                # valid for LC (FC46 retencion total) per SII compliance
-                # review. Iter 3 emitted IVARetTotal in Detalle only,
-                # omitting these aggregates → "No Informa Adec IVA Ret Total".
-                if tot_iva_ret_total:
-                    self._elem(totales, "TotOpIVARetTotal", str(tot_op_iva_ret_total))
-                    self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
             if data.tipo_operacion == "VENTA" and tot_iva_ret_total:
                 self._elem(totales, "TotOpIVARetTotal", str(tot_op_iva_ret_total))
                 self._elem(totales, "TotIVARetTotal", str(tot_iva_ret_total))
@@ -482,9 +488,9 @@ class LibroXMLGenerator:
         self._elem(detalle, "MntIVA", str(det.mnt_iva))
 
         # Libro de Compras: strict XSD Detalle sequence per LibroCV_v10.xsd:
-        # MntIVA → IVANoRec* → IVAUsoComun → [IVAPropio is LV-only] →
-        # MntSinCred (LC) → MntTotal → IVANoRetenido
-        # Note: IVARetTotal/IVARetParcial at line 1239/1244 are (LV) per XSD.
+        # MntIVA → IVANoRec* → IVAUsoComun → [IVAPropio/IVATerceros are LV] →
+        # Ley18211 → OtrosImp (LC: CodImp=15 para IVA Retenido) → MntSinCred →
+        # IVARetTotal/IVARetParcial (LV) → MntTotal → IVANoRetenido
         if tipo_operacion == "COMPRA":
             if det.iva_no_rec_cod and det.iva_no_rec_mnt:
                 iva_no_rec = etree.SubElement(detalle, "IVANoRec")
@@ -492,16 +498,23 @@ class LibroXMLGenerator:
                 self._elem(iva_no_rec, "MntIVANoRec", str(det.iva_no_rec_mnt))
             if det.iva_uso_comun:
                 self._elem(detalle, "IVAUsoComun", str(det.iva_uso_comun))
-            # IVAPropio omitted — LV-semantic per XSD documentation.
+            # IVAPropio/IVATerceros omitted — LV-semantic per XSD documentation.
+            # OtrosImp (XSD line 1210) — LC usa CodImp=15 para IVA Retenido
+            # total en FC46, per "Formato IECV Res.42 2004" §3.4 campo 12-14.
+            # IVARetTotal (línea 1239) está marcado (LV) en XSD → su uso en LC
+            # produce SRH "No Informa Adecuadamente IVA Retenido Total".
+            if det.iva_ret_total:
+                otros_imp = etree.SubElement(detalle, "OtrosImp")
+                self._elem(otros_imp, "CodImp", "15")
+                tasa = det.tasa_imp or Decimal("19")
+                self._elem(otros_imp, "TasaImp", f"{tasa:.2f}")
+                self._elem(otros_imp, "MntImp", str(det.iva_ret_total))
             # MntSinCred (XSD line 1234, LC).
             if det.mnt_sin_cred:
                 self._elem(detalle, "MntSinCred", str(det.mnt_sin_cred))
-            # IVARetTotal (XSD line 1239) — valid for LC (FC46 with retencion
-            # total) per SII compliance review. Must come AFTER MntSinCred and
-            # BEFORE MntTotal per XSD sequence.
-            if det.iva_ret_total:
-                self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
         elif tipo_operacion == "VENTA":
+            # En LV, IVARetTotal (XSD 1239) SÍ corresponde al vendedor
+            # que actúa como agente retenedor.
             if det.iva_ret_total:
                 self._elem(detalle, "IVARetTotal", str(det.iva_ret_total))
 
