@@ -253,7 +253,13 @@ class LibroXMLGenerator:
                 tot_exe += d.mnt_exe
                 tot_neto += d.mnt_neto
                 tot_iva += d.mnt_iva
-                tot_total += d.mnt_total
+                # Resumen TotMntTotal excluye el IVA retenido: el proveedor
+                # solo cobra Neto+Exe en FC46 con retención total. El detalle
+                # MntTotal mantiene Neto+IVA+Exe (fórmula canónica que SII
+                # valida por detalle → LBR-2). Esta resta desacopla ambas
+                # validaciones (detalle vs resumen) que SII chequea por
+                # separado.
+                tot_total += d.mnt_total - d.iva_ret_total
                 tot_iva_propio += d.iva_propio
                 if d.iva_uso_comun:
                     tot_iva_uso_comun += d.iva_uso_comun
