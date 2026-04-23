@@ -561,11 +561,12 @@ class LibroEmissionService:
                 # 1-bloque-por-TpoDoc. Iter 9 fallaba antes por bloques duplicados.
                 mnt_iva = iva_calc
                 iva_ret_total = iva_calc
-                # Detalle: MntTotal = Neto + IVA + Exe (fórmula canónica que
-                # SII valida a nivel detalle → LBR-2). El ajuste "proveedor
-                # cobra solo Neto+Exe" se aplica a nivel RESUMEN restando
-                # iva_ret_total de TotMntTotal (ver libro_generator).
-                mnt_total = mnt_neto + iva_calc + mnt_exe
+                # FC46 con retención total del IVA: MntTotal = Neto + Exe
+                # (proveedor cobra solo Neto; el comprador retiene el IVA).
+                # Validator I1 admite MntTotal = Neto+IVA+Exe-IVARetTotal.
+                # SET Checker 4788786 espera TotMntTotal=9878 (Neto) en
+                # Resumen Doc 46, no 11755.
+                mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in

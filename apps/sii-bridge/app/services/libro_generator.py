@@ -107,13 +107,14 @@ def validate_libro_invariants(data: LibroData) -> list[str]:
         effective_iva = (
             d.mnt_iva + d.iva_uso_comun + d.iva_no_rec_mnt + d.mnt_sin_cred
         )
-        expected = d.mnt_neto + effective_iva + d.mnt_exe
+        # El Monto Total debe restar el IVA Retenido Total (ej: Doc 46 Factura Compra)
+        expected = (d.mnt_neto + effective_iva + d.mnt_exe) - d.iva_ret_total
         if d.mnt_total != expected:
             errs.append(
                 f"[I1] Detalle T:{d.tipo_doc}-F:{d.nro_doc} MntTotal={d.mnt_total} "
                 f"!= Neto({d.mnt_neto})+IVA({d.mnt_iva})+UsoComun({d.iva_uso_comun})"
                 f"+NoRec({d.iva_no_rec_mnt})+SinCred({d.mnt_sin_cred})"
-                f"+Exe({d.mnt_exe})={expected}"
+                f"+Exe({d.mnt_exe})-RetTotal({d.iva_ret_total})={expected}"
             )
 
     # [I6] FchDoc within periodo month
