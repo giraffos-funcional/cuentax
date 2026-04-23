@@ -137,19 +137,70 @@ class LibroXMLGenerator:
         if data.folio_notificacion:
             self._elem(caratula, "FolioNotificacion", data.folio_notificacion)
 
+    @staticmethod
+    def _detalle_eje(d: LibroDetalle) -> str:
+        """
+        Return the tributary axis of a compras detalle, used to split
+        TotalesPeriodo so each axis lands in its own ResumenPeriodo row.
+
+        The SII IECV counts one "Línea de Resumen" per
+        (TpoDoc, axis) combination. Mixing IVA propio + IVA uso común +
+        IVA no recuperable + IVA retención total in a single TpoDoc row
+        triggers SET Checker SRH "El Número de Lineas de Resumen No Cuadra".
+        """
+        if d.es_nota_credito:
+            return "NC"
+        if d.iva_ret_total:
+            return "RET_TOTAL"
+        if d.iva_no_rec_cod:
+            return f"NO_REC_{d.iva_no_rec_cod}"
+        if d.iva_uso_comun:
+            return "USO_COMUN"
+        return "PROPIO"
+
+    # Deterministic ordering of axes within a given tipo_doc. SII does not
+    # mandate an order but a stable order keeps XML diff-friendly across runs.
+    _EJE_ORDER = {
+        "PROPIO": 0,
+        "USO_COMUN": 1,
+        "NO_REC_1": 10,
+        "NO_REC_2": 11,
+        "NO_REC_3": 12,
+        "NO_REC_4": 13,
+        "NO_REC_5": 14,
+        "NO_REC_6": 15,
+        "NO_REC_7": 16,
+        "NO_REC_8": 17,
+        "NO_REC_9": 18,
+        "RET_TOTAL": 20,
+        "NC": 30,
+    }
+
     def _build_resumen_periodo(self, parent: etree._Element, data: LibroData):
-        """Build the ResumenPeriodo with TotalesPeriodo per document type."""
+        """Build the ResumenPeriodo with TotalesPeriodo per (tipo_doc, eje)."""
         resumen = etree.SubElement(parent, "ResumenPeriodo")
 
-        # Group detalles by tipo_doc
-        by_tipo: dict[int, list[LibroDetalle]] = defaultdict(list)
-        for d in data.detalles:
-            by_tipo[d.tipo_doc].append(d)
+        # Group detalles.
+        # - COMPRA: compound key (tipo_doc, eje) so each tax axis gets its own
+        #   TotalesPeriodo row (required by SII SET Checker).
+        # - VENTA: single key (tipo_doc,) — ventas are homogeneous per TpoDoc.
+        by_key: dict[tuple, list[LibroDetalle]] = defaultdict(list)
+        if data.tipo_operacion == "COMPRA":
+            for d in data.detalles:
+                by_key[(d.tipo_doc, self._detalle_eje(d))].append(d)
+            keys = sorted(
+                by_key.keys(),
+                key=lambda k: (k[0], self._EJE_ORDER.get(k[1], 99)),
+            )
+        else:
+            for d in data.detalles:
+                by_key[(d.tipo_doc,)].append(d)
+            keys = sorted(by_key.keys())
 
         # For empty AJUSTE (zero-totals): emit a single TotalesPeriodo with TpoDoc=33
         # and all amounts zero so the XSD requirement for at least one TotalesPeriodo
         # is satisfied without affecting any period totals at the SII backend.
-        if not by_tipo:
+        if not by_key:
             totales = etree.SubElement(resumen, "TotalesPeriodo")
             self._elem(totales, "TpoDoc", "33")
             self._elem(totales, "TotDoc", "0")
@@ -159,8 +210,9 @@ class LibroXMLGenerator:
             self._elem(totales, "TotMntTotal", "0")
             return
 
-        for tipo_doc in sorted(by_tipo.keys()):
-            detalles = by_tipo[tipo_doc]
+        for key in keys:
+            tipo_doc = key[0]
+            detalles = by_key[key]
             totales = etree.SubElement(resumen, "TotalesPeriodo")
             self._elem(totales, "TpoDoc", str(tipo_doc))
             self._elem(totales, "TotDoc", str(len(detalles)))
