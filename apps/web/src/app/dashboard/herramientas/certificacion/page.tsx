@@ -776,6 +776,27 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
         la resolución que autoriza a tu empresa a emitir DTEs en producción.
       </p>
 
+      <div className="p-4 rounded-xl bg-amber-50 border border-amber-300">
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={16} className="text-amber-700 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-bold text-amber-800">Antes de continuar: respalda tus DTEs de certificación</p>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              Al avanzar a producción, los XMLs firmados, tracks SII, libros (LV/LC) y
+              PDFs con timbre PDF417 generados en el ambiente de certificación
+              <strong> pueden dejar de ser accesibles</strong>. Descárgalos y guárdalos
+              localmente — son tu evidencia del proceso de certificación.
+            </p>
+            <ul className="text-xs text-amber-700 space-y-0.5 list-disc list-inside pt-1">
+              <li>XMLs del SET Básico (6 DTEs) y SET Simulación</li>
+              <li>XMLs del Libro de Ventas y Libro de Compras</li>
+              <li>Track IDs y setmails SII con estados LOK/SOK</li>
+              <li>PDFs de muestras con timbre PDF417 + cedible</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       <a
         href="https://maullin.sii.cl/cvc_cgi/dte/pe_avance7"
         target="_blank"
@@ -796,15 +817,15 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
         </ul>
       </div>
 
-      <label className="flex items-center gap-3 cursor-pointer">
+      <label className="flex items-start gap-3 cursor-pointer">
         <input
           type="checkbox"
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
-          className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
         />
         <span className="text-sm text-[var(--cx-text-secondary)]">
-          Ya completé la declaración y obtuve la resolución del SII
+          Ya respaldé los DTEs de certificación, completé la declaración y obtuve la resolución del SII
         </span>
       </label>
 
