@@ -97,13 +97,23 @@ def validate_libro_invariants(data: LibroData) -> list[str]:
     """
     errs: list[str] = []
 
-    # [I1] detalle canonical formula
+    # [I1] detalle MntTotal formula — SII accepts IVA declared via any of:
+    #   MntIVA (canonical) | IVAUsoComun | IVANoRec.MntIVANoRec | MntSinCred
+    # because the XSD defers the "IVA amount" to whichever subelement applies
+    # to the operation (uso comun → IVAUsoComun, no recuperable → IVANoRec,
+    # retencion total → MntIVA as canonical + IVARetTotal subelement).
+    # LBR-2 triggers when MntTotal != Neto + Σ(all IVA forms) + Exe.
     for d in data.detalles:
-        expected = d.mnt_neto + d.mnt_iva + d.mnt_exe
+        effective_iva = (
+            d.mnt_iva + d.iva_uso_comun + d.iva_no_rec_mnt + d.mnt_sin_cred
+        )
+        expected = d.mnt_neto + effective_iva + d.mnt_exe
         if d.mnt_total != expected:
             errs.append(
                 f"[I1] Detalle T:{d.tipo_doc}-F:{d.nro_doc} MntTotal={d.mnt_total} "
-                f"!= Neto({d.mnt_neto})+IVA({d.mnt_iva})+Exe({d.mnt_exe})={expected}"
+                f"!= Neto({d.mnt_neto})+IVA({d.mnt_iva})+UsoComun({d.iva_uso_comun})"
+                f"+NoRec({d.iva_no_rec_mnt})+SinCred({d.mnt_sin_cred})"
+                f"+Exe({d.mnt_exe})={expected}"
             )
 
     # [I6] FchDoc within periodo month
