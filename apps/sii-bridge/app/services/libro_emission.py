@@ -524,9 +524,14 @@ class LibroEmissionService:
                 # y la retención se acumula vía IVARetTotal (detalle) +
                 # TotIVARetTotal (resumen). El SET checker valida MntNeto
                 # contra MONTO AFECTO=9878 del SET, no MntTotal.
+                # MntTotal = Neto + Exe (sin IVA) porque el comprador RETIENE
+                # el 100% del IVA — el proveedor cobra solo Neto. Esto satisface
+                # el reparo "El Monto Total No Cuadra" / "No Informa Adec IVA
+                # Retenido Total" observado en track 247886536 tras el fix de
+                # 1-bloque-por-TpoDoc. Iter 9 fallaba antes por bloques duplicados.
                 mnt_iva = iva_calc
                 iva_ret_total = iva_calc
-                mnt_total = mnt_neto + iva_calc + mnt_exe
+                mnt_total = mnt_neto + mnt_exe
             elif "USO COMUN" in observaciones:
                 # IVA uso comun (IECV manual + LibroCV_v10.xsd):
                 # MntIVA del detalle MUST be 0 — the IVA amount goes only in
