@@ -21,6 +21,7 @@ import {
   useResetCertification,
   useSIIStatus,
   useCAFStatus,
+  useEmitSimulacion,
 } from '@/hooks'
 import { useAuthStore } from '@/stores/auth.store'
 import { CertificateStep } from '@/components/sii/CertificateUpload'
@@ -691,22 +692,441 @@ function StepSetPrueba({ onComplete, refresh, prerequisites }: { onComplete: () 
 }
 
 // ── Step 3: Simulación ────────────────────────────────────────
+//
+// Reglas SII Paso 3 SIMULACIÓN:
+//  - Enviar Factura (33) + Nota de Crédito (61) + Nota de Débito (56)
+//  - TODO en un único EnvioDTE → un solo track_id
+//  - Folios DIFERENTES a los del Paso 1 (Set de Pruebas)
+//  - Datos representativos de la operación real
+//  - NC con CodRef=1 (anula totalmente) debe replicar detalle exacto
+//  - ND con CodRef=3 corrige montos
+//  - Referencias entre DTEs del mismo batch se resuelven con _ref_caso_sub
+//
+// Las claves del payload deben coincidir con `_build_dte_document` del bridge:
+//  forma_pago (NO fma_pago), fecha_vencimiento (NO fch_vencimiento),
+//  actividad_economica (NO acteco), ref_cod_ref (NO ref_cod),
+//  ref_motivo (NO razon_ref).
+//
+type ItemDraft = {
+  nombre: string
+  descripcion?: string
+  cantidad: number
+  unidad: string
+  precio_unitario: number
+}
+type DTEDraft = {
+  _caso_sub: number
+  _ref_caso_sub?: number
+  tipo_dte: 33 | 56 | 61
+  rut_receptor: string
+  razon_social_receptor: string
+  giro_receptor: string
+  direccion_receptor: string
+  comuna_receptor: string
+  ref_tipo_doc?: number
+  ref_cod_ref?: 1 | 2 | 3
+  ref_motivo?: string
+  items: ItemDraft[]
+}
+
+const RECEPTORES_SUGERIDOS = [
+  {
+    rut: '77012071-3',
+    razon_social: 'BACK OFFICE SOUTH AMERICA SPA',
+    giro: 'Actividades de consultoría de gestión',
+    direccion: 'Almirante Pastene 244 of 401',
+    comuna: 'Santiago',
+  },
+  {
+    rut: '76293090-0',
+    razon_social: 'EXPROCHILE SPA',
+    giro: 'Administración de Recursos Humanos',
+    direccion: 'Almirante Pastene 244',
+    comuna: 'Providencia',
+  },
+]
+
+const PLANTILLA_INICIAL: DTEDraft[] = [
+  {
+    _caso_sub: 1,
+    tipo_dte: 33,
+    rut_receptor: RECEPTORES_SUGERIDOS[0].rut,
+    razon_social_receptor: RECEPTORES_SUGERIDOS[0].razon_social,
+    giro_receptor: RECEPTORES_SUGERIDOS[0].giro,
+    direccion_receptor: RECEPTORES_SUGERIDOS[0].direccion,
+    comuna_receptor: RECEPTORES_SUGERIDOS[0].comuna,
+    items: [{ nombre: 'Soporte Plataforma', descripcion: 'Soporte mensual — tickets y SLA', cantidad: 1, unidad: 'UN', precio_unitario: 450000 }],
+  },
+  {
+    _caso_sub: 2,
+    tipo_dte: 33,
+    rut_receptor: RECEPTORES_SUGERIDOS[1].rut,
+    razon_social_receptor: RECEPTORES_SUGERIDOS[1].razon_social,
+    giro_receptor: RECEPTORES_SUGERIDOS[1].giro,
+    direccion_receptor: RECEPTORES_SUGERIDOS[1].direccion,
+    comuna_receptor: RECEPTORES_SUGERIDOS[1].comuna,
+    items: [{ nombre: 'Desarrollo Automatización 50%', cantidad: 1, unidad: 'UN', precio_unitario: 1200000 }],
+  },
+  {
+    _caso_sub: 3,
+    tipo_dte: 33,
+    rut_receptor: RECEPTORES_SUGERIDOS[0].rut,
+    razon_social_receptor: RECEPTORES_SUGERIDOS[0].razon_social,
+    giro_receptor: RECEPTORES_SUGERIDOS[0].giro,
+    direccion_receptor: RECEPTORES_SUGERIDOS[0].direccion,
+    comuna_receptor: RECEPTORES_SUGERIDOS[0].comuna,
+    items: [{ nombre: 'Consultoría implementación módulo', cantidad: 1, unidad: 'UN', precio_unitario: 700000 }],
+  },
+  {
+    _caso_sub: 4,
+    _ref_caso_sub: 1,
+    tipo_dte: 56,
+    rut_receptor: RECEPTORES_SUGERIDOS[0].rut,
+    razon_social_receptor: RECEPTORES_SUGERIDOS[0].razon_social,
+    giro_receptor: RECEPTORES_SUGERIDOS[0].giro,
+    direccion_receptor: RECEPTORES_SUGERIDOS[0].direccion,
+    comuna_receptor: RECEPTORES_SUGERIDOS[0].comuna,
+    ref_tipo_doc: 33,
+    ref_cod_ref: 3, // Corrige montos (aumento)
+    ref_motivo: 'Aumenta monto factura por ajuste de tarifa',
+    items: [{ nombre: 'Diferencia tarifa proyecto', cantidad: 1, unidad: 'UN', precio_unitario: 80000 }],
+  },
+  {
+    _caso_sub: 5,
+    _ref_caso_sub: 2,
+    tipo_dte: 61,
+    rut_receptor: RECEPTORES_SUGERIDOS[1].rut,
+    razon_social_receptor: RECEPTORES_SUGERIDOS[1].razon_social,
+    giro_receptor: RECEPTORES_SUGERIDOS[1].giro,
+    direccion_receptor: RECEPTORES_SUGERIDOS[1].direccion,
+    comuna_receptor: RECEPTORES_SUGERIDOS[1].comuna,
+    ref_tipo_doc: 33,
+    ref_cod_ref: 1, // Anula totalmente — debe replicar detalle de la F33 referenciada
+    ref_motivo: 'Anulación factura por error en monto',
+    items: [{ nombre: 'Desarrollo Automatización 50%', cantidad: 1, unidad: 'UN', precio_unitario: 1200000 }],
+  },
+]
+
+const tipoLabel = (t: number) => (t === 33 ? 'Factura 33' : t === 61 ? 'Nota Crédito 61' : t === 56 ? 'Nota Débito 56' : `Tipo ${t}`)
+const codRefLabel = (c?: number) => c === 1 ? 'Anula totalmente' : c === 2 ? 'Corrige texto' : c === 3 ? 'Corrige montos' : '—'
+const fmtCLP = (n: number) => n.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
+const calcTotales = (d: DTEDraft) => {
+  const neto = d.items.reduce((s, it) => s + Math.round(it.cantidad * it.precio_unitario), 0)
+  const iva = Math.round(neto * 0.19)
+  return { neto, iva, total: neto + iva }
+}
+
 function StepSimulacion() {
+  const { user } = useAuthStore()
+  const { emit } = useEmitSimulacion()
+  const [drafts, setDrafts] = useState<DTEDraft[]>(PLANTILLA_INICIAL)
+  const [emitiendo, setEmitiendo] = useState(false)
+  const [resultado, setResultado] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const rutEmisor = (user as any)?.empresa?.rut || (user as any)?.rut_empresa || '76753753-0'
+  const tieneFactura = drafts.some(d => d.tipo_dte === 33)
+  const tieneNC = drafts.some(d => d.tipo_dte === 61)
+  const tieneND = drafts.some(d => d.tipo_dte === 56)
+  const cumpleRequisito = tieneFactura && tieneNC && tieneND
+
+  const updateDraft = (idx: number, patch: Partial<DTEDraft>) =>
+    setDrafts(prev => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)))
+  const updateItem = (idx: number, itemIdx: number, patch: Partial<ItemDraft>) =>
+    setDrafts(prev => prev.map((d, i) => i !== idx ? d : ({ ...d, items: d.items.map((it, j) => j === itemIdx ? { ...it, ...patch } : it) })))
+  const eliminarDraft = (idx: number) => setDrafts(prev => prev.filter((_, i) => i !== idx))
+
+  const totalesGlobales = drafts.reduce(
+    (acc, d) => {
+      const t = calcTotales(d)
+      return { neto: acc.neto + t.neto, iva: acc.iva + t.iva, total: acc.total + t.total }
+    },
+    { neto: 0, iva: 0, total: 0 },
+  )
+
+  async function handleEmitir() {
+    if (!cumpleRequisito) {
+      setError('Debes incluir al menos una Factura (33), una NC (61) y una ND (56)')
+      return
+    }
+    setError(null)
+    setEmitiendo(true)
+    setResultado(null)
+    try {
+      const fechaEmision = new Date().toISOString().slice(0, 10)
+      const payloads = drafts.map(d => {
+        const total = calcTotales(d)
+        const base: Record<string, any> = {
+          tipo_dte: d.tipo_dte,
+          rut_emisor: rutEmisor,
+          razon_social_emisor: 'SOCIEDAD INGENIERIA ZYNCRO SPA',
+          giro_emisor: 'Ingenieria',
+          actividad_economica: 620200,
+          direccion_emisor: 'Av Irarrazaval 2401 Of 1108',
+          comuna_emisor: 'Ñuñoa',
+          ciudad_emisor: 'Santiago',
+          rut_receptor: d.rut_receptor,
+          razon_social_receptor: d.razon_social_receptor,
+          giro_receptor: d.giro_receptor,
+          direccion_receptor: d.direccion_receptor,
+          comuna_receptor: d.comuna_receptor,
+          fecha_emision: fechaEmision,
+          forma_pago: 2,
+          fecha_vencimiento: fechaEmision,
+          items: d.items.map(it => ({
+            nombre: it.nombre,
+            cantidad: it.cantidad,
+            unidad: it.unidad || 'UN',
+            precio_unitario: it.precio_unitario,
+          })),
+          _caso_sub: d._caso_sub,
+          _monto_neto_esperado: total.neto, // hint para validación
+        }
+        if (d._ref_caso_sub != null) base._ref_caso_sub = d._ref_caso_sub
+        if (d.ref_tipo_doc != null) base.ref_tipo_doc = d.ref_tipo_doc
+        if (d.ref_cod_ref != null) base.ref_cod_ref = d.ref_cod_ref
+        if (d.ref_motivo) base.ref_motivo = d.ref_motivo
+        return base
+      })
+      const res = await emit(payloads)
+      setResultado(res)
+      if (!res?.success && !res?.track_id) {
+        setError(res?.mensaje || 'El bridge respondió sin éxito')
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Error al emitir simulación')
+    } finally {
+      setEmitiendo(false)
+    }
+  }
+
   return (
     <div className="space-y-4 animate-fade-in">
       <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Simulación</h3>
       <p className="text-sm text-[var(--cx-text-secondary)]">
-        Envía documentos representativos de tu operación real al SII.
-        Puedes usar la sección <strong>Emitir DTE</strong> para esto.
+        Envía documentos representativos de tu operación real al SII en un único <code className="text-xs px-1 rounded bg-slate-100">EnvioDTE</code>.
+        El SII espera 3 tipos en este paso: Factura (33), Nota de Crédito (61) y Nota de Débito (56), con folios distintos a los del Paso 1.
       </p>
-      <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
-        <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
-        <div className="text-xs text-amber-700">
-          <p className="font-semibold mb-1">Requisito:</p>
-          <p>Emite al menos una Factura (33), una Nota de Crédito (61) y una Nota de Débito (56)
-          con datos representativos de tu negocio.</p>
+
+      <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
+        <Info size={14} className="text-blue-600 shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-700 space-y-0.5">
+          <p><strong>Plantilla pre-cargada:</strong> 3 facturas + 1 ND (corrige montos de F#1) + 1 NC (anula F#2). Editá los datos antes de emitir.</p>
+          <p>NC con <em>anula totalmente</em> (CodRef=1) replica el detalle exacto de la factura referenciada. ND con <em>corrige montos</em> (CodRef=3) lleva el monto del aumento.</p>
         </div>
       </div>
+
+      <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${cumpleRequisito ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+        {cumpleRequisito ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+        <span>
+          Requisitos: Factura {tieneFactura ? '✓' : '✗'} · NC {tieneNC ? '✓' : '✗'} · ND {tieneND ? '✓' : '✗'}
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        {drafts.map((d, idx) => {
+          const t = calcTotales(d)
+          const refDraft = d._ref_caso_sub != null ? drafts.find(x => x._caso_sub === d._ref_caso_sub) : null
+          return (
+            <div key={d._caso_sub} className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-violet-100 text-violet-700">#{idx + 1}</span>
+                  <select
+                    value={d.tipo_dte}
+                    onChange={(e) => updateDraft(idx, { tipo_dte: parseInt(e.target.value) as any })}
+                    className="text-sm font-semibold bg-transparent border-0 focus:ring-0 cursor-pointer"
+                  >
+                    <option value={33}>Factura 33</option>
+                    <option value={56}>Nota Débito 56</option>
+                    <option value={61}>Nota Crédito 61</option>
+                  </select>
+                </div>
+                <button onClick={() => eliminarDraft(idx)} className="text-xs text-rose-600 hover:underline">
+                  Eliminar
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wide text-slate-500">RUT Receptor</label>
+                  <input
+                    value={d.rut_receptor}
+                    onChange={(e) => updateDraft(idx, { rut_receptor: e.target.value })}
+                    className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wide text-slate-500">Razón Social</label>
+                  <input
+                    value={d.razon_social_receptor}
+                    onChange={(e) => updateDraft(idx, { razon_social_receptor: e.target.value })}
+                    className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wide text-slate-500">Giro</label>
+                  <input
+                    value={d.giro_receptor}
+                    onChange={(e) => updateDraft(idx, { giro_receptor: e.target.value })}
+                    className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wide text-slate-500">Comuna</label>
+                    <input
+                      value={d.comuna_receptor}
+                      onChange={(e) => updateDraft(idx, { comuna_receptor: e.target.value })}
+                      className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wide text-slate-500">Dirección</label>
+                    <input
+                      value={d.direccion_receptor}
+                      onChange={(e) => updateDraft(idx, { direccion_receptor: e.target.value })}
+                      className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {(d.tipo_dte === 56 || d.tipo_dte === 61) && (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Referencia a otro DTE del envío</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] text-slate-500">DTE referenciado</label>
+                      <select
+                        value={d._ref_caso_sub ?? ''}
+                        onChange={(e) => updateDraft(idx, { _ref_caso_sub: e.target.value ? parseInt(e.target.value) : undefined, ref_tipo_doc: drafts.find(x => x._caso_sub === parseInt(e.target.value))?.tipo_dte ?? 33 })}
+                        className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                      >
+                        <option value="">— ninguno —</option>
+                        {drafts.filter(x => x._caso_sub !== d._caso_sub && x.tipo_dte === 33).map(x => (
+                          <option key={x._caso_sub} value={x._caso_sub}>#{x._caso_sub} {tipoLabel(x.tipo_dte)} ({fmtCLP(calcTotales(x).total)})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500">CodRef</label>
+                      <select
+                        value={d.ref_cod_ref ?? ''}
+                        onChange={(e) => updateDraft(idx, { ref_cod_ref: e.target.value ? parseInt(e.target.value) as any : undefined })}
+                        className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                      >
+                        <option value="">—</option>
+                        <option value={1}>1 — Anula totalmente</option>
+                        <option value={2}>2 — Corrige texto</option>
+                        <option value={3}>3 — Corrige montos</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500">Motivo</label>
+                      <input
+                        value={d.ref_motivo ?? ''}
+                        onChange={(e) => updateDraft(idx, { ref_motivo: e.target.value })}
+                        className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                      />
+                    </div>
+                  </div>
+                  {d.ref_cod_ref === 1 && refDraft && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-1.5">
+                      ⚠️ Anula totalmente: el detalle debe replicar exacto el de #{refDraft._caso_sub} ({fmtCLP(calcTotales(refDraft).total)}).
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {d.items.map((it, j) => (
+                  <div key={j} className="grid grid-cols-12 gap-2">
+                    <input
+                      placeholder="Nombre item"
+                      value={it.nombre}
+                      onChange={(e) => updateItem(idx, j, { nombre: e.target.value })}
+                      className="col-span-6 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Cant"
+                      value={it.cantidad}
+                      onChange={(e) => updateItem(idx, j, { cantidad: parseFloat(e.target.value) || 0 })}
+                      className="col-span-2 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                    />
+                    <input
+                      placeholder="UN"
+                      value={it.unidad}
+                      onChange={(e) => updateItem(idx, j, { unidad: e.target.value })}
+                      className="col-span-1 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Precio"
+                      value={it.precio_unitario}
+                      onChange={(e) => updateItem(idx, j, { precio_unitario: parseFloat(e.target.value) || 0 })}
+                      className="col-span-3 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-600 pt-2 border-t border-slate-100">
+                <span>{tipoLabel(d.tipo_dte)} {d.ref_cod_ref ? `· ${codRefLabel(d.ref_cod_ref)}` : ''}</span>
+                <span className="font-mono">
+                  Neto {fmtCLP(t.neto)} · IVA {fmtCLP(t.iva)} · <strong>{fmtCLP(t.total)}</strong>
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between text-sm">
+        <span className="text-slate-600">Total {drafts.length} DTEs</span>
+        <span className="font-mono font-bold text-slate-900">{fmtCLP(totalesGlobales.total)}</span>
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {resultado && (
+        <div className={`p-3 rounded-xl border text-xs space-y-1 ${resultado.track_id ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+          <div className="flex items-center gap-2 font-semibold">
+            {resultado.track_id ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            <span>{resultado.track_id ? 'Envío firmado y despachado al SII' : 'Envío con errores'}</span>
+          </div>
+          {resultado.track_id && (
+            <p className="font-mono">Track ID: <strong>{resultado.track_id}</strong> · Estado: {resultado.estado}</p>
+          )}
+          {resultado.emitidos != null && (
+            <p>Emitidos: {resultado.emitidos}/{resultado.total} · Errores: {resultado.errores?.length ?? 0}</p>
+          )}
+          {Array.isArray(resultado.errores) && resultado.errores.length > 0 && (
+            <ul className="list-disc list-inside">
+              {resultado.errores.map((e: any, i: number) => (
+                <li key={i}>Caso {e.caso} ({tipoLabel(e.tipo_dte)}): {e.error}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={handleEmitir}
+        disabled={emitiendo || !cumpleRequisito}
+        className="btn-primary w-full justify-center"
+      >
+        {emitiendo ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+        {emitiendo ? 'Firmando y enviando…' : 'Emitir simulación al SII'}
+      </button>
+
       <a
         href="https://maullin.sii.cl/cvc_cgi/dte/pe_avance1"
         target="_blank"
@@ -714,7 +1134,7 @@ function StepSimulacion() {
         className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors"
       >
         <ExternalLink size={14} />
-        Verificar avance en el SII
+        Verificar avance en el SII (pe_avance4)
       </a>
     </div>
   )

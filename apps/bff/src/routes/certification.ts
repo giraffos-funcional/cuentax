@@ -154,6 +154,24 @@ export async function certificationRoutes(fastify: FastifyInstance) {
     }
   })
 
+  // ── POST /simulacion-send ───────────────────────────────────
+  // Step 3 SIMULACION: emit Factura + NC + ND in a single EnvioDTE
+  // (one track_id per certification rules). Body: { payloads: any[] }.
+  fastify.post('/simulacion-send', async (request, reply) => {
+    const { payloads } = (request.body as any) ?? {}
+    if (!Array.isArray(payloads) || payloads.length === 0) {
+      return reply.status(400).send({ error: 'invalid_body', message: 'payloads array requerido' })
+    }
+    try {
+      const data = await siiBridgeAdapter.certSimulacion(payloads)
+      return reply.send(data)
+    } catch (err: any) {
+      const detail = err.response?.data?.detail
+      const msg = typeof detail === 'string' ? detail : (Array.isArray(detail) ? detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ') : 'Error enviando simulación')
+      return reply.status(500).send({ error: 'simulacion_error', message: msg })
+    }
+  })
+
   // ── POST /reset ────────────────────────────────────────────
   fastify.post('/reset', async (request, reply) => {
     const rut = getRut(request)

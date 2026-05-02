@@ -486,6 +486,19 @@ export function useProcessTestSet() {
   return { process }
 }
 
+/** Emit simulation batch — Step 3 SIMULACION. Posts list of DTE payloads
+ *  to BFF which forwards to bridge `/wizard/simulacion/send`. Bridge groups
+ *  them into a single EnvioDTE → single track_id (SII certification rule). */
+export function useEmitSimulacion() {
+  const emit = async (payloads: Record<string, any>[]) => {
+    const { data } = await apiClient.post('/api/v1/certification/simulacion-send', { payloads })
+    globalMutate('/api/v1/certification/wizard')
+    globalMutate('/api/v1/certification/status')
+    return data
+  }
+  return { emit }
+}
+
 /** Reset certification wizard */
 export function useResetCertification() {
   const reset = async () => {
