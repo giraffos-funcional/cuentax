@@ -146,18 +146,28 @@ class DTEReceptionService:
         self._elem(recep_envio, "EstadoRecepEnv", "0")  # 0 = Envío recibido OK
         self._elem(recep_envio, "RecepEnvGlosa", "Envío recibido correctamente")
 
-        # RecepcionDTE for each document
+        # RecepcionDTE for each document. SII certification expects DTEs whose
+        # RUTRecep does not match our RUT to be flagged with EstadoRecepDTE=3
+        # (RUT Receptor no corresponde) — this is exactly the trampa that ships
+        # in the Set de Intercambio: 1 DTE addressed to us + 1 addressed to a
+        # different RUT to validate that our system rejects misdirected docs.
         for dte in dtes_recibidos:
             recep_dte = etree.SubElement(recep_envio, "RecepcionDTE")
             self._elem(recep_dte, "TipoDTE", str(dte["tipo_dte"]))
             self._elem(recep_dte, "Folio", str(dte["folio"]))
             self._elem(recep_dte, "FchEmis", dte.get("fecha_emision", ""))
             self._elem(recep_dte, "RUTEmisor", dte.get("rut_emisor", ""))
-            self._elem(recep_dte, "RUTRecep", rut_receptor)
+            self._elem(recep_dte, "RUTRecep", dte.get("rut_receptor") or rut_receptor)
             self._elem(recep_dte, "MntTotal", str(dte.get("monto_total", 0)))
-            # EstadoRecepDTE: 0 = OK, 1 = Con reparos, 2 = Rechazado
-            self._elem(recep_dte, "EstadoRecepDTE", "0")
-            self._elem(recep_dte, "RecepDTEGlosa", "Documento recibido OK")
+            dte_rut_recep = (dte.get("rut_receptor") or "").strip()
+            our_rut = rut_receptor.strip()
+            if dte_rut_recep and dte_rut_recep != our_rut:
+                # 3 = RUT Receptor no corresponde
+                self._elem(recep_dte, "EstadoRecepDTE", "3")
+                self._elem(recep_dte, "RecepDTEGlosa", "RUT Receptor no corresponde")
+            else:
+                self._elem(recep_dte, "EstadoRecepDTE", "0")
+                self._elem(recep_dte, "RecepDTEGlosa", "Documento recibido OK")
 
         # Sign the Resultado element — signing failure is fatal
         certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
@@ -224,6 +234,69 @@ class DTEReceptionService:
         certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
 
         return etree.tostring(resp, encoding="unicode", xml_declaration=True)
+
+    def generate_envio_recibos(
+        self,
+        rut_receptor: str,
+        rut_emisor_envio: str,
+        dtes_recibidos: list[dict],
+        rut_firma: Optional[str] = None,
+    ) -> str:
+        """
+        Generate EnvioRecibos XML (Recepción de Mercaderías / Servicios).
+
+        SII certification Paso 4 INTERCAMBIO expects this as the second file:
+        a Recibo per DTE that we ACCEPT (i.e. DTEs whose RUTRecep matches
+        ours). For DTEs addressed to other RUTs no Recibo is emitted.
+
+        Returns:
+            Signed EnvioRecibos XML string
+        """
+        timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
+        nsmap = {None: SII_DTE_NS}
+
+        envio = etree.Element("EnvioRecibos", attrib={"version": "1.0"}, nsmap=nsmap)
+        set_recibos = etree.SubElement(envio, "SetRecibos", attrib={"ID": "SetRecibos"})
+
+        # Caratula
+        caratula = etree.SubElement(set_recibos, "Caratula", attrib={"version": "1.0"})
+        self._elem(caratula, "RutResponde", rut_receptor)
+        self._elem(caratula, "RutRecibe", rut_emisor_envio)
+        self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
+        self._elem(caratula, "MailContacto", "")
+        self._elem(caratula, "TmstFirmaEnv", timestamp)
+
+        # One Recibo per DTE addressed to us
+        idx = 0
+        for dte in dtes_recibidos:
+            dte_rut_recep = (dte.get("rut_receptor") or "").strip()
+            if dte_rut_recep and dte_rut_recep != rut_receptor.strip():
+                continue  # not for us — skip
+            idx += 1
+            recibo = etree.SubElement(set_recibos, "Recibo", attrib={"version": "1.0"})
+            doc = etree.SubElement(recibo, "DocumentoRecibo", attrib={"ID": f"DOC_{idx}"})
+            self._elem(doc, "TipoDoc", str(dte["tipo_dte"]))
+            self._elem(doc, "Folio", str(dte["folio"]))
+            self._elem(doc, "FchEmis", dte.get("fecha_emision", ""))
+            self._elem(doc, "RUTEmisor", dte.get("rut_emisor", ""))
+            self._elem(doc, "RUTRecep", rut_receptor)
+            self._elem(doc, "MntTotal", str(dte.get("monto_total", 0)))
+            self._elem(doc, "Recinto", "Oficina Zyncro Av Irarrazaval 2401 Of 1108")
+            self._elem(doc, "RutFirma", rut_firma or rut_receptor)
+            self._elem(doc, "Declaracion",
+                       "El acuse de recibo que se declara en este acto, "
+                       "de acuerdo a lo dispuesto en la letra b) del Art. 4, "
+                       "y la letra c) del Art. 5 de la Ley 19.983, acredita "
+                       "que la entrega de mercaderia(s) o servicio(s) "
+                       "prestado(s) ha(n) sido recibido(s).")
+            self._elem(doc, "TmstFirmaRecibo", timestamp)
+            # Sign each DocumentoRecibo individually
+            certificate_service.sign_xml(recibo, rut_emisor=rut_firma or rut_receptor)
+
+        # Sign the SetRecibos envelope
+        certificate_service.sign_xml(set_recibos, rut_emisor=rut_firma or rut_receptor)
+
+        return etree.tostring(envio, encoding="unicode", xml_declaration=True)
 
     def _get_text(self, parent, tag: str) -> Optional[str]:
         """Extract text from a child element, searching with and without namespace."""

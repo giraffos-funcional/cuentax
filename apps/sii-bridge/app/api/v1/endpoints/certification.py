@@ -775,9 +775,21 @@ async def intercambio_respond(req: InterceptRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating RecepcionDTE: {e}")
 
-    # Generate ResultadoDTE for each received DTE
+    # Generate ResultadoDTE only for DTEs whose RUTRecep matches us. The
+    # Set de Intercambio del SII includes a DTE addressed to a different
+    # RUT; we must NOT emit a commercial response for that one — only flag
+    # it as "RUT no corresponde" in the RecepcionDTE (already handled in
+    # generate_recepcion_dte).
     resultados = []
     for dte in parsed["dtes"]:
+        if (dte.get("rut_receptor") or "").strip() != req.rut_receptor.strip():
+            resultados.append({
+                "tipo_dte": dte["tipo_dte"],
+                "folio": dte["folio"],
+                "skipped": True,
+                "reason": "RUT receptor no corresponde — no se emite ResultadoDTE",
+            })
+            continue
         try:
             resultado_xml = dte_reception_service.generate_resultado_dte(
                 rut_receptor=req.rut_receptor,
@@ -802,7 +814,19 @@ async def intercambio_respond(req: InterceptRequest):
                 "error": str(e),
             })
 
-    all_ok = all("xml" in r for r in resultados)
+    # Generate EnvioRecibos (Recepción de Mercaderías) for DTEs addressed
+    # to us — second file the SII certification expects in Paso 4.
+    try:
+        envio_recibos_xml = dte_reception_service.generate_envio_recibos(
+            rut_receptor=req.rut_receptor,
+            rut_emisor_envio=req.rut_emisor_envio,
+            dtes_recibidos=parsed["dtes"],
+        )
+    except Exception as e:
+        envio_recibos_xml = None
+        logger.error(f"Error generating EnvioRecibos: {e}")
+
+    all_ok = all(("xml" in r) or r.get("skipped") for r in resultados)
     if all_ok:
         session["steps_completed"].add(Step.INTERCAMBIO)
         _advance_step(session)
@@ -811,6 +835,7 @@ async def intercambio_respond(req: InterceptRequest):
     return {
         "success": all_ok,
         "recepcion_xml": recepcion_xml,
+        "envio_recibos_xml": envio_recibos_xml,
         "resultados": resultados,
         "current_step": session["current_step"],
     }
