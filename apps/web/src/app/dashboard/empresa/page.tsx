@@ -84,8 +84,21 @@ export default function EmpresaPage() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const [readiness, setReadiness] = useState<{ ready: boolean; missing: string[] } | null>(null)
+  const [actividadesSII, setActividadesSII] = useState<Array<{ codigo: number; descripcion: string }>>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const { update: updateOdooLegacy } = useUpdateCompany()
+
+  // Pull actividades económicas from SII based on current RUT
+  useEffect(() => {
+    const rut = (form.rut || '').replace(/\./g, '').trim()
+    if (!rut || rut.length < 8) return
+    apiClient.get(`/api/v1/companies/lookup-rut/${encodeURIComponent(rut)}`)
+      .then(r => {
+        const list = Array.isArray(r.data?.actividades) ? r.data.actividades : []
+        setActividadesSII(list.filter((a: any) => a?.codigo && a?.descripcion))
+      })
+      .catch(() => setActividadesSII([]))
+  }, [form.rut])
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
@@ -346,13 +359,81 @@ export default function EmpresaPage() {
                   {TIPOS_CONTRIBUYENTE.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </Field>
-              <Field label="Actividad económica principal (CIIU) *">
-                <input type="number" value={form.actividad_economica} onChange={e => set('actividad_economica', e.target.value)} className="input-field text-sm w-full" placeholder="620200" />
-                <Hint>Código del SII (ej. 620200 = Consultoría informática)</Hint>
+              <Field label="Actividad económica principal *">
+                {actividadesSII.length > 0 ? (
+                  <select
+                    value={form.actividad_economica}
+                    onChange={e => set('actividad_economica', e.target.value)}
+                    className="input-field text-sm w-full"
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {actividadesSII.map(a => (
+                      <option key={a.codigo} value={a.codigo}>
+                        {a.codigo} — {a.descripcion}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="number"
+                    value={form.actividad_economica}
+                    onChange={e => set('actividad_economica', e.target.value)}
+                    className="input-field text-sm w-full"
+                    placeholder="620200"
+                  />
+                )}
+                <Hint>
+                  {actividadesSII.length > 0
+                    ? `${actividadesSII.length} actividad${actividadesSII.length > 1 ? 'es' : ''} consultada${actividadesSII.length > 1 ? 's' : ''} desde el SII según el RUT.`
+                    : 'Código CIIU del SII (ej. 620200 = Consultoría informática)'}
+                </Hint>
               </Field>
               <Field label="Actividades económicas adicionales" className="sm:col-span-2">
-                <input value={form.actividades_economicas_extra} onChange={e => set('actividades_economicas_extra', e.target.value)} className="input-field text-sm w-full" placeholder="620100, 631100" />
-                <Hint>Códigos CIIU separados por coma (opcional)</Hint>
+                {actividadesSII.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {actividadesSII.map(a => {
+                      const codes = form.actividades_economicas_extra
+                        .split(',').map(s => s.trim()).filter(Boolean)
+                      const checked = codes.includes(String(a.codigo))
+                      const isPrimary = String(a.codigo) === form.actividad_economica
+                      return (
+                        <label
+                          key={a.codigo}
+                          className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer ${
+                            checked || isPrimary
+                              ? 'bg-[var(--cx-active-bg)] border-[var(--cx-active-border)] text-[var(--cx-active-text)]'
+                              : 'bg-[var(--cx-bg-elevated)] border-[var(--cx-border-light)]'
+                          } ${isPrimary ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={isPrimary}
+                            checked={checked || isPrimary}
+                            onChange={e => {
+                              const next = new Set(codes)
+                              if (e.target.checked) next.add(String(a.codigo))
+                              else next.delete(String(a.codigo))
+                              set('actividades_economicas_extra', Array.from(next).join(', '))
+                            }}
+                          />
+                          <span><b>{a.codigo}</b> — {a.descripcion}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <input
+                    value={form.actividades_economicas_extra}
+                    onChange={e => set('actividades_economicas_extra', e.target.value)}
+                    className="input-field text-sm w-full"
+                    placeholder="620100, 631100"
+                  />
+                )}
+                <Hint>
+                  {actividadesSII.length > 0
+                    ? 'La actividad principal queda marcada automáticamente. Tildá las adicionales que correspondan.'
+                    : 'Códigos CIIU separados por coma (opcional)'}
+                </Hint>
               </Field>
               <Field label="Dirección *" className="sm:col-span-2">
                 <input value={form.direccion} onChange={e => set('direccion', e.target.value)} className="input-field text-sm w-full" placeholder="Av. Irarrázabal 2401 oficina 1108" />
