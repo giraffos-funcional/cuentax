@@ -25,6 +25,7 @@ import {
 } from '@/hooks'
 import { useAuthStore } from '@/stores/auth.store'
 import { CertificateStep } from '@/components/sii/CertificateUpload'
+import { apiClient } from '@/lib/api-client'
 
 // ── Step Indicator ────────────────────────────────────────────
 function StepBadge({ done, active, step }: { done: boolean; active: boolean; step: number }) {
@@ -823,8 +824,15 @@ function StepSimulacion() {
   const [emitiendo, setEmitiendo] = useState(false)
   const [resultado, setResultado] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [empresa, setEmpresa] = useState<any>(null)
 
-  const rutEmisor = (user as any)?.empresa?.rut || (user as any)?.rut_empresa || '76753753-0'
+  useEffect(() => {
+    apiClient.get('/api/v1/companies/me')
+      .then(r => setEmpresa(r.data))
+      .catch(() => setEmpresa(null))
+  }, [])
+
+  const rutEmisor = empresa?.rut || (user as any)?.empresa?.rut || (user as any)?.rut_empresa || ''
   const tieneFactura = drafts.some(d => d.tipo_dte === 33)
   const tieneNC = drafts.some(d => d.tipo_dte === 61)
   const tieneND = drafts.some(d => d.tipo_dte === 56)
@@ -849,6 +857,16 @@ function StepSimulacion() {
       setError('Debes incluir al menos una Factura (33), una NC (61) y una ND (56)')
       return
     }
+    const faltan: string[] = []
+    if (!rutEmisor) faltan.push('RUT')
+    if (!empresa?.razon_social) faltan.push('Razón social')
+    if (!empresa?.giro) faltan.push('Giro')
+    if (!empresa?.direccion) faltan.push('Dirección')
+    if (!empresa?.comuna) faltan.push('Comuna')
+    if (faltan.length) {
+      setError(`Completá la configuración de la empresa (Configuración → Empresa). Faltan: ${faltan.join(', ')}.`)
+      return
+    }
     setError(null)
     setEmitiendo(true)
     setResultado(null)
@@ -859,12 +877,12 @@ function StepSimulacion() {
         const base: Record<string, any> = {
           tipo_dte: d.tipo_dte,
           rut_emisor: rutEmisor,
-          razon_social_emisor: 'SOCIEDAD INGENIERIA ZYNCRO SPA',
-          giro_emisor: 'Ingenieria',
-          actividad_economica: 620200,
-          direccion_emisor: 'Av Irarrazaval 2401 Of 1108',
-          comuna_emisor: 'Ñuñoa',
-          ciudad_emisor: 'Santiago',
+          razon_social_emisor: empresa?.razon_social ?? '',
+          giro_emisor: empresa?.giro ?? '',
+          actividad_economica: empresa?.actividad_economica ?? 620200,
+          direccion_emisor: empresa?.direccion ?? '',
+          comuna_emisor: empresa?.comuna ?? '',
+          ciudad_emisor: empresa?.ciudad ?? 'Santiago',
           rut_receptor: d.rut_receptor,
           razon_social_receptor: d.razon_social_receptor,
           giro_receptor: d.giro_receptor,

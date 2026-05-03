@@ -12,12 +12,16 @@
  */
 
 import type { FastifyInstance } from 'fastify'
+import { eq } from 'drizzle-orm'
 import { authGuard } from '@/middlewares/auth-guard'
 import { dteService, emitirDTESchema } from '@/services/dte.service'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
 import { dteRepository } from '@/repositories/dte.repository'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
+import { db } from '@/db/client'
+import { companies } from '@/db/schema'
+import { checkEmissionReadiness } from '@/core/company-readiness'
 import { z } from 'zod'
 
 export async function dteRoutes(fastify: FastifyInstance) {
@@ -36,6 +40,19 @@ export async function dteRoutes(fastify: FastifyInstance) {
 
     const user = (request as any).user
     const localCompanyId = await getLocalCompanyId(user.company_id)
+
+    // Bloqueo: empresa debe estar completa para emitir DTE
+    const [company] = await db.select().from(companies)
+      .where(eq(companies.id, localCompanyId)).limit(1)
+    const readiness = checkEmissionReadiness(company ?? null)
+    if (!readiness.ready) {
+      return reply.status(409).send({
+        error: 'company_incomplete',
+        message: 'La empresa no tiene todos los campos requeridos para emitir DTE.',
+        missing: readiness.missing,
+      })
+    }
+
     const companyContext = {
       company_id:       localCompanyId,        // Local DB FK
       odoo_company_id:  user.company_id,       // Odoo ID for external calls

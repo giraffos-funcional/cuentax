@@ -35,6 +35,13 @@ export const rcvTipoEnum = pgEnum('rcv_tipo', ['compras', 'ventas'])
 
 export const rcvSyncStatusEnum = pgEnum('rcv_sync_status', ['pendiente', 'sincronizado', 'error'])
 
+export const tipoContribuyenteEnum = pgEnum('tipo_contribuyente', [
+  'iva_afecto_1a',
+  'iva_afecto_2a',
+  'exento',
+  'pequeno_contribuyente',
+])
+
 // ══════════════════════════════════════════════════════════════
 // EMPRESAS (Multi-tenant base)
 // ══════════════════════════════════════════════════════════════
@@ -57,11 +64,21 @@ export const companies = pgTable('companies', {
   direccion:        text('direccion'),
   comuna:           varchar('comuna', { length: 50 }),
   ciudad:           varchar('ciudad', { length: 50 }).default('Santiago'),
+  region:           varchar('region', { length: 60 }),
   // US-specific address fields
   state:            varchar('state', { length: 2 }),    // e.g. 'CA', 'NY'
   zip_code:         varchar('zip_code', { length: 10 }),
   email:            text('email'),
   telefono:         varchar('telefono', { length: 20 }),
+  movil:            varchar('movil', { length: 20 }),
+  sitio_web:        text('sitio_web'),
+  tipo_contribuyente: tipoContribuyenteEnum('tipo_contribuyente'),
+  actividades_economicas: integer('actividades_economicas').array(),
+  // DTE / SII Resolution (Chile only)
+  correo_dte:           text('correo_dte'),
+  oficina_regional_sii: varchar('oficina_regional_sii', { length: 60 }),
+  numero_resolucion_sii: integer('numero_resolucion_sii'),
+  fecha_resolucion_sii:  timestamp('fecha_resolucion_sii', { withTimezone: false, mode: 'date' }),
   // SII Config (Chile only)
   ambiente_sii:     ambienteEnum('ambiente_sii').default('certificacion'),
   cert_vence:       timestamp('cert_vence', { withTimezone: true }),

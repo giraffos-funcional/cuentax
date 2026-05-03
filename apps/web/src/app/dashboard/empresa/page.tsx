@@ -1,97 +1,144 @@
 /**
  * CUENTAX — Configuración de Empresa
- * Edit company name, RUT, address, logo, rep legal.
- * Uses direct apiClient fetch (not SWR) to avoid stale cache after company switch.
+ * Datos completos de la empresa para emisión DTE.
+ * Usa /api/v1/companies/me (BFF) — sincroniza con Odoo automáticamente.
  */
 
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2, Shield, Wifi, WifiOff, RefreshCw, Moon } from 'lucide-react'
+import {
+  Building2, Upload, Save, Loader2, AlertCircle, CheckCircle2,
+  Shield, Wifi, WifiOff, RefreshCw, Moon, FileCheck2, Info,
+} from 'lucide-react'
 import { useUpdateCompany } from '@/hooks/use-remuneraciones'
 import { useAuthStore } from '@/stores/auth.store'
 import { apiClient } from '@/lib/api-client'
 
+const REGIONES_CL = [
+  'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
+  'Valparaíso', 'Metropolitana', 'O\'Higgins', 'Maule', 'Ñuble',
+  'Biobío', 'La Araucanía', 'Los Ríos', 'Los Lagos', 'Aysén', 'Magallanes',
+]
+
+const OFICINAS_REGIONALES_SII = [
+  'Arica', 'Iquique', 'Antofagasta', 'Calama', 'Copiapó', 'La Serena', 'Ovalle',
+  'Valparaíso', 'Viña del Mar', 'Los Andes', 'Quillota', 'San Antonio',
+  'Santiago Centro', 'Santiago Norte', 'Santiago Sur', 'Santiago Oriente', 'Santiago Poniente',
+  'Maipú', 'Ñuñoa', 'Providencia', 'Las Condes',
+  'Rancagua', 'San Fernando', 'Talca', 'Curicó', 'Linares', 'Chillán',
+  'Concepción', 'Talcahuano', 'Los Ángeles', 'Temuco', 'Angol', 'Valdivia',
+  'Osorno', 'Puerto Montt', 'Castro', 'Coyhaique', 'Punta Arenas',
+]
+
+const TIPOS_CONTRIBUYENTE = [
+  { value: 'iva_afecto_1a', label: 'IVA afecto 1ª categoría' },
+  { value: 'iva_afecto_2a', label: 'IVA afecto 2ª categoría' },
+  { value: 'exento', label: 'Exento' },
+  { value: 'pequeno_contribuyente', label: 'Pequeño contribuyente' },
+] as const
+
+type TabKey = 'general' | 'dte'
+
+interface CompanyForm {
+  // General
+  razon_social: string
+  rut: string
+  giro: string
+  tipo_contribuyente: string
+  actividad_economica: string
+  actividades_economicas_extra: string
+  direccion: string
+  comuna: string
+  ciudad: string
+  region: string
+  telefono: string
+  movil: string
+  email: string
+  sitio_web: string
+  // DTE / Resolución
+  correo_dte: string
+  ambiente_sii: string
+  oficina_regional_sii: string
+  numero_resolucion_sii: string
+  fecha_resolucion_sii: string
+}
+
+const EMPTY_FORM: CompanyForm = {
+  razon_social: '', rut: '', giro: '', tipo_contribuyente: '',
+  actividad_economica: '', actividades_economicas_extra: '',
+  direccion: '', comuna: '', ciudad: 'Santiago', region: '',
+  telefono: '', movil: '', email: '', sitio_web: '',
+  correo_dte: '', ambiente_sii: 'certificacion',
+  oficina_regional_sii: '', numero_resolucion_sii: '', fecha_resolucion_sii: '',
+}
+
 export default function EmpresaPage() {
-  const { update } = useUpdateCompany()
   const companyId = useAuthStore(s => s.user?.company_id)
-  const [empresa, setEmpresa] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  // Fetch empresa with retry - handles the post-switch token recovery race condition
-  const fetchEmpresa = useCallback(async (retries = 3) => {
-    setIsLoading(true)
-    setError(null)
-    for (let i = 0; i < retries; i++) {
-      try {
-        const { data } = await apiClient.get('/api/v1/remuneraciones/empresa')
-        const emp = data?.empresa ?? null
-        // Verify we got data for the RIGHT company (not stale from old token)
-        if (emp && companyId && emp.id !== companyId) {
-          // Token refresh returned old company data - wait and retry
-          await new Promise(r => setTimeout(r, 1500))
-          continue
-        }
-        setEmpresa(emp)
-        setIsLoading(false)
-        return
-      } catch (err: any) {
-        if (i < retries - 1) {
-          await new Promise(r => setTimeout(r, 1500))
-          continue
-        }
-        setError(err)
-      }
-    }
-    setIsLoading(false)
-  }, [companyId])
-
-  // Fetch on mount and when companyId changes
-  useEffect(() => {
-    fetchEmpresa()
-  }, [companyId, fetchEmpresa])
-
-  const [form, setForm] = useState({
-    name: '',
-    vat: '',
-    street: '',
-    city: '',
-    phone: '',
-    email: '',
-    website: '',
-  })
+  const [tab, setTab] = useState<TabKey>('general')
+  const [form, setForm] = useState<CompanyForm>(EMPTY_FORM)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoBase64, setLogoBase64] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [readiness, setReadiness] = useState<{ ready: boolean; missing: string[] } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const { update: updateOdooLegacy } = useUpdateCompany()
 
-  // Pre-fill form when empresa loads or changes
-  const loadedId_ref = useRef<number | null>(null)
-  const authName = useAuthStore(s => s.user?.company_name)
-  useEffect(() => {
-    const currentId = empresa?.id ?? null
-    if (empresa && currentId !== loadedId_ref.current) {
-      // Odoo returns Python False for empty fields → handle as empty string
+  const fetchAll = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [{ data: company }, { data: ready }, { data: legacy }] = await Promise.all([
+        apiClient.get('/api/v1/companies/me'),
+        apiClient.get('/api/v1/companies/me/readiness').catch(() => ({ data: null })),
+        apiClient.get('/api/v1/remuneraciones/empresa').catch(() => ({ data: null })),
+      ])
+      const c = company ?? {}
       const clean = (v: unknown) => (!v || v === false || String(v) === 'False') ? '' : String(v)
       setForm({
-        name: clean(empresa.name) || authName || '',
-        vat: clean(empresa.vat),
-        street: clean(empresa.street),
-        city: clean(empresa.city),
-        phone: clean(empresa.phone),
-        email: clean(empresa.email),
-        website: clean(empresa.website),
+        razon_social: clean(c.razon_social) || clean(c.name),
+        rut: clean(c.rut),
+        giro: clean(c.giro),
+        tipo_contribuyente: clean(c.tipo_contribuyente),
+        actividad_economica: c.actividad_economica != null ? String(c.actividad_economica) : '',
+        actividades_economicas_extra: Array.isArray(c.actividades_economicas)
+          ? c.actividades_economicas.join(', ')
+          : '',
+        direccion: clean(c.direccion),
+        comuna: clean(c.comuna),
+        ciudad: clean(c.ciudad) || 'Santiago',
+        region: clean(c.region),
+        telefono: clean(c.telefono),
+        movil: clean(c.movil),
+        email: clean(c.email),
+        sitio_web: clean(c.sitio_web),
+        correo_dte: clean(c.correo_dte),
+        ambiente_sii: clean(c.ambiente_sii) || 'certificacion',
+        oficina_regional_sii: clean(c.oficina_regional_sii),
+        numero_resolucion_sii: c.numero_resolucion_sii != null ? String(c.numero_resolucion_sii) : '',
+        fecha_resolucion_sii: c.fecha_resolucion_sii ? String(c.fecha_resolucion_sii).slice(0, 10) : '',
       })
-      if (empresa.logo && empresa.logo !== false && String(empresa.logo) !== 'False') {
-        setLogoPreview(`data:image/png;base64,${empresa.logo}`)
+      setReadiness(ready)
+      const odooLogo = legacy?.empresa?.logo
+      if (odooLogo && odooLogo !== false && String(odooLogo) !== 'False') {
+        setLogoPreview(`data:image/png;base64,${odooLogo}`)
       } else {
         setLogoPreview(null)
       }
-      loadedId_ref.current = currentId
+    } catch (err: any) {
+      setError(err?.message ?? 'Error cargando empresa')
+    } finally {
+      setIsLoading(false)
     }
-  }, [empresa, authName])
+  }, [])
+
+  useEffect(() => { fetchAll() }, [companyId, fetchAll])
+
+  const set = <K extends keyof CompanyForm>(field: K, value: CompanyForm[K]) =>
+    setForm(prev => ({ ...prev, [field]: value }))
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -105,37 +152,59 @@ export default function EmpresaPage() {
     reader.readAsDataURL(file)
   }
 
-  const { setAuth, setAccessToken } = useAuthStore()
-
   const handleSave = async () => {
     setSaving(true)
     setMsg(null)
     try {
-      const data: Record<string, unknown> = { ...form }
+      const extras = form.actividades_economicas_extra
+        .split(',').map(s => s.trim()).filter(Boolean)
+        .map(Number).filter(n => Number.isInteger(n))
+
+      const payload: Record<string, unknown> = {
+        razon_social: form.razon_social || undefined,
+        giro: form.giro || undefined,
+        tipo_contribuyente: form.tipo_contribuyente || undefined,
+        actividad_economica: form.actividad_economica
+          ? Number(form.actividad_economica) : undefined,
+        actividades_economicas: extras.length ? extras : undefined,
+        direccion: form.direccion || undefined,
+        comuna: form.comuna || undefined,
+        ciudad: form.ciudad || undefined,
+        region: form.region || undefined,
+        telefono: form.telefono || undefined,
+        movil: form.movil || undefined,
+        email: form.email || undefined,
+        sitio_web: form.sitio_web || undefined,
+        correo_dte: form.correo_dte || undefined,
+        ambiente_sii: form.ambiente_sii || undefined,
+        oficina_regional_sii: form.oficina_regional_sii || undefined,
+        numero_resolucion_sii: form.numero_resolucion_sii
+          ? Number(form.numero_resolucion_sii) : undefined,
+        fecha_resolucion_sii: form.fecha_resolucion_sii || undefined,
+      }
+      await apiClient.put('/api/v1/companies/me', payload)
+
+      // Logo va vía Odoo (legacy)
       if (logoBase64) {
-        data.logo = logoBase64
-      }
-      const result = await update(data)
-
-      // If RUT changed, backend returns new tokens — update auth state
-      if (result?.tokens) {
-        setAuth(result.tokens.user, result.tokens.access_token)
-        setAccessToken(result.tokens.access_token)
+        await updateOdooLegacy({ logo: logoBase64 })
+        setLogoBase64(null)
       }
 
-      await fetchEmpresa()
+      await fetchAll()
       setMsg({ type: 'ok', text: 'Empresa actualizada correctamente' })
-      setLogoBase64(null)
-    } catch {
-      setMsg({ type: 'error', text: 'Error al guardar los datos' })
+    } catch (err: any) {
+      const detail = err?.response?.data?.details?.fieldErrors
+      if (detail) {
+        const first = Object.entries(detail)[0]
+        setMsg({ type: 'error', text: `${first[0]}: ${(first[1] as string[])[0]}` })
+      } else {
+        setMsg({ type: 'error', text: 'Error al guardar los datos' })
+      }
     } finally {
       setSaving(false)
       setTimeout(() => setMsg(null), 4000)
     }
   }
-
-  const set = (field: string, value: string) =>
-    setForm(prev => ({ ...prev, [field]: value }))
 
   if (isLoading) {
     return (
@@ -150,19 +219,20 @@ export default function EmpresaPage() {
     return (
       <div className="flex items-center gap-2 p-4 rounded-xl bg-[var(--cx-status-error-bg)] border border-[var(--cx-status-error-border)]">
         <AlertCircle size={16} className="text-[var(--cx-status-error-text)]" />
-        <span className="text-sm text-[var(--cx-status-error-text)]">Error cargando datos de empresa</span>
+        <span className="text-sm text-[var(--cx-status-error-text)]">{error}</span>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
-
+    <div className="space-y-6 animate-fade-in max-w-4xl">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Configuración de Empresa</h1>
-          <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Datos que aparecen en liquidaciones y contratos</p>
+          <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">
+            Datos requeridos para emisión de Documentos Tributarios Electrónicos.
+          </p>
         </div>
         <button
           onClick={handleSave}
@@ -173,6 +243,24 @@ export default function EmpresaPage() {
           Guardar
         </button>
       </div>
+
+      {/* Readiness banner */}
+      {readiness && (
+        readiness.ready ? (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border bg-[var(--cx-status-ok-bg)] text-[var(--cx-status-ok-text)] border-[var(--cx-status-ok-border)] text-sm">
+            <FileCheck2 size={16} />
+            <span><b>Empresa lista para emitir DTE.</b> Todos los campos requeridos están completos.</span>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 px-4 py-3 rounded-xl border bg-[var(--cx-status-warn-bg)] text-[var(--cx-status-warn-text)] border-[var(--cx-status-warn-border)] text-sm">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            <div>
+              <b>Empresa incompleta — la emisión está bloqueada.</b>
+              <span className="block text-xs mt-1">Faltan: {readiness.missing.join(', ')}.</span>
+            </div>
+          </div>
+        )
+      )}
 
       {/* Feedback */}
       {msg && (
@@ -186,75 +274,176 @@ export default function EmpresaPage() {
         </div>
       )}
 
-      {/* Logo */}
-      <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
-        <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider mb-4">Logo de la Empresa</h3>
-        <div className="flex items-center gap-6">
-          <div className="w-24 h-24 rounded-xl border-2 border-dashed border-[var(--cx-border-light)] flex items-center justify-center overflow-hidden bg-[var(--cx-bg-elevated)]">
-            {logoPreview ? (
-              <img src={logoPreview} alt="Logo" className="w-full h-full object-contain" />
-            ) : (
-              <Building2 size={32} className="text-[var(--cx-text-muted)]" />
-            )}
-          </div>
-          <div>
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <Upload size={13} /> Subir Logo
-            </button>
-            <p className="text-xs text-[var(--cx-text-muted)] mt-2">PNG o JPG, max 2MB. Se muestra en liquidaciones y contratos.</p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/png,image/jpeg,image/jpg"
-              onChange={handleLogoChange}
-              className="hidden"
-            />
-          </div>
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-[var(--cx-border-light)]">
+        {([
+          { key: 'general' as TabKey, label: 'Información General' },
+          { key: 'dte' as TabKey, label: 'Facturación Electrónica' },
+        ]).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-[1px] ${
+              tab === t.key
+                ? 'border-[var(--cx-active-icon)] text-[var(--cx-text-primary)]'
+                : 'border-transparent text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)]'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {/* Company Info */}
-      <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
-        <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider mb-4">Datos de la Empresa</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Razón Social *</label>
-            <input value={form.name} onChange={e => set('name', e.target.value)} className="input-field text-sm w-full" placeholder="Razón social..." />
+      {tab === 'general' && (
+        <>
+          {/* Logo */}
+          <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
+            <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider mb-4">Logo de la Empresa</h3>
+            <div className="flex items-center gap-6">
+              <div className="w-24 h-24 rounded-xl border-2 border-dashed border-[var(--cx-border-light)] flex items-center justify-center overflow-hidden bg-[var(--cx-bg-elevated)]">
+                {logoPreview ? (
+                  <img src={logoPreview} alt="Logo" className="w-full h-full object-contain" />
+                ) : (
+                  <Building2 size={32} className="text-[var(--cx-text-muted)]" />
+                )}
+              </div>
+              <div>
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                >
+                  <Upload size={13} /> Subir Logo
+                </button>
+                <p className="text-xs text-[var(--cx-text-muted)] mt-2">PNG o JPG, max 2MB. Aparece en facturas, liquidaciones y contratos.</p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg"
+                  onChange={handleLogoChange}
+                  className="hidden"
+                />
+              </div>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT</label>
-            <input value={form.vat} onChange={e => set('vat', e.target.value)} className="input-field text-sm w-full" placeholder="76.543.210-K" />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Dirección</label>
-            <input value={form.street} onChange={e => set('street', e.target.value)} className="input-field text-sm w-full" placeholder="Av. Providencia 1208" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Ciudad</label>
-            <input value={form.city} onChange={e => set('city', e.target.value)} className="input-field text-sm w-full" placeholder="Santiago" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Teléfono</label>
-            <input value={form.phone} onChange={e => set('phone', e.target.value)} className="input-field text-sm w-full" placeholder="+56 2 1234 5678" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Email</label>
-            <input value={form.email} onChange={e => set('email', e.target.value)} className="input-field text-sm w-full" placeholder="contacto@empresa.cl" type="email" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Sitio Web</label>
-            <input value={form.website} onChange={e => set('website', e.target.value)} className="input-field text-sm w-full" placeholder="https://empresa.cl" />
-          </div>
-        </div>
-      </div>
 
-      {/* SII Credentials */}
-      <SIICredentialsCard />
+          {/* General Info */}
+          <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
+            <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider mb-4">Información General</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Razón Social *">
+                <input value={form.razon_social} onChange={e => set('razon_social', e.target.value)} className="input-field text-sm w-full" placeholder="GIRAFFOS LIMITADA" />
+              </Field>
+              <Field label="RUT *">
+                <input value={form.rut} onChange={e => set('rut', e.target.value)} className="input-field text-sm w-full" placeholder="76.543.210-K" disabled />
+                <Hint>Para cambiar el RUT, contacta a soporte.</Hint>
+              </Field>
+              <Field label="Giro / Descripción de actividad *" className="sm:col-span-2">
+                <input value={form.giro} onChange={e => set('giro', e.target.value)} className="input-field text-sm w-full" placeholder="CONSULTORIA EN INFORMATICA" />
+              </Field>
+              <Field label="Tipo de contribuyente *">
+                <select value={form.tipo_contribuyente} onChange={e => set('tipo_contribuyente', e.target.value)} className="input-field text-sm w-full">
+                  <option value="">— Seleccionar —</option>
+                  {TIPOS_CONTRIBUYENTE.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Actividad económica principal (CIIU) *">
+                <input type="number" value={form.actividad_economica} onChange={e => set('actividad_economica', e.target.value)} className="input-field text-sm w-full" placeholder="620200" />
+                <Hint>Código del SII (ej. 620200 = Consultoría informática)</Hint>
+              </Field>
+              <Field label="Actividades económicas adicionales" className="sm:col-span-2">
+                <input value={form.actividades_economicas_extra} onChange={e => set('actividades_economicas_extra', e.target.value)} className="input-field text-sm w-full" placeholder="620100, 631100" />
+                <Hint>Códigos CIIU separados por coma (opcional)</Hint>
+              </Field>
+              <Field label="Dirección *" className="sm:col-span-2">
+                <input value={form.direccion} onChange={e => set('direccion', e.target.value)} className="input-field text-sm w-full" placeholder="Av. Irarrázabal 2401 oficina 1108" />
+              </Field>
+              <Field label="Comuna *">
+                <input value={form.comuna} onChange={e => set('comuna', e.target.value)} className="input-field text-sm w-full" placeholder="Ñuñoa" />
+              </Field>
+              <Field label="Ciudad *">
+                <input value={form.ciudad} onChange={e => set('ciudad', e.target.value)} className="input-field text-sm w-full" placeholder="Santiago" />
+              </Field>
+              <Field label="Región">
+                <select value={form.region} onChange={e => set('region', e.target.value)} className="input-field text-sm w-full">
+                  <option value="">— Seleccionar —</option>
+                  {REGIONES_CL.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Teléfono">
+                <input value={form.telefono} onChange={e => set('telefono', e.target.value)} className="input-field text-sm w-full" placeholder="+56 2 1234 5678" />
+              </Field>
+              <Field label="Móvil">
+                <input value={form.movil} onChange={e => set('movil', e.target.value)} className="input-field text-sm w-full" placeholder="+56 9 1234 5678" />
+              </Field>
+              <Field label="Email">
+                <input type="email" value={form.email} onChange={e => set('email', e.target.value)} className="input-field text-sm w-full" placeholder="contacto@empresa.cl" />
+              </Field>
+              <Field label="Sitio Web" className="sm:col-span-2">
+                <input value={form.sitio_web} onChange={e => set('sitio_web', e.target.value)} className="input-field text-sm w-full" placeholder="https://empresa.cl" />
+              </Field>
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === 'dte' && (
+        <>
+          <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <FileCheck2 size={16} className="text-[var(--cx-active-icon)]" />
+              <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider">Resolución SII y DTE</h3>
+            </div>
+            <p className="text-xs text-[var(--cx-text-muted)] mb-4 flex items-start gap-1">
+              <Info size={12} className="mt-0.5 shrink-0" />
+              Datos de la resolución que autoriza a la empresa a emitir documentos tributarios electrónicos. Se usan en Caratula, libros y firma.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Correo DTE *">
+                <input type="email" value={form.correo_dte} onChange={e => set('correo_dte', e.target.value)} className="input-field text-sm w-full" placeholder="dte@empresa.cl" />
+                <Hint>Buzón al que llegan los DTEs recibidos. Distinto del email general.</Hint>
+              </Field>
+              <Field label="Ambiente *">
+                <select value={form.ambiente_sii} onChange={e => set('ambiente_sii', e.target.value)} className="input-field text-sm w-full">
+                  <option value="certificacion">Certificación</option>
+                  <option value="produccion">Producción</option>
+                </select>
+                <Hint>Cambiar a Producción solo después de obtener la Resolución SII.</Hint>
+              </Field>
+              <Field label="Oficina Regional SII *">
+                <select value={form.oficina_regional_sii} onChange={e => set('oficina_regional_sii', e.target.value)} className="input-field text-sm w-full">
+                  <option value="">— Seleccionar —</option>
+                  {OFICINAS_REGIONALES_SII.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </Field>
+              <Field label="Número de Resolución SII *">
+                <input type="number" value={form.numero_resolucion_sii} onChange={e => set('numero_resolucion_sii', e.target.value)} className="input-field text-sm w-full" placeholder="80" />
+              </Field>
+              <Field label="Fecha de Resolución SII *">
+                <input type="date" value={form.fecha_resolucion_sii} onChange={e => set('fecha_resolucion_sii', e.target.value)} className="input-field text-sm w-full" />
+              </Field>
+            </div>
+          </div>
+
+          <SIICredentialsCard />
+        </>
+      )}
     </div>
   )
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">{label}</label>
+      {children}
+    </div>
+  )
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">{children}</p>
 }
 
 // ── SII Credentials Card ────────────────────────────────────
@@ -274,16 +463,15 @@ function SIICredentialsCard() {
     last_sync: string | null
   } | null>(null)
 
-  // Fetch current credential status
   const fetchStatus = useCallback(async () => {
     try {
       const { data } = await apiClient.get('/api/v1/rcv/credentials')
       setCredStatus(data)
       setSiiUser(data.sii_user ?? '')
       setAutoSync(data.auto_sync ?? false)
-      setSiiPassword('') // Never pre-fill password
+      setSiiPassword('')
     } catch {
-      // RCV routes may not exist yet — non-critical
+      // Non-critical
     } finally {
       setLoading(false)
     }
@@ -297,7 +485,6 @@ function SIICredentialsCard() {
       setTimeout(() => setMsg(null), 3000)
       return
     }
-    // Only require password on first setup
     if (!credStatus?.has_password && !siiPassword.trim()) {
       setMsg({ type: 'error', text: 'Ingresa la clave tributaria' })
       setTimeout(() => setMsg(null), 3000)
@@ -311,10 +498,7 @@ function SIICredentialsCard() {
         sii_user: siiUser.trim(),
         auto_sync: autoSync,
       }
-      // Only send password if user entered one
-      if (siiPassword.trim()) {
-        body.sii_password = siiPassword.trim()
-      }
+      if (siiPassword.trim()) body.sii_password = siiPassword.trim()
       await apiClient.put('/api/v1/rcv/credentials', body)
       setMsg({ type: 'ok', text: 'Credenciales SII guardadas correctamente' })
       setSiiPassword('')
@@ -349,16 +533,15 @@ function SIICredentialsCard() {
       <div className="flex items-center gap-2 mb-4">
         <Shield size={16} className="text-[var(--cx-active-icon)]" />
         <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider">
-          Credenciales SII — Sincronizacion RCV
+          Credenciales SII — Sincronización RCV
         </h3>
       </div>
 
       <p className="text-xs text-[var(--cx-text-muted)] mb-4">
-        Ingresa las credenciales del SII para sincronizar automaticamente el Registro de Compras y Ventas.
+        Credenciales del SII para sincronizar Registro de Compras y Ventas.
         La clave se almacena encriptada (AES-256).
       </p>
 
-      {/* Status badges */}
       {credStatus && (
         <div className="flex flex-wrap items-center gap-2 mb-4">
           {credStatus.has_password ? (
@@ -372,18 +555,17 @@ function SIICredentialsCard() {
           )}
           {credStatus.auto_sync && (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-[var(--cx-active-bg)] text-[var(--cx-active-text)] border border-[var(--cx-active-border)]">
-              <RefreshCw size={11} /> Sync automatico activo
+              <RefreshCw size={11} /> Sync automático activo
             </span>
           )}
           {credStatus.last_sync && (
             <span className="text-[11px] text-[var(--cx-text-muted)]">
-              Ultima sync: {new Date(credStatus.last_sync).toLocaleString('es-CL')}
+              Última sync: {new Date(credStatus.last_sync).toLocaleString('es-CL')}
             </span>
           )}
         </div>
       )}
 
-      {/* Feedback */}
       {msg && (
         <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm border mb-4 ${
           msg.type === 'ok'
@@ -395,22 +577,12 @@ function SIICredentialsCard() {
         </div>
       )}
 
-      {/* Form */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">RUT para login SII *</label>
-          <input
-            value={siiUser}
-            onChange={e => setSiiUser(e.target.value)}
-            className="input-field text-sm w-full"
-            placeholder="76673985-7"
-          />
-          <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">RUT de la empresa o del representante legal</p>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">
-            Clave Tributaria {credStatus?.has_password ? '(dejar vacio para mantener)' : '*'}
-          </label>
+        <Field label="RUT para login SII *">
+          <input value={siiUser} onChange={e => setSiiUser(e.target.value)} className="input-field text-sm w-full" placeholder="76673985-7" />
+          <Hint>RUT de la empresa o del representante legal.</Hint>
+        </Field>
+        <Field label={`Clave Tributaria ${credStatus?.has_password ? '(dejar vacío para mantener)' : '*'}`}>
           <input
             type="password"
             value={siiPassword}
@@ -418,11 +590,10 @@ function SIICredentialsCard() {
             className="input-field text-sm w-full"
             placeholder={credStatus?.has_password ? '••••••••' : 'Clave tributaria'}
           />
-          <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">La misma clave que usas para entrar a sii.cl</p>
-        </div>
+          <Hint>La misma clave que usas para entrar a sii.cl.</Hint>
+        </Field>
       </div>
 
-      {/* Nocturnal sync card */}
       <div className={`mt-4 rounded-xl border p-4 transition-colors ${
         autoSync
           ? 'bg-[var(--cx-active-bg)] border-[var(--cx-active-border)]'
@@ -436,14 +607,14 @@ function SIICredentialsCard() {
               <Moon size={18} />
             </div>
             <div>
-              <span className="text-sm font-semibold text-[var(--cx-text-primary)]">Sincronizacion Nocturna</span>
+              <span className="text-sm font-semibold text-[var(--cx-text-primary)]">Sincronización Nocturna</span>
               <p className="text-xs text-[var(--cx-text-secondary)] mt-0.5">
-                Cada noche a las 01:00 AM se sincronizan automaticamente las compras y ventas del mes actual y el anterior desde el SII.
+                Cada noche a las 01:00 AM se sincronizan automáticamente las compras y ventas del mes actual y el anterior desde el SII.
               </p>
               <p className="text-[11px] text-[var(--cx-text-muted)] mt-1">
                 {autoSync
-                  ? 'Al llegar en la manana, tus datos estaran actualizados.'
-                  : 'Activa para tener tus datos listos cada manana sin hacer nada.'}
+                  ? 'Al llegar en la mañana, tus datos estarán actualizados.'
+                  : 'Activa para tener tus datos listos cada mañana sin hacer nada.'}
               </p>
             </div>
           </div>
@@ -463,7 +634,6 @@ function SIICredentialsCard() {
         </div>
       </div>
 
-      {/* Actions */}
       <div className="flex items-center gap-3 mt-5">
         <button
           onClick={handleSave}
@@ -480,7 +650,7 @@ function SIICredentialsCard() {
             className="btn-secondary flex items-center gap-2 text-sm"
           >
             {testing ? <Loader2 size={14} className="animate-spin" /> : <Wifi size={14} />}
-            Probar Conexion
+            Probar Conexión
           </button>
         )}
       </div>

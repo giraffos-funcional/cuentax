@@ -9,6 +9,7 @@ import { db } from '@/db/client'
 import { companies } from '@/db/schema'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
+import { checkEmissionReadiness } from '@/core/company-readiness'
 import { redis } from '@/adapters/redis.adapter'
 
 const PREF_PREFIX = 'cuentax:pref:'
@@ -54,6 +55,8 @@ function formatEIN(ein: string): string {
 }
 
 // ── Schemas ──────────────────────────────────────────────────
+const tipoContribuyenteValues = ['iva_afecto_1a', 'iva_afecto_2a', 'exento', 'pequeno_contribuyente'] as const
+
 // Chilean company creation
 const createChileanCompanySchema = z.object({
   country_code: z.literal('CL').default('CL'),
@@ -61,11 +64,22 @@ const createChileanCompanySchema = z.object({
   razon_social: z.string().min(2, 'Razón social requerida'),
   giro: z.string().min(2, 'Giro requerido'),
   actividad_economica: z.number().int().optional().default(620200),
+  actividades_economicas: z.array(z.number().int()).optional(),
+  tipo_contribuyente: z.enum(tipoContribuyenteValues).optional(),
   direccion: z.string().optional(),
   comuna: z.string().optional(),
   ciudad: z.string().optional().default('Santiago'),
+  region: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
   telefono: z.string().optional(),
+  movil: z.string().optional(),
+  sitio_web: z.string().optional().or(z.literal('')),
+  // DTE / Resolución SII
+  correo_dte: z.string().email().optional().or(z.literal('')),
+  oficina_regional_sii: z.string().optional(),
+  numero_resolucion_sii: z.number().int().optional(),
+  fecha_resolucion_sii: z.string().optional(), // ISO date string
+  ambiente_sii: z.enum(['certificacion', 'produccion']).optional(),
 })
 
 // US company creation
@@ -116,6 +130,15 @@ export async function companyRoutes(fastify: FastifyInstance) {
       currency: company.currency ?? 'CLP',
       source: 'db',
     })
+  })
+
+  // GET /me/readiness — check si la empresa está completa para emitir DTE
+  fastify.get('/me/readiness', async (req, reply) => {
+    const user = (req as any).user
+    const localCompanyId = await getLocalCompanyId(user.company_id)
+    const [company] = await db.select().from(companies)
+      .where(eq(companies.id, localCompanyId)).limit(1)
+    return reply.send(checkEmissionReadiness(company ?? null))
   })
 
   // GET / — list user's accessible companies
@@ -401,19 +424,35 @@ export async function companyRoutes(fastify: FastifyInstance) {
       razon_social: z.string().min(2).optional(),
       giro: z.string().optional(),
       actividad_economica: z.number().int().optional(),
+      actividades_economicas: z.array(z.number().int()).optional(),
+      tipo_contribuyente: z.enum(tipoContribuyenteValues).optional(),
       direccion: z.string().optional(),
       comuna: z.string().optional(),
       ciudad: z.string().optional(),
+      region: z.string().optional(),
       state: z.string().max(2).optional(),
       zip_code: z.string().max(10).optional(),
       email: z.string().email().optional().or(z.literal('')),
       telefono: z.string().optional(),
+      movil: z.string().optional(),
+      sitio_web: z.string().optional().or(z.literal('')),
+      correo_dte: z.string().email().optional().or(z.literal('')),
+      oficina_regional_sii: z.string().optional(),
+      numero_resolucion_sii: z.number().int().optional(),
+      fecha_resolucion_sii: z.string().optional(),
+      ambiente_sii: z.enum(['certificacion', 'produccion']).optional(),
     })
     const parse = updateSchema.safeParse(req.body)
-    if (!parse.success) return reply.status(400).send({ error: 'validation_error' })
+    if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
+
+    // Coerce date string to Date for fecha_resolucion_sii
+    const dataToWrite: Record<string, unknown> = { ...parse.data, updated_at: new Date() }
+    if (parse.data.fecha_resolucion_sii) {
+      dataToWrite.fecha_resolucion_sii = new Date(parse.data.fecha_resolucion_sii)
+    }
 
     const [updated] = await db.update(companies)
-      .set({ ...parse.data, updated_at: new Date() })
+      .set(dataToWrite as typeof companies.$inferInsert)
       .where(eq(companies.id, localCompanyId))
       .returning()
 
