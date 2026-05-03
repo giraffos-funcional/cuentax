@@ -500,7 +500,11 @@ export default function EmpresaPage() {
                 <input type="number" value={form.numero_resolucion_sii} onChange={e => set('numero_resolucion_sii', e.target.value)} className="input-field text-sm w-full" placeholder="80" />
               </Field>
               <Field label="Fecha de Resolución SII *">
-                <input type="date" value={form.fecha_resolucion_sii} onChange={e => set('fecha_resolucion_sii', e.target.value)} className="input-field text-sm w-full" />
+                <DateDDMMYYYYInput
+                  value={form.fecha_resolucion_sii}
+                  onChange={v => set('fecha_resolucion_sii', v)}
+                />
+                <Hint>Formato dd/mm/yyyy (ej. 22/08/2014)</Hint>
               </Field>
             </div>
           </div>
@@ -525,6 +529,46 @@ function Field({ label, children, className = '' }: { label: string; children: R
 
 function Hint({ children }: { children: React.ReactNode }) {
   return <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">{children}</p>
+}
+
+// Text input dd/mm/yyyy that stores ISO yyyy-mm-dd internally
+function DateDDMMYYYYInput({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  const isoToDmy = (iso: string) => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : iso
+  }
+  const [text, setText] = useState(isoToDmy(value))
+  useEffect(() => { setText(isoToDmy(value)) }, [value])
+
+  const handleChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 8)
+    let formatted = digits
+    if (digits.length >= 5) formatted = `${digits.slice(0,2)}/${digits.slice(2,4)}/${digits.slice(4)}`
+    else if (digits.length >= 3) formatted = `${digits.slice(0,2)}/${digits.slice(2)}`
+    setText(formatted)
+    const m = formatted.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    if (m) {
+      const dd = m[1], mm = m[2], yyyy = m[3]
+      const dt = new Date(Number(yyyy), Number(mm) - 1, Number(dd))
+      if (dt.getFullYear() === Number(yyyy) && dt.getMonth() + 1 === Number(mm) && dt.getDate() === Number(dd)) {
+        onChange(`${yyyy}-${mm}-${dd}`)
+        return
+      }
+    }
+    if (formatted === '') onChange('')
+  }
+
+  return (
+    <input
+      type="text"
+      value={text}
+      onChange={e => handleChange(e.target.value)}
+      placeholder="dd/mm/yyyy"
+      maxLength={10}
+      inputMode="numeric"
+      className="input-field text-sm w-full"
+    />
+  )
 }
 
 // ── SII Credentials Card ────────────────────────────────────
