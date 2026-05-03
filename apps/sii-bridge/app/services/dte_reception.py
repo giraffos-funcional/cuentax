@@ -137,27 +137,35 @@ class DTEReceptionService:
         timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
         nsmap = {None: SII_DTE_NS}
 
-        recepcion = etree.Element("RespuestaDTE", attrib={"version": "1.0"}, nsmap=nsmap)
+        recepcion = etree.Element(
+            "RespuestaDTE",
+            attrib={"version": "1.0", "ID": "Resp"},
+            nsmap=nsmap,
+        )
         resultado = etree.SubElement(recepcion, "Resultado", attrib={"ID": "Recepcion"})
 
-        # Caratula
+        # Caratula — XSD requires:
+        #   RutResponde, RutRecibe, IdRespuesta, NmbContacto?, MailContacto?, TmstFirmaResp
         caratula = etree.SubElement(resultado, "Caratula", attrib={"version": "1.0"})
         self._elem(caratula, "RutResponde", rut_receptor)
         self._elem(caratula, "RutRecibe", rut_emisor_envio)
+        self._elem(caratula, "IdRespuesta", "1")
         self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
-        self._elem(caratula, "FonoContacto", "")
         self._elem(caratula, "MailContacto", "")
         self._elem(caratula, "TmstFirmaResp", timestamp)
 
-        # RecepcionEnvio
+        # RecepcionEnvio. CodEnvio min=1 per XSD facet.
         recep_envio = etree.SubElement(resultado, "RecepcionEnvio")
         self._elem(recep_envio, "NmbEnvio", "EnvioDTE.xml")
         self._elem(recep_envio, "FchRecep", timestamp)
-        self._elem(recep_envio, "CodEnvio", "0")  # 0 = OK
+        self._elem(recep_envio, "CodEnvio", "1")
         self._elem(recep_envio, "EnvioDTEID", "SetDoc")
         self._elem(recep_envio, "Digest", "")
+        self._elem(recep_envio, "RutEmisor", rut_emisor_envio)
+        self._elem(recep_envio, "RutReceptor", rut_receptor)
         self._elem(recep_envio, "EstadoRecepEnv", "0")  # 0 = Envío recibido OK
         self._elem(recep_envio, "RecepEnvGlosa", "Envío recibido correctamente")
+        self._elem(recep_envio, "NroDTE", str(len(dtes_recibidos)))
 
         # RecepcionDTE for each document. SII certification expects DTEs whose
         # RUTRecep does not match our RUT to be flagged with EstadoRecepDTE=3
@@ -182,8 +190,10 @@ class DTEReceptionService:
                 self._elem(recep_dte, "EstadoRecepDTE", "0")
                 self._elem(recep_dte, "RecepDTEGlosa", "Documento recibido OK")
 
-        # Sign the Resultado element — signing failure is fatal
+        # Sign the Resultado element first, then the outer RespuestaDTE
+        # (XSD requires Signature on both layers)
         certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
+        certificate_service.sign_xml(recepcion, rut_emisor=rut_firma or rut_receptor)
 
         return etree.tostring(recepcion, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
@@ -222,13 +232,20 @@ class DTEReceptionService:
         timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
         nsmap = {None: SII_DTE_NS}
 
-        resp = etree.Element("RespuestaDTE", attrib={"version": "1.0"}, nsmap=nsmap)
+        resp = etree.Element(
+            "RespuestaDTE",
+            attrib={"version": "1.0", "ID": "Resp"},
+            nsmap=nsmap,
+        )
         resultado = etree.SubElement(resp, "Resultado", attrib={"ID": "ResultadoDTE"})
 
+        # Caratula — XSD requires IdRespuesta and CodEnvio min=1
         caratula = etree.SubElement(resultado, "Caratula", attrib={"version": "1.0"})
         self._elem(caratula, "RutResponde", rut_receptor)
         self._elem(caratula, "RutRecibe", rut_emisor)
+        self._elem(caratula, "IdRespuesta", "1")
         self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
+        self._elem(caratula, "MailContacto", "")
         self._elem(caratula, "TmstFirmaResp", timestamp)
 
         result_dte = etree.SubElement(resultado, "ResultadoDTE")
@@ -238,13 +255,14 @@ class DTEReceptionService:
         self._elem(result_dte, "RUTEmisor", rut_emisor)
         self._elem(result_dte, "RUTRecep", rut_receptor)
         self._elem(result_dte, "MntTotal", str(monto_total))
-        # CodEnvio: 0 = aceptado, 2 = rechazado
-        self._elem(result_dte, "CodEnvio", "0" if aceptado else "2")
+        # CodEnvio min=1 per XSD facet (1=aceptado, 2=rechazado para schema)
+        self._elem(result_dte, "CodEnvio", "1")
         self._elem(result_dte, "EstadoDTE", "0" if aceptado else "2")
         self._elem(result_dte, "EstadoDTEGlosa", glosa or ("Documento aceptado" if aceptado else "Documento rechazado"))
 
-        # Sign — signing failure is fatal
+        # Sign the Resultado then the outer RespuestaDTE (XSD requires both)
         certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
+        certificate_service.sign_xml(resp, rut_emisor=rut_firma or rut_receptor)
 
         return etree.tostring(resp, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
@@ -268,7 +286,11 @@ class DTEReceptionService:
         timestamp = datetime.now(_CHILE_TZ).strftime("%Y-%m-%dT%H:%M:%S")
         nsmap = {None: SII_DTE_NS}
 
-        envio = etree.Element("EnvioRecibos", attrib={"version": "1.0"}, nsmap=nsmap)
+        envio = etree.Element(
+            "EnvioRecibos",
+            attrib={"version": "1.0", "ID": "Envio"},
+            nsmap=nsmap,
+        )
         set_recibos = etree.SubElement(envio, "SetRecibos", attrib={"ID": "SetRecibos"})
 
         # Caratula
@@ -278,6 +300,16 @@ class DTEReceptionService:
         self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
         self._elem(caratula, "MailContacto", "")
         self._elem(caratula, "TmstFirmaEnv", timestamp)
+
+        # Canonical Declaracion text required by EnvioRecibos_v10.xsd as a
+        # fixed value. The schema rejects any deviation so we hard-code it
+        # exactly as the SII publishes it.
+        DECLARACION_FIJA = (
+            "El acuse de recibo que se declara en este acto, de acuerdo a "
+            "lo dispuesto en la letra b) del Art. 4°, y la letra c) del "
+            "Art. 5° de la ley 19.983, acredita que la entrega de "
+            "mercaderías o servicio(s) prestado(s) ha(n) sido recibido(s)."
+        )
 
         # One Recibo per DTE addressed to us
         idx = 0
@@ -296,18 +328,14 @@ class DTEReceptionService:
             self._elem(doc, "MntTotal", str(dte.get("monto_total", 0)))
             self._elem(doc, "Recinto", "Oficina Zyncro Av Irarrazaval 2401 Of 1108")
             self._elem(doc, "RutFirma", rut_firma or rut_receptor)
-            self._elem(doc, "Declaracion",
-                       "El acuse de recibo que se declara en este acto, "
-                       "de acuerdo a lo dispuesto en la letra b) del Art. 4, "
-                       "y la letra c) del Art. 5 de la Ley 19.983, acredita "
-                       "que la entrega de mercaderia(s) o servicio(s) "
-                       "prestado(s) ha(n) sido recibido(s).")
+            self._elem(doc, "Declaracion", DECLARACION_FIJA)
             self._elem(doc, "TmstFirmaRecibo", timestamp)
-            # Sign each DocumentoRecibo individually
+            # Sign each Recibo
             certificate_service.sign_xml(recibo, rut_emisor=rut_firma or rut_receptor)
 
-        # Sign the SetRecibos envelope
+        # Sign SetRecibos envelope, then the outer EnvioRecibos
         certificate_service.sign_xml(set_recibos, rut_emisor=rut_firma or rut_receptor)
+        certificate_service.sign_xml(envio, rut_emisor=rut_firma or rut_receptor)
 
         return etree.tostring(envio, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
