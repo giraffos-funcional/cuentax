@@ -14,6 +14,32 @@ import { redis } from '@/adapters/redis.adapter'
 
 const PREF_PREFIX = 'cuentax:pref:'
 
+// Bootstrap a missing local companies row from JWT data so the user can edit it.
+// Used when a user is logged into a company that exists in Odoo but was never inserted locally.
+async function ensureLocalCompanyFromJwt(user: any) {
+  const insertVals: Record<string, unknown> = {
+    odoo_company_id: user.company_id,
+    razon_social: user.company_name || 'Sin nombre',
+    rut: user.company_rut && user.company_rut !== 'false' ? user.company_rut : null,
+    country_code: user.country_code ?? 'CL',
+    locale: user.locale ?? 'es-CL',
+    currency: user.currency ?? 'CLP',
+  }
+  if (insertVals.rut) {
+    insertVals.tax_id = insertVals.rut
+    insertVals.tax_id_type = 'rut'
+  }
+  const [created] = await db.insert(companies)
+    .values(insertVals as typeof companies.$inferInsert)
+    .onConflictDoNothing()
+    .returning()
+  if (created) return created
+  // Conflict (e.g. RUT or odoo_company_id already exists) — re-select
+  const [existing] = await db.select().from(companies)
+    .where(eq(companies.odoo_company_id, user.company_id)).limit(1)
+  return existing
+}
+
 // ── RUT Validation ───────────────────────────────────────────
 function validateRut(rut: string): boolean {
   const cleaned = rut.replace(/\./g, '').replace(/-/g, '').toUpperCase()
@@ -135,9 +161,18 @@ export async function companyRoutes(fastify: FastifyInstance) {
   // GET /me/readiness — check si la empresa está completa para emitir DTE
   fastify.get('/me/readiness', async (req, reply) => {
     const user = (req as any).user
-    const localCompanyId = await getLocalCompanyId(user.company_id)
-    const [company] = await db.select().from(companies)
-      .where(eq(companies.id, localCompanyId)).limit(1)
+    // Try by odoo_company_id first (same as GET /me), then by local id, then upsert from JWT
+    let [company] = await db.select().from(companies)
+      .where(eq(companies.odoo_company_id, user.company_id)).limit(1)
+    if (!company) {
+      const localId = await getLocalCompanyId(user.company_id)
+      ;[company] = await db.select().from(companies).where(eq(companies.id, localId)).limit(1)
+    }
+    if (!company) {
+      // Bootstrap: create the row from JWT data so the user can edit it
+      const created = await ensureLocalCompanyFromJwt(user)
+      company = created
+    }
     return reply.send(checkEmissionReadiness(company ?? null))
   })
 
@@ -415,10 +450,9 @@ export async function companyRoutes(fastify: FastifyInstance) {
     return reply.send({ rut, valid, formatted })
   })
 
-  // PUT /me — update active company
+  // PUT /me — update active company (upserts row if missing)
   fastify.put('/me', async (req, reply) => {
     const user = (req as any).user
-    const localCompanyId = await getLocalCompanyId(user.company_id)
     // Use a simple partial schema for updates (shared fields only)
     const updateSchema = z.object({
       razon_social: z.string().min(2).optional(),
@@ -451,9 +485,20 @@ export async function companyRoutes(fastify: FastifyInstance) {
       dataToWrite.fecha_resolucion_sii = new Date(parse.data.fecha_resolucion_sii)
     }
 
+    // Resolve target row: by odoo_company_id, then by local id; create if missing
+    let [target] = await db.select().from(companies)
+      .where(eq(companies.odoo_company_id, user.company_id)).limit(1)
+    if (!target) {
+      const localId = await getLocalCompanyId(user.company_id)
+      ;[target] = await db.select().from(companies).where(eq(companies.id, localId)).limit(1)
+    }
+    if (!target) {
+      target = await ensureLocalCompanyFromJwt(user)
+    }
+
     const [updated] = await db.update(companies)
       .set(dataToWrite as typeof companies.$inferInsert)
-      .where(eq(companies.id, localCompanyId))
+      .where(eq(companies.id, target.id))
       .returning()
 
     if (!updated) return reply.status(404).send({ error: 'not_found' })
