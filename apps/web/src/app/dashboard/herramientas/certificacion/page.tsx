@@ -13,7 +13,6 @@ import {
 } from 'lucide-react'
 import {
   useCertificationWizard,
-  useCertificationStatus,
   useCertificationPrerequisites,
   useCompleteStep,
   useUploadTestSet,
@@ -303,17 +302,81 @@ function StepPrerequisitos({ onReady, prerequisites, refreshPrereqs }: {
 }
 
 // ── Step 1: Postulación (manual) ──────────────────────────────
-function StepPostulacion({ onComplete }: { onComplete: () => void }) {
+// ── ManualPortalStep ──────────────────────────────────────────
+// Reusable component for steps that require manual action in the SII portal
+// (Postulación + Declaración). Renders: title, intro, optional children (callout),
+// external link, confirmation checkbox, action button.
+function ManualPortalStep({
+  title,
+  intro,
+  children,
+  linkHref,
+  linkLabel,
+  linkDomain,
+  checkboxLabel,
+  buttonLabel,
+  buttonIcon,
+  onComplete,
+}: {
+  title: string
+  intro: string
+  children?: React.ReactNode
+  linkHref: string
+  linkLabel: string
+  linkDomain: string
+  checkboxLabel: string
+  buttonLabel: string
+  buttonIcon?: React.ReactNode
+  onComplete: () => void
+}) {
   const [confirmed, setConfirmed] = useState(false)
-
   return (
     <div className="space-y-4 animate-fade-in">
-      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Postulación al Ambiente de Certificación</h3>
-      <p className="text-sm text-[var(--cx-text-secondary)]">
-        El representante legal debe registrar la empresa en el portal del SII
-        con su certificado digital personal.
-      </p>
+      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">{title}</h3>
+      <p className="text-sm text-[var(--cx-text-secondary)]">{intro}</p>
+      {children}
+      <a
+        href={linkHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors"
+      >
+        <ExternalLink size={14} />
+        {linkLabel}
+        <span className="ml-auto text-[10px] text-slate-400">{linkDomain}</span>
+      </a>
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={confirmed}
+          onChange={e => setConfirmed(e.target.checked)}
+          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+        />
+        <span className="text-sm text-[var(--cx-text-secondary)]">{checkboxLabel}</span>
+      </label>
+      <button
+        onClick={onComplete}
+        disabled={!confirmed}
+        className="btn-primary w-full justify-center"
+      >
+        {buttonLabel} {buttonIcon ?? <ChevronRight size={14} />}
+      </button>
+    </div>
+  )
+}
 
+function StepPostulacion({ onComplete }: { onComplete: () => void }) {
+  return (
+    <ManualPortalStep
+      title="Postulación al Ambiente de Certificación"
+      intro="El representante legal debe registrar la empresa en el portal del SII con su certificado digital personal."
+      linkHref="https://maullin.sii.cl/cvc/dte/pe_condiciones.html"
+      linkLabel="Ir al Portal de Postulación SII"
+      linkDomain="maullin.sii.cl"
+      checkboxLabel="Ya completé la postulación en el portal del SII"
+      buttonLabel="Marcar como completado"
+      onComplete={onComplete}
+    >
       <div className="p-4 rounded-xl bg-violet-50 border border-violet-200 space-y-3">
         <p className="text-sm font-semibold text-violet-800">Datos necesarios:</p>
         <ul className="text-xs text-violet-700 space-y-1.5 list-disc list-inside">
@@ -324,38 +387,7 @@ function StepPostulacion({ onComplete }: { onComplete: () => void }) {
           <li>Documentos: Factura (33), NC (61), ND (56)</li>
         </ul>
       </div>
-
-      <a
-        href="https://maullin.sii.cl/cvc/dte/pe_condiciones.html"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors"
-      >
-        <ExternalLink size={14} />
-        Ir al Portal de Postulación SII
-        <span className="ml-auto text-[10px] text-slate-400">maullin.sii.cl</span>
-      </a>
-
-      <label className="flex items-center gap-3 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={confirmed}
-          onChange={(e) => setConfirmed(e.target.checked)}
-          className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-        />
-        <span className="text-sm text-[var(--cx-text-secondary)]">
-          Ya completé la postulación en el portal del SII
-        </span>
-      </label>
-
-      <button
-        onClick={onComplete}
-        disabled={!confirmed}
-        className="btn-primary w-full justify-center"
-      >
-        Marcar como completado <ChevronRight size={14} />
-      </button>
-    </div>
+    </ManualPortalStep>
   )
 }
 
@@ -532,62 +564,6 @@ function SetUploadCard({
                   <p className="mt-0.5">Ingresa <span className="font-mono font-bold">{processResult.track_id}</span> como "N° Envío" en el formulario de avance del SII junto con la fecha de hoy.</p>
                 </div>
               </div>
-            </div>
-
-          ) : processResult.emitidos > 0 && !processResult.track_id ? (
-            /* Case 2: Signed but NOT sent (no SII token) — still advances wizard */
-            <div className="p-4 rounded-xl border-2 border-emerald-300 bg-emerald-50 space-y-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-600" />
-                <p className="text-sm font-bold text-emerald-700">
-                  {processResult.emitidos}/{processResult.total} DTEs generados y firmados ✓
-                </p>
-              </div>
-              <p className="text-xs text-emerald-600">
-                Todos los DTEs fueron generados y firmados correctamente. Los XMLs están guardados.
-              </p>
-
-              {/* Download signed XML */}
-              {processResult.xml_envio_b64 && (
-                <button
-                  onClick={() => {
-                    const raw = atob(processResult.xml_envio_b64)
-                    const blob = new Blob([raw], { type: 'application/xml' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `envio_dte_${setType}_${new Date().toISOString().slice(0,10)}.xml`
-                    a.click()
-                    URL.revokeObjectURL(url)
-                  }}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 transition-colors"
-                >
-                  <Download size={14} />
-                  Descargar XML Firmado para envío manual
-                </button>
-              )}
-
-              <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-700 flex items-start gap-2">
-                <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold">Envío manual requerido</p>
-                  <p className="mt-0.5">El servidor no pudo conectarse a maullin.sii.cl. Descarga el XML y envíalo con: <code className="bg-amber-100 px-1 rounded font-mono">python3 scripts/send_to_sii.py envio.xml</code></p>
-                </div>
-              </div>
-            </div>
-
-          ) : processResult.success ? (
-            /* Case 3: Success but no track_id (unexpected) */
-            <div className="p-3 rounded-lg border bg-emerald-50 border-emerald-200 space-y-1">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 size={14} className="text-emerald-600" />
-                <p className="text-xs font-semibold text-emerald-700">
-                  {processResult.emitidos ?? 0}/{processResult.total} DTEs procesados
-                </p>
-              </div>
-              {processResult.mensaje && (
-                <p className="text-[10px] text-emerald-600">{processResult.mensaje}</p>
-              )}
             </div>
 
           ) : (
@@ -820,7 +796,7 @@ const calcTotales = (d: DTEDraft) => {
 function StepSimulacion() {
   const { user } = useAuthStore()
   const { emit } = useEmitSimulacion()
-  const [drafts, setDrafts] = useState<DTEDraft[]>(PLANTILLA_INICIAL)
+  const drafts = PLANTILLA_INICIAL // plantilla fija — validada en certificación de Zyncro
   const [emitiendo, setEmitiendo] = useState(false)
   const [resultado, setResultado] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
@@ -833,17 +809,6 @@ function StepSimulacion() {
   }, [])
 
   const rutEmisor = empresa?.rut || (user as any)?.empresa?.rut || (user as any)?.rut_empresa || ''
-  const tieneFactura = drafts.some(d => d.tipo_dte === 33)
-  const tieneNC = drafts.some(d => d.tipo_dte === 61)
-  const tieneND = drafts.some(d => d.tipo_dte === 56)
-  const cumpleRequisito = tieneFactura && tieneNC && tieneND
-
-  const updateDraft = (idx: number, patch: Partial<DTEDraft>) =>
-    setDrafts(prev => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)))
-  const updateItem = (idx: number, itemIdx: number, patch: Partial<ItemDraft>) =>
-    setDrafts(prev => prev.map((d, i) => i !== idx ? d : ({ ...d, items: d.items.map((it, j) => j === itemIdx ? { ...it, ...patch } : it) })))
-  const eliminarDraft = (idx: number) => setDrafts(prev => prev.filter((_, i) => i !== idx))
-
   const totalesGlobales = drafts.reduce(
     (acc, d) => {
       const t = calcTotales(d)
@@ -853,10 +818,6 @@ function StepSimulacion() {
   )
 
   async function handleEmitir() {
-    if (!cumpleRequisito) {
-      setError('Debes incluir al menos una Factura (33), una NC (61) y una ND (56)')
-      return
-    }
     const faltan: string[] = []
     if (!rutEmisor) faltan.push('RUT')
     if (!empresa?.razon_social) faltan.push('Razón social')
@@ -929,177 +890,45 @@ function StepSimulacion() {
       <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
         <Info size={14} className="text-blue-600 shrink-0 mt-0.5" />
         <div className="text-xs text-blue-700 space-y-0.5">
-          <p><strong>Plantilla pre-cargada:</strong> 3 facturas + 1 ND (corrige montos de F#1) + 1 NC (anula F#2). Editá los datos antes de emitir.</p>
-          <p>NC con <em>anula totalmente</em> (CodRef=1) replica el detalle exacto de la factura referenciada. ND con <em>corrige montos</em> (CodRef=3) lleva el monto del aumento.</p>
+          <p><strong>Plantilla validada por SII:</strong> 3 facturas + 1 ND (corrige montos de F#1) + 1 NC (anula F#2). Esta receta certificó a clientes anteriores y no se edita desde la UI.</p>
+          <p>Si necesitás ajustar montos/receptores, modificá <code className="text-[10px] px-1 rounded bg-slate-100">PLANTILLA_INICIAL</code> en el código.</p>
         </div>
       </div>
 
-      <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${cumpleRequisito ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-        {cumpleRequisito ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-        <span>
-          Requisitos: Factura {tieneFactura ? '✓' : '✗'} · NC {tieneNC ? '✓' : '✗'} · ND {tieneND ? '✓' : '✗'}
-        </span>
-      </div>
-
-      <div className="space-y-3">
-        {drafts.map((d, idx) => {
-          const t = calcTotales(d)
-          const refDraft = d._ref_caso_sub != null ? drafts.find(x => x._caso_sub === d._ref_caso_sub) : null
-          return (
-            <div key={d._caso_sub} className="p-4 rounded-xl bg-white border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-violet-100 text-violet-700">#{idx + 1}</span>
-                  <select
-                    value={d.tipo_dte}
-                    onChange={(e) => updateDraft(idx, { tipo_dte: parseInt(e.target.value) as any })}
-                    className="text-sm font-semibold bg-transparent border-0 focus:ring-0 cursor-pointer"
-                  >
-                    <option value={33}>Factura 33</option>
-                    <option value={56}>Nota Débito 56</option>
-                    <option value={61}>Nota Crédito 61</option>
-                  </select>
-                </div>
-                <button onClick={() => eliminarDraft(idx)} className="text-xs text-rose-600 hover:underline">
-                  Eliminar
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] uppercase tracking-wide text-slate-500">RUT Receptor</label>
-                  <input
-                    value={d.rut_receptor}
-                    onChange={(e) => updateDraft(idx, { rut_receptor: e.target.value })}
-                    className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-wide text-slate-500">Razón Social</label>
-                  <input
-                    value={d.razon_social_receptor}
-                    onChange={(e) => updateDraft(idx, { razon_social_receptor: e.target.value })}
-                    className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-wide text-slate-500">Giro</label>
-                  <input
-                    value={d.giro_receptor}
-                    onChange={(e) => updateDraft(idx, { giro_receptor: e.target.value })}
-                    className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wide text-slate-500">Comuna</label>
-                    <input
-                      value={d.comuna_receptor}
-                      onChange={(e) => updateDraft(idx, { comuna_receptor: e.target.value })}
-                      className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wide text-slate-500">Dirección</label>
-                    <input
-                      value={d.direccion_receptor}
-                      onChange={(e) => updateDraft(idx, { direccion_receptor: e.target.value })}
-                      className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {(d.tipo_dte === 56 || d.tipo_dte === 61) && (
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-bold">Referencia a otro DTE del envío</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-[10px] text-slate-500">DTE referenciado</label>
-                      <select
-                        value={d._ref_caso_sub ?? ''}
-                        onChange={(e) => updateDraft(idx, { _ref_caso_sub: e.target.value ? parseInt(e.target.value) : undefined, ref_tipo_doc: drafts.find(x => x._caso_sub === parseInt(e.target.value))?.tipo_dte ?? 33 })}
-                        className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                      >
-                        <option value="">— ninguno —</option>
-                        {drafts.filter(x => x._caso_sub !== d._caso_sub && x.tipo_dte === 33).map(x => (
-                          <option key={x._caso_sub} value={x._caso_sub}>#{x._caso_sub} {tipoLabel(x.tipo_dte)} ({fmtCLP(calcTotales(x).total)})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-500">CodRef</label>
-                      <select
-                        value={d.ref_cod_ref ?? ''}
-                        onChange={(e) => updateDraft(idx, { ref_cod_ref: e.target.value ? parseInt(e.target.value) as any : undefined })}
-                        className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                      >
-                        <option value="">—</option>
-                        <option value={1}>1 — Anula totalmente</option>
-                        <option value={2}>2 — Corrige texto</option>
-                        <option value={3}>3 — Corrige montos</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-slate-500">Motivo</label>
-                      <input
-                        value={d.ref_motivo ?? ''}
-                        onChange={(e) => updateDraft(idx, { ref_motivo: e.target.value })}
-                        className="w-full text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                      />
-                    </div>
-                  </div>
-                  {d.ref_cod_ref === 1 && refDraft && (
-                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-1.5">
-                      ⚠️ Anula totalmente: el detalle debe replicar exacto el de #{refDraft._caso_sub} ({fmtCLP(calcTotales(refDraft).total)}).
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                {d.items.map((it, j) => (
-                  <div key={j} className="grid grid-cols-12 gap-2">
-                    <input
-                      placeholder="Nombre item"
-                      value={it.nombre}
-                      onChange={(e) => updateItem(idx, j, { nombre: e.target.value })}
-                      className="col-span-6 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                    />
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Cant"
-                      value={it.cantidad}
-                      onChange={(e) => updateItem(idx, j, { cantidad: parseFloat(e.target.value) || 0 })}
-                      className="col-span-2 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                    />
-                    <input
-                      placeholder="UN"
-                      value={it.unidad}
-                      onChange={(e) => updateItem(idx, j, { unidad: e.target.value })}
-                      className="col-span-1 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Precio"
-                      value={it.precio_unitario}
-                      onChange={(e) => updateItem(idx, j, { precio_unitario: parseFloat(e.target.value) || 0 })}
-                      className="col-span-3 text-sm px-2 py-1.5 rounded-lg border border-slate-200 outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-slate-600 pt-2 border-t border-slate-100">
-                <span>{tipoLabel(d.tipo_dte)} {d.ref_cod_ref ? `· ${codRefLabel(d.ref_cod_ref)}` : ''}</span>
-                <span className="font-mono">
-                  Neto {fmtCLP(t.neto)} · IVA {fmtCLP(t.iva)} · <strong>{fmtCLP(t.total)}</strong>
-                </span>
-              </div>
-            </div>
-          )
-        })}
+      <div className="rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500 uppercase tracking-wide text-[10px]">
+            <tr>
+              <th className="px-3 py-2 text-left">#</th>
+              <th className="px-3 py-2 text-left">Tipo</th>
+              <th className="px-3 py-2 text-left">Receptor</th>
+              <th className="px-3 py-2 text-left">Referencia</th>
+              <th className="px-3 py-2 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {drafts.map((d, idx) => {
+              const t = calcTotales(d)
+              const refDraft = d._ref_caso_sub != null ? drafts.find(x => x._caso_sub === d._ref_caso_sub) : null
+              return (
+                <tr key={d._caso_sub} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 font-mono text-violet-700">#{idx + 1}</td>
+                  <td className="px-3 py-2 font-semibold">{tipoLabel(d.tipo_dte)}</td>
+                  <td className="px-3 py-2 text-slate-600">
+                    <div>{d.razon_social_receptor}</div>
+                    <div className="text-[10px] text-slate-400">{d.rut_receptor} · {d.comuna_receptor}</div>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600">
+                    {refDraft ? (
+                      <span>#{refDraft._caso_sub} · {codRefLabel(d.ref_cod_ref)}</span>
+                    ) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtCLP(t.total)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
 
       <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-between text-sm">
@@ -1138,7 +967,7 @@ function StepSimulacion() {
 
       <button
         onClick={handleEmitir}
-        disabled={emitiendo || !cumpleRequisito}
+        disabled={emitiendo}
         className="btn-primary w-full justify-center"
       >
         {emitiendo ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -1158,44 +987,35 @@ function StepSimulacion() {
   )
 }
 
-// ── Step 4: Intercambio ───────────────────────────────────────
-function StepIntercambio() {
+// ── Steps 4 & 5 fusionados — Asistido por bridge ──────────────
+// Intercambio + Muestras se ejecutan automáticamente desde sii-bridge
+// (intercambio/respond, muestras/generate-bulk). La UI sólo informa.
+function StepBridgeAsistido() {
   return (
     <div className="space-y-4 animate-fade-in">
-      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Intercambio de Información</h3>
+      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Intercambio y Muestras (asistido)</h3>
       <p className="text-sm text-[var(--cx-text-secondary)]">
-        El SII enviará DTEs de prueba a tu empresa. Debes recibirlos y responder
-        con acuse de recibo y aceptación comercial.
+        Estos pasos los ejecuta automáticamente sii-bridge a partir del envío hecho en Simulación.
+        Verifica el avance en el portal del SII.
       </p>
+
       <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-3">
         <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-700">
-          <p className="font-semibold mb-1">Flujo:</p>
-          <ol className="list-decimal list-inside space-y-1">
+        <div className="text-xs text-blue-700 space-y-1">
+          <p className="font-semibold">Paso 4 — Intercambio de Información</p>
+          <ol className="list-decimal list-inside space-y-0.5 ml-1">
             <li>Recibir EnvioDTE del SII</li>
             <li>Generar RecepcionDTE (acuse de recibo)</li>
             <li>Generar ResultadoDTE (aceptación comercial)</li>
           </ol>
         </div>
       </div>
-    </div>
-  )
-}
 
-// ── Step 5: Muestras de Impresión ─────────────────────────────
-function StepMuestras() {
-  return (
-    <div className="space-y-4 animate-fade-in">
-      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Muestras de Impresión</h3>
-      <p className="text-sm text-[var(--cx-text-secondary)]">
-        Genera PDFs de hasta 20 documentos emitidos. Cada PDF incluye el timbre
-        electrónico PDF417 según la norma del SII.
-      </p>
       <div className="p-4 rounded-xl bg-violet-50 border border-violet-200 flex items-start gap-3">
         <Info size={16} className="text-violet-600 shrink-0 mt-0.5" />
         <div className="text-xs text-violet-700">
-          <p>Los PDFs se generan automáticamente al emitir DTEs.
-          Descárgalos desde la sección <strong>Documentos Emitidos</strong>.</p>
+          <p className="font-semibold mb-1">Paso 5 — Muestras de Impresión</p>
+          <p>Los PDFs (timbre PDF417) se generan automáticamente. Descárgalos desde <strong>Documentos Emitidos</strong>.</p>
         </div>
       </div>
     </div>
@@ -1204,16 +1024,18 @@ function StepMuestras() {
 
 // ── Step 6: Declaración (manual) ──────────────────────────────
 function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
-  const [confirmed, setConfirmed] = useState(false)
-
   return (
-    <div className="space-y-4 animate-fade-in">
-      <h3 className="text-base font-bold text-[var(--cx-text-primary)]">Declaración de Cumplimiento</h3>
-      <p className="text-sm text-[var(--cx-text-secondary)]">
-        Firma la declaración de cumplimiento en el portal del SII para obtener
-        la resolución que autoriza a tu empresa a emitir DTEs en producción.
-      </p>
-
+    <ManualPortalStep
+      title="Declaración de Cumplimiento"
+      intro="Firma la declaración de cumplimiento en el portal del SII para obtener la resolución que autoriza a tu empresa a emitir DTEs en producción."
+      linkHref="https://maullin.sii.cl/cvc_cgi/dte/pe_avance7"
+      linkLabel="Ir a Declaración de Cumplimiento"
+      linkDomain="maullin.sii.cl"
+      checkboxLabel="Ya respaldé los DTEs de certificación, completé la declaración y obtuve la resolución del SII"
+      buttonLabel="Finalizar Certificación"
+      buttonIcon={<CheckCircle2 size={14} />}
+      onComplete={onComplete}
+    >
       <div className="p-4 rounded-xl bg-amber-50 border border-amber-300">
         <div className="flex items-start gap-2">
           <AlertTriangle size={16} className="text-amber-700 shrink-0 mt-0.5" />
@@ -1235,17 +1057,6 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
         </div>
       </div>
 
-      <a
-        href="https://maullin.sii.cl/cvc_cgi/dte/pe_avance7"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-violet-700 hover:bg-violet-50 transition-colors"
-      >
-        <ExternalLink size={14} />
-        Ir a Declaración de Cumplimiento
-        <span className="ml-auto text-[10px] text-slate-400">maullin.sii.cl</span>
-      </a>
-
       <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
         <p className="text-sm font-semibold text-emerald-700 mb-2">Al completar este paso:</p>
         <ul className="text-xs text-emerald-600 space-y-1 list-disc list-inside">
@@ -1254,27 +1065,7 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
           <li>Deberás cambiar el ambiente de CUENTAX a Producción</li>
         </ul>
       </div>
-
-      <label className="flex items-start gap-3 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={confirmed}
-          onChange={(e) => setConfirmed(e.target.checked)}
-          className="w-4 h-4 mt-0.5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-        />
-        <span className="text-sm text-[var(--cx-text-secondary)]">
-          Ya respaldé los DTEs de certificación, completé la declaración y obtuve la resolución del SII
-        </span>
-      </label>
-
-      <button
-        onClick={onComplete}
-        disabled={!confirmed}
-        className="btn-primary w-full justify-center"
-      >
-        Finalizar Certificación <CheckCircle2 size={14} />
-      </button>
-    </div>
+    </ManualPortalStep>
   )
 }
 
@@ -1293,87 +1084,55 @@ const DEFAULT_STEPS = [
 export default function CertificacionWizardPage() {
   const user = useAuthStore(s => s.user)
   const { wizard, isLoading, refresh } = useCertificationWizard()
-  const { status } = useCertificationStatus()
   const { prerequisites, refresh: refreshPrereqs } = useCertificationPrerequisites()
   const { cert, connectivity } = useSIIStatus()
   const { complete } = useCompleteStep()
   const { reset } = useResetCertification()
   const [resetting, setResetting] = useState(false)
-  const [localStep, setLocalStep] = useState(0)
-  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set())
+  const [viewStep, setViewStep] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // Sync initial state from API on first load
-  useEffect(() => {
-    if (wizard?.steps) {
-      const apiCompleted = new Set(completedSteps)
-      for (const s of wizard.steps) {
-        if (s.completado) apiCompleted.add(s.step)
-      }
-      if (apiCompleted.size > completedSteps.size) {
-        setCompletedSteps(apiCompleted)
-      }
-      // Only advance past prerequisitos (step 0) if it's completed
-      if (wizard.current_step && wizard.current_step > localStep && apiCompleted.has(0)) {
-        setLocalStep(wizard.current_step)
-      }
-    }
-  }, [wizard]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Local state drives the UI; API syncs in background
-  const currentStep = localStep
-  const mergedCompleted = new Set(completedSteps)
-  // Merge API completed steps into local state
-  if (wizard?.steps) {
-    for (const s of wizard.steps) {
-      if (s.completado) mergedCompleted.add(s.step)
-    }
-  }
+  // Single source of truth: derive everything from wizard.steps (API)
+  const completedSet = new Set<number>(
+    (wizard?.steps as Array<{ step: number; completado: boolean }> | undefined)
+      ?.filter(s => s.completado).map(s => s.step) ?? [],
+  )
+  // Current step = first incomplete (or 6 if all done)
+  const apiCurrent = (() => {
+    for (let i = 0; i <= 6; i++) if (!completedSet.has(i)) return i
+    return 6
+  })()
+  // viewStep is an optional override when the user clicks on a sidebar step
+  const currentStep = viewStep ?? apiCurrent
   const steps = DEFAULT_STEPS.map(s => ({
     ...s,
-    completado: mergedCompleted.has(s.step),
+    completado: completedSet.has(s.step),
     actual: s.step === currentStep,
   }))
 
   const handleCompleteStep = async (step: number) => {
     setActionError(null)
-    // Always advance locally
-    const newCompleted = new Set(completedSteps)
-    newCompleted.add(step)
-    setCompletedSteps(newCompleted)
-    // Advance to next incomplete step
-    for (let i = 0; i <= 6; i++) {
-      if (!newCompleted.has(i)) {
-        setLocalStep(i)
-        break
-      }
-    }
-
-    // Try syncing with API (non-blocking)
     try {
       await complete(step)
-      refresh()
+      await refresh()
+      setViewStep(null) // jump back to API-driven current
     } catch (e: any) {
-      // API sync failed but local state already advanced — show subtle warning
-      console.warn('API sync failed, using local state:', e)
+      setActionError(e?.message ?? 'Error al marcar paso como completado')
     }
   }
 
   const handleGoToStep = (step: number) => {
-    setLocalStep(step)
+    setViewStep(step)
     setActionError(null)
   }
 
   const handleReset = async () => {
     if (!confirm('Esto reiniciará todo el progreso de certificación. Continuar?')) return
     setResetting(true)
-    setCompletedSteps(new Set())
-    setLocalStep(1)
     try {
       await reset()
-      refresh()
-    } catch {
-      // Local state already reset
+      await refresh()
+      setViewStep(null)
     } finally {
       setResetting(false)
     }
@@ -1473,8 +1232,7 @@ export default function CertificacionWizardPage() {
             {currentStep === 1 && <StepPostulacion onComplete={() => handleCompleteStep(1)} />}
             {currentStep === 2 && <StepSetPrueba onComplete={() => { handleCompleteStep(2) }} refresh={refresh} prerequisites={prerequisites} />}
             {currentStep === 3 && <StepSimulacion />}
-            {currentStep === 4 && <StepIntercambio />}
-            {currentStep === 5 && <StepMuestras />}
+            {(currentStep === 4 || currentStep === 5) && <StepBridgeAsistido />}
             {currentStep === 6 && <StepDeclaracion onComplete={() => handleCompleteStep(6)} />}
           </div>
 

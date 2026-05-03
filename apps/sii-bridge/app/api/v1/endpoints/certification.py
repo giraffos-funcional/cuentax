@@ -222,9 +222,6 @@ class ProcessRequest(BaseModel):
     rut_emisor: str
     fecha_emision: Optional[str] = None
     set_type: Optional[str] = "factura"
-    only_cases: Optional[list[int]] = None  # 1-indexed case sub-numbers to process (e.g. [6] for case 4756304-6)
-    known_folios: Optional[dict[str, int]] = None  # caso_sub -> folio from previous submissions
-    dry_run: Optional[bool] = False  # Validate payloads and compute totals without consuming folios or sending
 
 
 class InterceptRequest(BaseModel):
@@ -408,18 +405,15 @@ async def complete_step(req: StepCompleteRequest):
 async def upload_test_set(
     file: UploadFile = File(...),
     rut_emisor: str = Form(""),
-    razon_social: str = Form(""),
-    giro: str = Form(""),
-    direccion: str = Form(""),
-    comuna: str = Form(""),
-    ciudad: str = Form("Santiago"),
-    actividad_economica: str = Form("620200"),
     set_type: str = Query("factura", description="Type of test set: factura or boleta"),
 ):
     """
     Step 2a: Upload and parse the SII test set file.
     File must be < 2MB text file from https://maullin.sii.cl/cvc_cgi/dte/pe_generar
     Use set_type='factura' for invoice test set, set_type='boleta' for boleta test set.
+
+    Emisor data (razon_social, giro, dirección, etc.) viene del archivo del SII parseado;
+    no se envía desde el cliente.
     """
     if set_type not in ("factura", "boleta"):
         raise HTTPException(
@@ -427,15 +421,7 @@ async def upload_test_set(
             detail=f"Invalid set_type '{set_type}'. Must be 'factura' or 'boleta'.",
         )
 
-    emisor_data = {
-        "rut_emisor": rut_emisor,
-        "razon_social": razon_social,
-        "giro": giro,
-        "direccion": direccion,
-        "comuna": comuna,
-        "ciudad": ciudad,
-        "actividad_economica": int(actividad_economica) if actividad_economica else 620200,
-    }
+    emisor_data = {"rut_emisor": rut_emisor}
 
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
@@ -572,25 +558,6 @@ async def process_test_set(req: ProcessRequest):
 
     payloads = session[payloads_key]
 
-    # Filter by only_cases if specified (1-indexed case sub-numbers)
-    if req.only_cases:
-        payloads = [
-            p for p in payloads
-            if p.get("_caso_sub") in req.only_cases
-        ]
-        if not payloads:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No payloads match only_cases={req.only_cases}. "
-                f"Available _caso_sub values: {[p.get('_caso_sub') for p in session[payloads_key]]}",
-            )
-        logger.info(f"Filtered to {len(payloads)} payloads for cases {req.only_cases}")
-
-    # Parse known_folios keys to int (JSON keys are always strings)
-    known_folios_int = None
-    if req.known_folios:
-        known_folios_int = {int(k): v for k, v in req.known_folios.items()}
-
     # Ensure all payloads have the correct rut_emisor (may be empty if JWT had no RUT at upload time)
     for p in payloads:
         if not p.get("rut_emisor") or p["rut_emisor"] == "auto":
@@ -598,65 +565,8 @@ async def process_test_set(req: ProcessRequest):
         if req.fecha_emision:
             p["fecha_emision"] = req.fecha_emision
 
-    # ── Dry-run mode: validate without consuming folios or sending ──
-    if req.dry_run:
-        dry_results = []
-        folio_needs = {}  # tipo_dte -> count needed
-        for i, p in enumerate(payloads):
-            tipo = p["tipo_dte"]
-            folio_needs[tipo] = folio_needs.get(tipo, 0) + 1
-            caso_sub = p.get("_caso_sub", i + 1)
-            ref_sub = p.get("_ref_caso_sub")
-            ref_resolved = (
-                ref_sub in (known_folios_int or {})
-                or ref_sub is None
-                or (ref_sub is not None and any(
-                    pp.get("_caso_sub") == ref_sub
-                    for pp in payloads
-                ))
-            )
-            dry_results.append({
-                "caso": i + 1,
-                "caso_sub": caso_sub,
-                "tipo_dte": tipo,
-                "rut_receptor": p.get("rut_receptor", ""),
-                "items": len(p.get("items", [])),
-                "ref_caso_sub": ref_sub,
-                "ref_resolved": ref_resolved,
-                "descuentos": [
-                    {"nombre": it.get("nombre", ""), "descuento_pct": it.get("descuento_pct", 0)}
-                    for it in p.get("items", []) if it.get("descuento_pct")
-                ],
-            })
-
-        # Check folio availability
-        folio_status = {}
-        for tipo, needed in folio_needs.items():
-            caf_list = caf_manager._cafs.get((rut_emisor, tipo, "certificacion"), [])
-            available = sum(c.folios_disponibles for c in caf_list) if caf_list else 0
-            folio_status[tipo] = {
-                "needed": needed,
-                "available": available,
-                "ok": available >= needed,
-            }
-
-        all_folios_ok = all(f["ok"] for f in folio_status.values())
-        all_refs_ok = all(r["ref_resolved"] for r in dry_results)
-
-        return {
-            "dry_run": True,
-            "success": all_folios_ok and all_refs_ok,
-            "total_dtes": len(payloads),
-            "folio_status": folio_status,
-            "all_folios_ok": all_folios_ok,
-            "all_refs_ok": all_refs_ok,
-            "cases": dry_results,
-            "set_type": set_type,
-            "mensaje": "✅ Listo para enviar" if (all_folios_ok and all_refs_ok) else "❌ Faltan folios o referencias sin resolver",
-        }
-
     try:
-        result = dte_emission_service.emit_batch(payloads, known_folios=known_folios_int)
+        result = dte_emission_service.emit_batch(payloads)
         session["last_batch_result"] = result
     except Exception as e:
         logger.error(f"Error processing {set_type} test set: {e}")
@@ -1224,14 +1134,6 @@ async def certification_status(rut_emisor: str = Query(...)):
             "declaracion": "https://maullin.sii.cl/cvc_cgi/dte/pe_avance7",
         },
     }
-
-
-@router.get("/sii-check")
-async def sii_connectivity_check():
-    """Quick SII connectivity and token check."""
-    conn = sii_soap_client.check_connectivity()
-    token_ok = sii_soap_client.get_token() is not None
-    return {**conn, "token_obtenido": token_ok}
 
 
 @router.post("/wizard/reset")
