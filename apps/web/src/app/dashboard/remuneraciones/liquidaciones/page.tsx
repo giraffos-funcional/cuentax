@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { FileText, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Calculator, CheckCircle, X, Download } from 'lucide-react'
+import { FileText, Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus, Calculator, CheckCircle, X, Download, Wand2 } from 'lucide-react'
 import {
   usePayslips,
   usePayslipDetail,
@@ -15,6 +15,7 @@ import {
   useComputePayslip,
   useConfirmPayslip,
   useCancelPayslip,
+  useCalculateFromPreviousMonth,
 } from '@/hooks/use-remuneraciones'
 import { formatCLP, MONTHS } from '@/lib/formatters'
 
@@ -244,6 +245,8 @@ export default function LiquidacionesPage() {
   const { compute } = useComputePayslip()
   const { confirm } = useConfirmPayslip()
   const { cancel } = useCancelPayslip()
+  const { calculate: calcFromPrev } = useCalculateFromPreviousMonth()
+  const [calcLoading, setCalcLoading] = useState(false)
 
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
   const pageSize = 20
@@ -253,6 +256,30 @@ export default function LiquidacionesPage() {
   const handleCreate = async (data: PayslipFormData) => {
     await crear(data)
     setShowCreate(false)
+  }
+
+  const handleCalcFromPrev = async () => {
+    const monthName = MONTHS[month - 1]
+    const ok = window.confirm(
+      `Se generarán las liquidaciones de ${monthName} ${year} clonando las del mes anterior y se recalcularán según el contrato de cada empleado. Empleados que ya tengan una liquidación en el mes serán omitidos.\n\n¿Continuar?`,
+    )
+    if (!ok) return
+    setCalcLoading(true)
+    try {
+      const res = await calcFromPrev(year, month)
+      if (res?.source === 'error') {
+        window.alert(res.message ?? 'Error al calcular liquidaciones')
+      } else {
+        window.alert(
+          `Listo. Creadas: ${res?.created ?? 0}. Calculadas: ${res?.computed ?? 0}. Omitidas (ya existían): ${res?.skipped ?? 0}.`,
+        )
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Error inesperado'
+      window.alert(msg)
+    } finally {
+      setCalcLoading(false)
+    }
   }
 
   const handleAction = async (id: number, action: 'compute' | 'confirm' | 'cancel') => {
@@ -273,9 +300,20 @@ export default function LiquidacionesPage() {
           <h1 className="text-xl font-bold text-[var(--cx-text-primary)]">Liquidaciones de Sueldo</h1>
           <p className="text-sm text-[var(--cx-text-secondary)] mt-0.5">Detalle de liquidaciones por período y empleado</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary">
-          <Plus size={14} /> Nueva Liquidación
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCalcFromPrev}
+            disabled={calcLoading}
+            className="btn-secondary"
+            title={`Generar liquidaciones de ${MONTHS[month - 1]} ${year} basadas en el mes anterior`}
+          >
+            {calcLoading ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+            Calcular del mes anterior
+          </button>
+          <button onClick={() => setShowCreate(true)} className="btn-primary">
+            <Plus size={14} /> Nueva Liquidación
+          </button>
+        </div>
       </div>
 
       {/* Filters */}

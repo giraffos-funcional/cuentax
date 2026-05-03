@@ -596,6 +596,18 @@ export function useCreatePayslip() {
   return { crear, isLoading: isMutating, error }
 }
 
+/** Calcular liquidaciones del mes desde el mes anterior */
+export function useCalculateFromPreviousMonth() {
+  const calculate = async (year: number, month: number) => {
+    const result = await apiClient
+      .post('/api/v1/remuneraciones/liquidaciones/calculate-from-previous-month', { year, month })
+      .then(r => r.data)
+    globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/v1/remuneraciones/liquidaciones'))
+    return result
+  }
+  return { calculate }
+}
+
 /** Computar liquidación */
 export function useComputePayslip() {
   const compute = async (id: number) => {

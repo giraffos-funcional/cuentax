@@ -35,6 +35,7 @@
  * PUT    /api/v1/remuneraciones/ausencias/:id/refuse
  * DELETE /api/v1/remuneraciones/ausencias/:id
  * POST   /api/v1/remuneraciones/liquidaciones
+ * POST   /api/v1/remuneraciones/liquidaciones/calculate-from-previous-month
  * POST   /api/v1/remuneraciones/liquidaciones/:id/compute
  * POST   /api/v1/remuneraciones/liquidaciones/:id/confirm
  * DELETE /api/v1/remuneraciones/liquidaciones/:id
@@ -1443,6 +1444,161 @@ export async function remuneracionesRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({
         source: 'error',
         message: 'Error interno al crear liquidación',
+      })
+    }
+  })
+
+  // ── POST /liquidaciones/calculate-from-previous-month ─────
+  /**
+   * Auto-genera liquidaciones del mes objetivo clonando las del mes anterior.
+   * Body: { year: number, month: number }
+   *   - Toma el periodo (year, month) como destino.
+   *   - Calcula el mes anterior y busca todas las hr.payslip de ese rango.
+   *   - Por cada empleado, crea una nueva hr.payslip en draft con date_from/date_to del mes destino,
+   *     reusando employee_id, struct_id y contract_id.
+   *   - Llama compute_sheet sobre los nuevos payslips para que Odoo recalcule según contrato.
+   *   - No duplica: si el empleado ya tiene liquidacion en el mes destino, lo salta.
+   */
+  fastify.post('/liquidaciones/calculate-from-previous-month', async (req, reply) => {
+    const user = (req as any).user
+    const body = req.body as { year?: number; month?: number } | undefined
+
+    const year  = Number(body?.year)
+    const month = Number(body?.month)
+
+    if (!year || !month || month < 1 || month > 12) {
+      return reply.status(400).send({
+        source: 'error',
+        message: 'Campos requeridos: year (4 digitos) y month (1-12)',
+      })
+    }
+
+    try {
+      // Calculate previous month
+      const prevMonth = month === 1 ? 12 : month - 1
+      const prevYear  = month === 1 ? year - 1 : year
+
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const lastDay = (y: number, m: number) => new Date(y, m, 0).getDate()
+
+      const prevFrom = `${prevYear}-${pad(prevMonth)}-01`
+      const prevTo   = `${prevYear}-${pad(prevMonth)}-${pad(lastDay(prevYear, prevMonth))}`
+      const targetFrom = `${year}-${pad(month)}-01`
+      const targetTo   = `${year}-${pad(month)}-${pad(lastDay(year, month))}`
+
+      // 1. Pull previous-month payslips
+      const prevPayslips = await odooAccountingAdapter.searchRead(
+        'hr.payslip',
+        [
+          ['company_id', '=', user.company_id],
+          ['date_from', '>=', prevFrom],
+          ['date_to', '<=', prevTo],
+          ['state', '!=', 'cancel'],
+        ],
+        ['id', 'employee_id', 'struct_id', 'contract_id', 'name'],
+        { limit: 1000 },
+      ) as Array<Record<string, unknown>>
+
+      if (prevPayslips.length === 0) {
+        return reply.status(404).send({
+          source: 'error',
+          message: `No se encontraron liquidaciones en el mes anterior (${prevFrom} - ${prevTo}). No hay base para clonar.`,
+          previous_period: { from: prevFrom, to: prevTo },
+        })
+      }
+
+      // 2. Pull existing target-month payslips to avoid duplicates
+      const existing = await odooAccountingAdapter.searchRead(
+        'hr.payslip',
+        [
+          ['company_id', '=', user.company_id],
+          ['date_from', '>=', targetFrom],
+          ['date_to', '<=', targetTo],
+          ['state', '!=', 'cancel'],
+        ],
+        ['employee_id'],
+        { limit: 1000 },
+      ) as Array<Record<string, unknown>>
+
+      const skipEmployeeIds = new Set<number>(
+        existing
+          .map(e => Array.isArray(e['employee_id']) ? (e['employee_id'][0] as number) : (e['employee_id'] as number))
+          .filter(Boolean),
+      )
+
+      // 3. Create draft payslip for each previous-month payslip
+      const createdIds: number[] = []
+      const skipped: number[]    = []
+
+      for (const ps of prevPayslips) {
+        const employeeId = Array.isArray(ps['employee_id'])
+          ? (ps['employee_id'][0] as number)
+          : (ps['employee_id'] as number | undefined)
+
+        if (!employeeId) continue
+
+        if (skipEmployeeIds.has(employeeId)) {
+          skipped.push(employeeId)
+          continue
+        }
+        // Avoid creating two payslips for same employee within this batch
+        skipEmployeeIds.add(employeeId)
+
+        const structId = Array.isArray(ps['struct_id'])
+          ? (ps['struct_id'][0] as number)
+          : (ps['struct_id'] as number | undefined)
+        const contractId = Array.isArray(ps['contract_id'])
+          ? (ps['contract_id'][0] as number)
+          : (ps['contract_id'] as number | undefined)
+
+        const payload: Record<string, unknown> = {
+          employee_id: employeeId,
+          date_from: targetFrom,
+          date_to: targetTo,
+          company_id: user.company_id,
+        }
+        if (structId)   payload['struct_id']   = structId
+        if (contractId) payload['contract_id'] = contractId
+
+        try {
+          const newId = await odooAccountingAdapter.create('hr.payslip', payload)
+          if (newId) createdIds.push(newId)
+        } catch (err) {
+          logger.error({ err, employeeId }, 'Error cloning payslip from previous month')
+        }
+      }
+
+      // 4. Compute all newly created payslips so Odoo recalculates wages
+      let computed = 0
+      if (createdIds.length > 0) {
+        try {
+          await odooAccountingAdapter.callMethod('hr.payslip', 'compute_sheet', createdIds)
+          computed = createdIds.length
+        } catch (err) {
+          logger.warn({ err, createdIds }, 'compute_sheet failed for some payslips; created in draft')
+        }
+      }
+
+      logger.info(
+        { companyId: user.company_id, year, month, created: createdIds.length, skipped: skipped.length, computed },
+        'Liquidaciones calculated from previous month',
+      )
+
+      return reply.status(201).send({
+        source: 'odoo',
+        target_period:   { from: targetFrom, to: targetTo },
+        previous_period: { from: prevFrom,   to: prevTo },
+        created: createdIds.length,
+        computed,
+        skipped: skipped.length,
+        skipped_employee_ids: skipped,
+        payslip_ids: createdIds,
+      })
+    } catch (err) {
+      logger.error({ err, year, month }, 'Error calculating payslips from previous month')
+      return reply.status(500).send({
+        source: 'error',
+        message: 'Error interno al calcular liquidaciones del mes anterior',
       })
     }
   })
