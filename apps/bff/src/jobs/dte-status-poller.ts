@@ -1,7 +1,7 @@
 /**
  * CUENTAX — DTE Status Polling Job (BullMQ)
  * ==========================================
- * Repeatable job that runs every 2 minutes via BullMQ.
+ * Repeatable job that runs every 30 minutes via BullMQ.
  * Queries SII for DTE status updates and syncs to DB.
  *
  * Replaces the old setInterval-based poller with persistent
@@ -19,7 +19,7 @@ import { createQueue, createWorker } from '@/core/queue'
 // ---------------------------------------------------------------------------
 
 const QUEUE_NAME = 'dte-status-polling'
-const POLL_EVERY_MS = 2 * 60 * 1000 // 2 minutes
+const POLL_EVERY_MS = 30 * 60 * 1000 // 30 minutes
 const BATCH_SIZE = 3
 
 let queue: Queue | null = null
@@ -99,7 +99,7 @@ function mapSIIStatus(siiEstado: string): string {
 
 /**
  * Initialize the DTE status polling queue and worker.
- * Registers a repeatable job that fires every 2 minutes.
+ * Registers a repeatable job that fires every 30 minutes.
  */
 export async function startDTEStatusPoller(): Promise<void> {
   queue = createQueue(QUEUE_NAME)
