@@ -288,6 +288,18 @@ async function bootstrap() {
         "created_at" timestamptz DEFAULT now(), "updated_at" timestamptz DEFAULT now()
       )`)
 
+      // Migration 0006: Company DTE / SII Resolution fields (idempotent)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE tipo_contribuyente AS ENUM('iva_afecto_1a','iva_afecto_2a','exento','pequeno_contribuyente'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "region" varchar(60)`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "movil" varchar(20)`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "sitio_web" text`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "tipo_contribuyente" tipo_contribuyente`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "actividades_economicas" integer[]`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "correo_dte" text`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "oficina_regional_sii" varchar(60)`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "numero_resolucion_sii" integer`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "fecha_resolucion_sii" date`)
+
       await db.execute(sql`CREATE TABLE IF NOT EXISTS "dte_documents" (
         "id" serial PRIMARY KEY, "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
         "tipo_dte" integer NOT NULL, "folio" integer, "track_id" varchar(50),
