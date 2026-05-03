@@ -380,6 +380,56 @@ export class SIIBridgeAdapter {
 
   // ── SII Conectividad ───────────────────────────────────────
 
+  // ── Reception (productive) ──────────────────────────────────
+
+  async receptionParse(xmlBuffer: Buffer, filename: string): Promise<any> {
+    const FormData = (await import('form-data')).default
+    const form = new FormData()
+    form.append('file', xmlBuffer, { filename, contentType: 'application/xml' })
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/reception/parse', form, { headers: form.getHeaders() }),
+      ),
+    )
+    return data
+  }
+
+  async receptionRecepcion(rutReceptor: string, rutEmisorEnvio: string, dtes: any[]): Promise<any> {
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/reception/recepcion', {
+          rut_receptor: rutReceptor,
+          rut_emisor_envio: rutEmisorEnvio,
+          dtes,
+        }),
+      ),
+    )
+    return data
+  }
+
+  async receptionResultado(payload: {
+    rut_receptor: string; rut_emisor: string; tipo_dte: number; folio: number;
+    fecha_emision: string; monto_total: number; aceptado: boolean; glosa?: string;
+  }): Promise<any> {
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() => this.http.post('/reception/resultado', payload)),
+    )
+    return data
+  }
+
+  async receptionEnvioRecibos(rutReceptor: string, rutEmisorEnvio: string, dtes: any[]): Promise<any> {
+    const { data } = await this._requestWithFallback(() =>
+      siiBridgeCircuit.execute(() =>
+        this.http.post('/reception/envio-recibos', {
+          rut_receptor: rutReceptor,
+          rut_emisor_envio: rutEmisorEnvio,
+          dtes,
+        }),
+      ),
+    )
+    return data
+  }
+
   /** Verifica conectividad con el SII y genera token si hay certificado */
   async checkSIIConnectivity(): Promise<SIIConnectivityResult> {
     const { data } = await this._requestWithFallback(() =>

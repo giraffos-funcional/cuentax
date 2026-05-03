@@ -62,95 +62,37 @@ class DTEEmissionService:
 
     def emit(self, payload: dict) -> dict:
         """
-        Emite un DTE completo.
-        
+        Emite un único DTE envuelto en EnvioDTE/EnvioBOLETA.
+
+        Wrapper sobre emit_batch para garantizar que la emisión productiva use el
+        mismo envelope certificado por SII (Caratula con NroDetalles, Signature
+        outer única, ISO-8859-1) en lugar de subir un <DTE> desnudo.
+
         Args:
             payload: Diccionario con todos los datos del DTE
-            
+
         Returns:
             {
                 "success": bool,
-                "folio": int,
+                "folio": int | None,
                 "track_id": str | None,
                 "estado": str,
                 "mensaje": str,
-                "xml_firmado_b64": str | None
+                "xml_firmado_b64": str | None  # EnvioDTE/EnvioBOLETA serializado
             }
         """
-        tipo_dte = payload["tipo_dte"]
-        rut_emisor = payload["rut_emisor"]
+        batch_result = self.emit_batch([payload])
 
-        # 1. Validaciones
-        validation_error = self._validate_payload(payload)
-        if validation_error:
-            return {"success": False, "estado": "error_validacion", "mensaje": validation_error}
-
-        # 2. Verificar certificado para este emisor
-        if not certificate_service.is_loaded_for(rut_emisor):
-            return {
-                "success": False,
-                "estado": "sin_certificado",
-                "mensaje": (
-                    f"No hay certificado digital asociado a la empresa {rut_emisor}. "
-                    "Carga un certificado o asocia la empresa en Configuración → Certificado SII."
-                ),
-            }
-
-        # 3. Obtener folio
-        folio = caf_manager.get_next_folio(rut_emisor, tipo_dte)
-        if not folio:
-            return {
-                "success": False,
-                "estado": "sin_folio",
-                "mensaje": f"No hay folios disponibles para tipo DTE {tipo_dte}. Carga un CAF.",
-            }
-
-        # 4. Construir objeto DTEDocumento
-        try:
-            doc = self._build_dte_document(payload, folio)
-        except Exception as e:
-            return {"success": False, "estado": "error_datos", "mensaje": str(e)}
-
-        # 5. Generar XML + TED + Firmar
-        try:
-            xml_element = self.generator.generate(doc)
-            # Add TED (Timbre Electrónico Digital) before signing
-            xml_element = self._add_ted(xml_element, doc, rut_emisor)
-            # Sign the DTE — Reference URI must point to Documento's ID
-            signed_xml = certificate_service.sign_xml(
-                xml_element, rut_emisor=rut_emisor, target_id=f"DTE-T{tipo_dte}F{folio}"
-            )
-            xml_bytes = _serialize_xml_iso8859(signed_xml)
-        except Exception as e:
-            logger.error(f"Error generando/firmando XML: {e}")
-            return {"success": False, "estado": "error_firma", "mensaje": f"Error de firma: {e}"}
-
-        # 6. Enviar al SII (solo si hay token)
-        track_id = None
-        estado = "firmado"
-        mensaje = "DTE generado y firmado. Envío al SII pendiente de token."
-
-        token = sii_soap_client.get_token(rut_emisor=rut_emisor)
-        if token:
-            try:
-                send_result = self._send_to_sii(xml_bytes, rut_emisor, token)
-                track_id = send_result.get("track_id")
-                estado   = "enviado" if track_id else "error_envio"
-                mensaje  = send_result.get("mensaje", "")
-            except Exception as e:
-                logger.error(f"Error enviando al SII: {e}")
-                estado  = "error_envio"
-                mensaje = f"DTE firmado pero error al enviar: {e}"
-        else:
-            logger.warning("Sin token SII — DTE firmado pero no enviado")
-
+        primer = (batch_result.get("resultados") or [{}])[0]
         return {
-            "success": track_id is not None or estado == "firmado",
-            "folio": folio,
-            "track_id": track_id,
-            "estado": estado,
-            "mensaje": mensaje,
-            "xml_firmado_b64": base64.b64encode(xml_bytes).decode() if xml_bytes else None,
+            "success": batch_result.get("success", False),
+            "folio": primer.get("folio"),
+            "track_id": batch_result.get("track_id"),
+            "estado": batch_result.get("estado", "error"),
+            "mensaje": batch_result.get("mensaje", ""),
+            # The "DTE firmado" is now the full EnvioDTE envelope. Downstream
+            # consumers (PDF generator, libros) already handle envelopes.
+            "xml_firmado_b64": batch_result.get("xml_envio_b64"),
         }
 
     def emit_batch(self, payloads: list[dict], known_folios: dict[int, int] | None = None) -> dict:

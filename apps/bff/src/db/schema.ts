@@ -646,6 +646,45 @@ export const exchangeRatesRelations = relations(exchangeRates, ({ one }) => ({
   company: one(companies, { fields: [exchangeRates.company_id], references: [companies.id] }),
 }))
 
+// ══════════════════════════════════════════════════════════════
+// DTEs RECIBIDOS (de proveedores) — pendientes de respuesta comercial
+// ══════════════════════════════════════════════════════════════
+export const dtesRecibidos = pgTable('dtes_recibidos', {
+  id:                serial('id').primaryKey(),
+  company_id:        integer('company_id').notNull().references(() => companies.id, { onDelete: 'cascade' }),
+  // Datos del DTE entrante
+  tipo_dte:          integer('tipo_dte').notNull(),
+  folio:             integer('folio').notNull(),
+  rut_emisor:        varchar('rut_emisor', { length: 15 }).notNull(),
+  razon_social_emisor: text('razon_social_emisor'),
+  fecha_emision:     text('fecha_emision').notNull(),
+  monto_total:       bigint('monto_total', { mode: 'number' }).notNull(),
+  // Estado de respuesta comercial (Ley 19.983 — 8 días)
+  estado_respuesta:  varchar('estado_respuesta', { length: 30 }).default('pendiente'),
+  // pendiente | acuse_enviado | aceptado | rechazado | reclamado
+  fecha_recibido:    timestamp('fecha_recibido', { withTimezone: true }).defaultNow(),
+  fecha_respuesta:   timestamp('fecha_respuesta', { withTimezone: true }),
+  glosa_respuesta:   text('glosa_respuesta'),
+  // XMLs
+  envio_xml_b64:     text('envio_xml_b64'),    // EnvioDTE recibido completo
+  recepcion_xml_b64: text('recepcion_xml_b64'),// RecepcionDTE generado por nosotros
+  resultado_xml_b64: text('resultado_xml_b64'),// ResultadoDTE generado por nosotros
+  envio_recibos_xml_b64: text('envio_recibos_xml_b64'),
+  // Origen
+  fuente:            varchar('fuente', { length: 20 }).default('manual'), // manual | imap | api
+  email_origen:      text('email_origen'),
+  created_at:        timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at:        timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (t) => ({
+  companyIdx: index('dr_company_idx').on(t.company_id),
+  estadoIdx:  index('dr_estado_idx').on(t.company_id, t.estado_respuesta),
+  uniqueIdx:  uniqueIndex('dr_unique_idx').on(t.company_id, t.tipo_dte, t.folio, t.rut_emisor),
+}))
+
+export const dtesRecibidosRelations = relations(dtesRecibidos, ({ one }) => ({
+  company: one(companies, { fields: [dtesRecibidos.company_id], references: [companies.id] }),
+}))
+
 export const companiesRelations = relations(companies, ({ many }) => ({
   documents: many(dteDocuments),
   quotations: many(quotations),

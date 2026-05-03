@@ -5,7 +5,7 @@ Registra todos los nuevos endpoints en el router v1.
 
 from fastapi import APIRouter
 from app.api.v1.endpoints import health, rut, certificate, dte
-from app.api.v1.endpoints import caf, webhooks, public_api, certification
+from app.api.v1.endpoints import caf, webhooks, public_api, certification, reception, libros
 
 api_router = APIRouter()
 
@@ -15,5 +15,7 @@ api_router.include_router(certificate.router,     prefix="/certificate",     tag
 api_router.include_router(dte.router,             prefix="/dte",             tags=["DTE"])
 api_router.include_router(caf.router,             prefix="/caf",             tags=["CAF — Folios"])
 api_router.include_router(certification.router,   prefix="/certification",   tags=["Certificación SII"])
+api_router.include_router(reception.router,       prefix="/reception",       tags=["Recepción DTE"])
+api_router.include_router(libros.router,          prefix="/libros",          tags=["Libros LV/LC"])
 api_router.include_router(webhooks.router,        prefix="/webhooks",        tags=["Webhooks"])
 api_router.include_router(public_api.router,      prefix="/v1",              tags=["API Pública"])

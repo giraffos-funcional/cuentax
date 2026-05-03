@@ -25,6 +25,7 @@ import { odooAuthCircuit } from '@/adapters/odoo-auth.adapter'
 // Routes
 import { authRoutes }     from '@/routes/auth'
 import { companyRoutes }  from '@/routes/company'
+import { dteRecibidosRoutes } from '@/routes/dte-recibidos'
 import { dteRoutes }      from '@/routes/dte'
 import { cafRoutes }      from '@/routes/caf'
 import { siiRoutes }      from '@/routes/sii'
@@ -300,6 +301,33 @@ async function bootstrap() {
       await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "numero_resolucion_sii" integer`)
       await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "fecha_resolucion_sii" date`)
 
+      // Migration 0007: DTEs Recibidos (idempotent)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "dtes_recibidos" (
+        "id" serial PRIMARY KEY,
+        "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+        "tipo_dte" integer NOT NULL,
+        "folio" integer NOT NULL,
+        "rut_emisor" varchar(15) NOT NULL,
+        "razon_social_emisor" text,
+        "fecha_emision" text NOT NULL,
+        "monto_total" bigint NOT NULL,
+        "estado_respuesta" varchar(30) DEFAULT 'pendiente',
+        "fecha_recibido" timestamptz DEFAULT now(),
+        "fecha_respuesta" timestamptz,
+        "glosa_respuesta" text,
+        "envio_xml_b64" text,
+        "recepcion_xml_b64" text,
+        "resultado_xml_b64" text,
+        "envio_recibos_xml_b64" text,
+        "fuente" varchar(20) DEFAULT 'manual',
+        "email_origen" text,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "dr_company_idx" ON "dtes_recibidos" ("company_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "dr_estado_idx" ON "dtes_recibidos" ("company_id", "estado_respuesta")`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "dr_unique_idx" ON "dtes_recibidos" ("company_id", "tipo_dte", "folio", "rut_emisor")`)
+
       await db.execute(sql`CREATE TABLE IF NOT EXISTS "dte_documents" (
         "id" serial PRIMARY KEY, "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
         "tipo_dte" integer NOT NULL, "folio" integer, "track_id" varchar(50),
@@ -470,6 +498,7 @@ async function bootstrap() {
   await fastify.register(authRoutes,     { prefix: '/api/v1/auth' })
   await fastify.register(companyRoutes,  { prefix: '/api/v1/companies' })
   await fastify.register(dteRoutes,      { prefix: '/api/v1/dte' })
+  await fastify.register(dteRecibidosRoutes, { prefix: '/api/v1/dte-recibidos' })
   await fastify.register(cafRoutes,      { prefix: '/api/v1/caf' })
   await fastify.register(siiRoutes,      { prefix: '/api/v1/sii' })
   await fastify.register(contactsRoutes, { prefix: '/api/v1/contacts' })

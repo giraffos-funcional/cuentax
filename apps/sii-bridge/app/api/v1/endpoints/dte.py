@@ -3,10 +3,13 @@ CUENTAX — DTE Endpoints (Sprint 2 — implementación completa)
 Conecta: DTEEmissionService → DTEXMLGenerator → CertificateService → SII SOAP
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, Literal
 from app.services.dte_emission import dte_emission_service
+from app.services.pdf_generator import DTEPDFGenerator
 from app.services.sii_soap_client import sii_soap_client
+from app.utils.dte_xml_extract import extract_first
 import logging
 
 logger = logging.getLogger(__name__)
@@ -38,11 +41,15 @@ class EmitirDTERequest(BaseModel):
     giro_emisor: str
     direccion_emisor: Optional[str] = None
     comuna_emisor: Optional[str] = None
+    ciudad_emisor: Optional[str] = None
     actividad_economica: int = 620200
     rut_receptor: str
     razon_social_receptor: str
     giro_receptor: str
     direccion_receptor: Optional[str] = None
+    comuna_receptor: Optional[str] = None
+    ciudad_receptor: Optional[str] = None
+    contacto_receptor: Optional[str] = None
     email_receptor: Optional[str] = None
     items: list[ItemDTE]
     descuentos_globales: list[DscRcgGlobalDTE] = []
@@ -183,6 +190,32 @@ async def get_batch_dte_status(request: QueryDteBatchRequest):
         "rejected": rejected,
         "results": results,
     }
+
+
+class PDFFromXMLRequest(BaseModel):
+    xml_b64: str
+    tipo_dte: Optional[int] = None  # informational; extracted from XML if absent
+
+
+@router.post("/pdf")
+async def generate_dte_pdf(request: PDFFromXMLRequest):
+    """
+    Genera el PDF de un DTE a partir de su XML firmado (EnvioDTE o DTE bare).
+    Aplica timbre electrónico PDF417 desde el TED del XML.
+    """
+    extracted = extract_first(request.xml_b64)
+    if not extracted:
+        raise HTTPException(400, detail="No <Documento> found in XML")
+    dte_data, ted_string = extracted
+
+    pdf_bytes = DTEPDFGenerator().generate(dte_data, ted_string=ted_string)
+    folio = dte_data.get("folio", 0)
+    tipo = dte_data.get("tipo_dte", request.tipo_dte or 0)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="dte_{tipo}_{folio}.pdf"'},
+    )
 
 
 @router.post("/anular")
