@@ -16,6 +16,7 @@ Persistence: CAFs are saved to Odoo (cuentax.caf model) and restored on startup.
 import base64
 import logging
 import json
+import os
 from pathlib import Path
 from typing import Optional
 from lxml import etree
@@ -23,6 +24,13 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
 logger = logging.getLogger(__name__)
+
+# Disk-backed CAF cache. Same pattern as session_store: under uvicorn with
+# multiple workers each process has its own _cafs dict, so CAFs uploaded to
+# worker A are invisible to workers B/C/D. We mirror every CAF load + folio
+# consumption to a JSON file under CAF_DIR so any worker can rehydrate by
+# reading the file. Atomic via os.replace.
+CAF_DIR = Path(os.getenv("CUENTAX_CAF_DIR", "/var/cuentax/cafs"))
 
 
 class CAFData:
@@ -112,6 +120,82 @@ class CAFManager:
         # {(rut_empresa, tipo_dte, ambiente): [CAFData, ...]}
         self._cafs: dict[tuple[str, int, str], list[CAFData]] = {}
 
+    # ── Disk persistence helpers (multi-worker safe) ────────────
+    def _disk_key(self, rut: str, tipo: int, ambiente: str, folio_desde: int) -> Path:
+        try:
+            CAF_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        safe_rut = "".join(c for c in rut if c.isalnum() or c in "-_")
+        return CAF_DIR / f"{safe_rut}.{tipo}.{ambiente or 'default'}.{folio_desde}.json"
+
+    def _save_to_disk(self, caf: 'CAFData') -> None:
+        try:
+            payload = self._caf_to_dict(caf)
+            target = self._disk_key(caf.rut_empresa, caf.tipo_dte, caf.ambiente, caf.folio_desde)
+            tmp = target.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(payload), encoding="utf-8")
+            os.replace(tmp, target)
+        except Exception as e:
+            logger.warning(f"caf_manager: disk save failed: {e}")
+
+    def _load_from_disk_for(self, rut: str, tipo: int, ambiente: str) -> int:
+        """Hydrate this worker's _cafs[key] from any matching files on disk.
+        Returns count of CAFs loaded."""
+        if not ambiente:
+            from app.core.config import settings
+            ambiente = settings.SII_AMBIENTE
+        try:
+            CAF_DIR.mkdir(parents=True, exist_ok=True)
+            safe_rut = "".join(c for c in rut if c.isalnum() or c in "-_")
+            prefix = f"{safe_rut}.{tipo}.{ambiente}."
+            files = [p for p in CAF_DIR.glob(f"{safe_rut}.{tipo}.{ambiente}.*.json")]
+        except Exception:
+            return 0
+        key = (rut, tipo, ambiente)
+        existing = self._cafs.setdefault(key, [])
+        existing_ranges = {(c.folio_desde, c.folio_hasta) for c in existing}
+        loaded = 0
+        for f in files:
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                pair = (data["folio_desde"], data["folio_hasta"])
+                priv = data.get("private_key_pem", "")
+                xml_raw = data.get("caf_xml_raw", "")
+                if not priv and xml_raw:
+                    try:
+                        root = etree.fromstring(xml_raw.encode() if isinstance(xml_raw, str) else xml_raw)
+                        pk = root.find(".//RSASK") or root.find(".//ECCSK")
+                        if pk is not None and pk.text:
+                            priv = pk.text.strip()
+                    except Exception:
+                        pass
+                caf = CAFData(
+                    tipo_dte=data["tipo_dte"],
+                    rut_empresa=data["rut_empresa"],
+                    folio_desde=data["folio_desde"],
+                    folio_hasta=data["folio_hasta"],
+                    timestamp_autorizacion=data.get("timestamp_autorizacion", ""),
+                    private_key_pem=priv,
+                    caf_xml_raw=xml_raw,
+                    ambiente=data.get("ambiente", ambiente),
+                )
+                caf._next_folio = data.get("next_folio", data["folio_desde"])
+                if pair in existing_ranges:
+                    # Replace in-place if disk has newer next_folio
+                    for i, c in enumerate(existing):
+                        if (c.folio_desde, c.folio_hasta) == pair:
+                            if caf._next_folio > c._next_folio:
+                                existing[i] = caf
+                            break
+                else:
+                    existing.append(caf)
+                    existing_ranges.add(pair)
+                    loaded += 1
+            except Exception as e:
+                logger.warning(f"caf_manager: disk load {f} failed: {e}")
+        return loaded
+
     def load_caf_from_xml(self, caf_xml: str, rut_empresa: str, ambiente: str = "") -> CAFData:
         """
         Carga un CAF desde su XML oficial del SII.
@@ -186,7 +270,8 @@ class CAFManager:
                 f"[{ambiente}] (total CAFs tipo {tipo_dte}: {len(self._cafs[key])})"
             )
 
-            # Persist to Odoo
+            # Persist to disk (multi-worker safe) + Odoo (long-term)
+            self._save_to_disk(caf_data)
             self.save_to_odoo(caf_data)
 
             return caf_data
@@ -207,12 +292,18 @@ class CAFManager:
             from app.core.config import settings
             ambiente = settings.SII_AMBIENTE
         key = (rut_empresa, tipo_dte, ambiente)
+
+        # Multi-worker fallback: always sync from disk first so this worker
+        # picks up CAFs uploaded to other workers AND folio positions
+        # consumed by other workers (avoids duplicate folio assignment).
+        try:
+            self._load_from_disk_for(rut_empresa, tipo_dte, ambiente)
+        except Exception as e:
+            logger.warning(f"caf_manager: disk sync failed: {e}")
+
         caf_list = self._cafs.get(key, [])
 
-        # Multi-worker fallback: if this worker's in-memory cache doesn't have
-        # the CAF (because the upload landed on a different worker), lazy-load
-        # from Odoo. This is cheap (single RPC) and keeps every worker honest
-        # about the latest folio position.
+        # If still empty, try Odoo as long-term backup.
         if not caf_list:
             try:
                 self.restore_from_odoo()
@@ -228,7 +319,13 @@ class CAFManager:
         for caf in sorted(caf_list, key=lambda c: c.folio_desde):
             folio = caf.consume_folio()
             if folio:
-                # Sync folio position to Odoo
+                # Persist consumed position to disk (multi-worker safe)
+                # so siblings see the new next_folio on next load.
+                try:
+                    self._save_to_disk(caf)
+                except Exception as e:
+                    logger.warning(f"caf_manager: disk consume sync failed: {e}")
+                # Sync folio position to Odoo (long-term)
                 self.sync_folio_to_odoo(rut_empresa, tipo_dte, ambiente)
 
                 if caf.necesita_renovacion:
@@ -267,6 +364,12 @@ class CAFManager:
         if not ambiente:
             from app.core.config import settings
             ambiente = settings.SII_AMBIENTE
+        # Always pull latest disk state first so we never sign with a stale
+        # CAF whose key was rotated or whose next_folio advanced elsewhere.
+        try:
+            self._load_from_disk_for(rut_empresa, tipo_dte, ambiente)
+        except Exception as e:
+            logger.warning(f"caf_manager: disk sync failed: {e}")
         caf_list = self._cafs.get((rut_empresa, tipo_dte, ambiente), [])
         if not caf_list:
             try:
