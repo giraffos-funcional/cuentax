@@ -72,3 +72,4 @@ coverage/
 .turbo/
 .env.prod
 .playwright-mcp/
+*.png
