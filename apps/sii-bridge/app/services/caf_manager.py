@@ -209,6 +209,17 @@ class CAFManager:
         key = (rut_empresa, tipo_dte, ambiente)
         caf_list = self._cafs.get(key, [])
 
+        # Multi-worker fallback: if this worker's in-memory cache doesn't have
+        # the CAF (because the upload landed on a different worker), lazy-load
+        # from Odoo. This is cheap (single RPC) and keeps every worker honest
+        # about the latest folio position.
+        if not caf_list:
+            try:
+                self.restore_from_odoo()
+                caf_list = self._cafs.get(key, [])
+            except Exception as e:
+                logger.warning(f"caf_manager: lazy restore from Odoo failed: {e}")
+
         if not caf_list:
             logger.warning(f"No hay CAF para RUT {rut_empresa} tipo {tipo_dte}")
             return None
@@ -258,7 +269,13 @@ class CAFManager:
             ambiente = settings.SII_AMBIENTE
         caf_list = self._cafs.get((rut_empresa, tipo_dte, ambiente), [])
         if not caf_list:
-            return None
+            try:
+                self.restore_from_odoo()
+                caf_list = self._cafs.get((rut_empresa, tipo_dte, ambiente), [])
+            except Exception as e:
+                logger.warning(f"caf_manager: lazy restore from Odoo failed: {e}")
+            if not caf_list:
+                return None
         # If folio specified, find the CAF that owns it
         if folio:
             for caf in caf_list:
