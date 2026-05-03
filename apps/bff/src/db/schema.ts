@@ -11,7 +11,7 @@
 
 import {
   pgTable, serial, text, integer, bigint, boolean,
-  timestamp, jsonb, uniqueIndex, index, pgEnum,
+  timestamp, date, jsonb, uniqueIndex, index, pgEnum,
   varchar, decimal, real,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
@@ -78,7 +78,7 @@ export const companies = pgTable('companies', {
   correo_dte:           text('correo_dte'),
   oficina_regional_sii: varchar('oficina_regional_sii', { length: 60 }),
   numero_resolucion_sii: integer('numero_resolucion_sii'),
-  fecha_resolucion_sii:  timestamp('fecha_resolucion_sii', { withTimezone: false, mode: 'date' }),
+  fecha_resolucion_sii:  date('fecha_resolucion_sii', { mode: 'string' }),
   // SII Config (Chile only)
   ambiente_sii:     ambienteEnum('ambiente_sii').default('certificacion'),
   cert_vence:       timestamp('cert_vence', { withTimezone: true }),

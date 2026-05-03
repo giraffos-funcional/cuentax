@@ -132,7 +132,7 @@ export default function EmpresaPage() {
         ambiente_sii: clean(c.ambiente_sii) || 'certificacion',
         oficina_regional_sii: clean(c.oficina_regional_sii),
         numero_resolucion_sii: c.numero_resolucion_sii != null ? String(c.numero_resolucion_sii) : '',
-        fecha_resolucion_sii: c.fecha_resolucion_sii ? String(c.fecha_resolucion_sii).slice(0, 10) : '',
+        fecha_resolucion_sii: toIsoDate(c.fecha_resolucion_sii),
       })
       setReadiness(ready)
       const odooLogo = legacy?.empresa?.logo
@@ -529,6 +529,23 @@ function Field({ label, children, className = '' }: { label: string; children: R
 
 function Hint({ children }: { children: React.ReactNode }) {
   return <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">{children}</p>
+}
+
+// Coerce server value (string ISO, Date, or Date-as-string) to 'YYYY-MM-DD'.
+// Avoids tz-shift bugs with String(Date).slice in Santiago (UTC-4).
+function toIsoDate(v: unknown): string {
+  if (!v) return ''
+  if (typeof v === 'string') {
+    // Already ISO date or ISO datetime → first 10 chars
+    if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10)
+    // Date.toString() format: parse via Date
+    const d = new Date(v)
+    return isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  }
+  if (v instanceof Date) {
+    return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`
+  }
+  return ''
 }
 
 // Text input dd/mm/yyyy that stores ISO yyyy-mm-dd internally

@@ -479,11 +479,8 @@ export async function companyRoutes(fastify: FastifyInstance) {
     const parse = updateSchema.safeParse(req.body)
     if (!parse.success) return reply.status(400).send({ error: 'validation_error', details: parse.error.flatten() })
 
-    // Coerce date string to Date for fecha_resolucion_sii
+    // fecha_resolucion_sii viaja como ISO 'YYYY-MM-DD' string (drizzle date mode:'string')
     const dataToWrite: Record<string, unknown> = { ...parse.data, updated_at: new Date() }
-    if (parse.data.fecha_resolucion_sii) {
-      dataToWrite.fecha_resolucion_sii = new Date(parse.data.fecha_resolucion_sii)
-    }
 
     // Resolve target row: by odoo_company_id, then by local id; create if missing
     let [target] = await db.select().from(companies)
