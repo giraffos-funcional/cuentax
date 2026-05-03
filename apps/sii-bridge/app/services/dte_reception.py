@@ -139,17 +139,19 @@ class DTEReceptionService:
 
         recepcion = etree.Element(
             "RespuestaDTE",
-            attrib={"version": "1.0", "ID": "Resp"},
+            attrib={"version": "1.0"},
             nsmap=nsmap,
         )
         resultado = etree.SubElement(recepcion, "Resultado", attrib={"ID": "Recepcion"})
 
-        # Caratula — XSD requires:
-        #   RutResponde, RutRecibe, IdRespuesta, NmbContacto?, MailContacto?, TmstFirmaResp
+        # Caratula — XSD strict order:
+        #   RutResponde, RutRecibe, IdRespuesta, NroDetalles, NmbContacto?,
+        #   MailContacto?, TmstFirmaResp
         caratula = etree.SubElement(resultado, "Caratula", attrib={"version": "1.0"})
         self._elem(caratula, "RutResponde", rut_receptor)
         self._elem(caratula, "RutRecibe", rut_emisor_envio)
         self._elem(caratula, "IdRespuesta", "1")
+        self._elem(caratula, "NroDetalles", str(len(dtes_recibidos)))
         self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
         self._elem(caratula, "MailContacto", "")
         self._elem(caratula, "TmstFirmaResp", timestamp)
@@ -234,16 +236,18 @@ class DTEReceptionService:
 
         resp = etree.Element(
             "RespuestaDTE",
-            attrib={"version": "1.0", "ID": "Resp"},
+            attrib={"version": "1.0"},
             nsmap=nsmap,
         )
         resultado = etree.SubElement(resp, "Resultado", attrib={"ID": "ResultadoDTE"})
 
-        # Caratula — XSD requires IdRespuesta and CodEnvio min=1
+        # Caratula — XSD strict order: RutResponde, RutRecibe, IdRespuesta,
+        # NroDetalles, NmbContacto?, MailContacto?, TmstFirmaResp
         caratula = etree.SubElement(resultado, "Caratula", attrib={"version": "1.0"})
         self._elem(caratula, "RutResponde", rut_receptor)
         self._elem(caratula, "RutRecibe", rut_emisor)
         self._elem(caratula, "IdRespuesta", "1")
+        self._elem(caratula, "NroDetalles", "1")
         self._elem(caratula, "NmbContacto", "CUENTAX Sistema")
         self._elem(caratula, "MailContacto", "")
         self._elem(caratula, "TmstFirmaResp", timestamp)
@@ -288,7 +292,7 @@ class DTEReceptionService:
 
         envio = etree.Element(
             "EnvioRecibos",
-            attrib={"version": "1.0", "ID": "Envio"},
+            attrib={"version": "1.0"},
             nsmap=nsmap,
         )
         set_recibos = etree.SubElement(envio, "SetRecibos", attrib={"ID": "SetRecibos"})
@@ -304,11 +308,13 @@ class DTEReceptionService:
         # Canonical Declaracion text required by EnvioRecibos_v10.xsd as a
         # fixed value. The schema rejects any deviation so we hard-code it
         # exactly as the SII publishes it.
+        # Schema-fixed value (sin acentos, sin grado, "ley" en minuscula).
+        # El XSD compara byte-a-byte contra esta cadena exacta.
         DECLARACION_FIJA = (
             "El acuse de recibo que se declara en este acto, de acuerdo a "
-            "lo dispuesto en la letra b) del Art. 4°, y la letra c) del "
-            "Art. 5° de la ley 19.983, acredita que la entrega de "
-            "mercaderías o servicio(s) prestado(s) ha(n) sido recibido(s)."
+            "lo dispuesto en la letra b) del Art. 4, y la letra c) del Art. 5 "
+            "de la Ley 19.983, acredita que la entrega de mercaderias o "
+            "servicio(s) prestado(s) ha(n) sido recibido(s)."
         )
 
         # One Recibo per DTE addressed to us
