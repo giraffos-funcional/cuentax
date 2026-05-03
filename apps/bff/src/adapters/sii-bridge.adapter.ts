@@ -433,11 +433,15 @@ export interface DTEPayload {
   giro_emisor: string
   direccion_emisor?: string
   comuna_emisor?: string
+  ciudad_emisor?: string
   actividad_economica?: number
   rut_receptor: string
   razon_social_receptor: string
   giro_receptor: string
   direccion_receptor?: string
+  comuna_receptor?: string
+  ciudad_receptor?: string
+  contacto_receptor?: string
   email_receptor?: string
   items: DTEItem[]
   forma_pago?: number

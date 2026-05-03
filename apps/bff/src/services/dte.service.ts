@@ -27,6 +27,9 @@ export const emitirDTESchema = z.object({
   razon_social_receptor: z.string().min(3),
   giro_receptor: z.string().min(3),
   direccion_receptor: z.string().optional(),
+  comuna_receptor: z.string().optional(),
+  ciudad_receptor: z.string().optional(),
+  contacto_receptor: z.string().optional(),
   email_receptor: z.string().email().optional().or(z.literal('')),
   items: z.array(z.object({
     nombre: z.string().min(1),
@@ -74,12 +77,16 @@ export class DTEService {
       giro_emisor: emisorData.giro,
       direccion_emisor: emisorData.direccion,
       comuna_emisor: emisorData.comuna,
+      ciudad_emisor: emisorData.ciudad,
       actividad_economica: emisorData.actividad_economica,
       // Receptor
       rut_receptor: input.rut_receptor,
       razon_social_receptor: input.razon_social_receptor,
       giro_receptor: input.giro_receptor,
       direccion_receptor: input.direccion_receptor,
+      comuna_receptor: input.comuna_receptor,
+      ciudad_receptor: input.ciudad_receptor,
+      contacto_receptor: input.contacto_receptor,
       email_receptor: input.email_receptor,
       // Documento
       items: input.items,

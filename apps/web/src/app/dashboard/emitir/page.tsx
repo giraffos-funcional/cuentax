@@ -38,7 +38,10 @@ const dteSchema = z.object({
   rut_receptor: z.string().min(1, 'RUT requerido'),
   razon_social_receptor: z.string().min(1, 'Razón social requerida'),
   giro_receptor: z.string().min(1, 'Giro requerido'),
-  direccion_receptor: z.string().optional(),
+  direccion_receptor: z.string().min(1, 'Dirección requerida'),
+  comuna_receptor: z.string().min(1, 'Comuna requerida'),
+  ciudad_receptor: z.string().optional(),
+  contacto_receptor: z.string().optional(),
   email_receptor: z.string().email().optional().or(z.literal('')),
   forma_pago: z.coerce.number().default(1),
   observaciones: z.string().optional(),
@@ -264,8 +267,20 @@ function ModoExpert({ onSwitch }: { onSwitch: () => void }) {
             <input {...register('giro_receptor')} placeholder="Servicios" className="input-field" />
           </div>
           <div className="col-span-2">
-            <label className="block text-xs text-[var(--cx-text-secondary)] mb-1">Dirección</label>
-            <input {...register('direccion_receptor')} placeholder="Av. Providencia 123, Santiago" className="input-field" />
+            <label className="block text-xs text-[var(--cx-text-secondary)] mb-1">Dirección *</label>
+            <input {...register('direccion_receptor')} placeholder="Av. Providencia 123" className="input-field" />
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--cx-text-secondary)] mb-1">Comuna *</label>
+            <input {...register('comuna_receptor')} placeholder="Providencia" className="input-field" />
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--cx-text-secondary)] mb-1">Ciudad</label>
+            <input {...register('ciudad_receptor')} placeholder="Santiago" className="input-field" />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs text-[var(--cx-text-secondary)] mb-1">Contacto (opcional)</label>
+            <input {...register('contacto_receptor')} placeholder="Nombre del contacto" className="input-field" />
           </div>
         </div>
       </div>
