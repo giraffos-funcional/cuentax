@@ -8,6 +8,7 @@
 import type { FastifyInstance } from 'fastify'
 import { authGuard } from '@/middlewares/auth-guard'
 import { getDTEStatusQueue } from '@/jobs/dte-status-poller'
+import { getDTEMailboxQueue } from '@/jobs/dte-mailbox-poller'
 import { getPreviredQueue } from '@/jobs/previred-scraper'
 import { getRCVSyncQueue } from '@/jobs/rcv-sync'
 
@@ -25,6 +26,13 @@ const QUEUE_META = [
     description: 'Consulta estado de DTEs enviados al SII',
     schedule: 'Cada 30 minutos',
     getQueue: getDTEStatusQueue,
+  },
+  {
+    key: 'dte-mailbox-polling',
+    label: 'Casilla DTE (IMAP)',
+    description: 'Lee la casilla de correo DTE y registra DTEs entrantes',
+    schedule: 'Cada 15 minutos',
+    getQueue: getDTEMailboxQueue,
   },
   {
     key: 'previred-sync',

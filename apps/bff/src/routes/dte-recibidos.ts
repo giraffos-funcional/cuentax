@@ -11,13 +11,74 @@ import { eq, and, desc } from 'drizzle-orm'
 import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { db } from '@/db/client'
-import { dtesRecibidos } from '@/db/schema'
+import { dtesRecibidos, companies } from '@/db/schema'
 import { siiBridgeAdapter } from '@/adapters/sii-bridge.adapter'
+import { encrypt } from '@/core/crypto'
 import { logger } from '@/core/logger'
 import { getLocalCompanyId } from '@/core/company-resolver'
+import { pollMailboxForCompany } from '@/jobs/dte-mailbox-poller'
 
 export async function dteRecibidosRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', authGuard)
+
+  // ── GET /imap-config — current IMAP setup status
+  fastify.get('/imap-config', async (req, reply) => {
+    const user = (req as any).user
+    const companyId = await getLocalCompanyId(user.company_id)
+    const [c] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1)
+    if (!c) return reply.send({})
+    return reply.send({
+      host: c.dte_imap_host ?? '',
+      port: c.dte_imap_port ?? 993,
+      user: c.dte_imap_user ?? '',
+      has_password: !!c.dte_imap_password_enc,
+      auto_sync: !!c.dte_imap_auto_sync,
+      last_sync: c.dte_imap_last_sync,
+    })
+  })
+
+  // ── PUT /imap-config — save IMAP credentials (encrypts password)
+  fastify.put('/imap-config', async (req, reply) => {
+    const user = (req as any).user
+    const companyId = await getLocalCompanyId(user.company_id)
+
+    const parse = z.object({
+      host: z.string().min(2),
+      port: z.number().int().default(993),
+      user: z.string().min(2),
+      password: z.string().optional(),
+      auto_sync: z.boolean().default(false),
+    }).safeParse(req.body)
+    if (!parse.success) return reply.status(400).send({ error: 'validation_error' })
+
+    const update: Record<string, unknown> = {
+      dte_imap_host: parse.data.host,
+      dte_imap_port: parse.data.port,
+      dte_imap_user: parse.data.user,
+      dte_imap_auto_sync: parse.data.auto_sync,
+      updated_at: new Date(),
+    }
+    if (parse.data.password && parse.data.password.trim()) {
+      update.dte_imap_password_enc = encrypt(parse.data.password.trim())
+    }
+
+    await db.update(companies).set(update as typeof companies.$inferInsert)
+      .where(eq(companies.id, companyId))
+    return reply.send({ success: true })
+  })
+
+  // ── POST /sync-now — manual trigger of IMAP poll for active company
+  fastify.post('/sync-now', async (req, reply) => {
+    const user = (req as any).user
+    const companyId = await getLocalCompanyId(user.company_id)
+    try {
+      const result = await pollMailboxForCompany(companyId)
+      return reply.send({ success: true, ...result })
+    } catch (err: any) {
+      logger.error({ err }, 'manual mailbox sync failed')
+      return reply.status(502).send({ error: 'sync_failed', message: err?.message })
+    }
+  })
 
   // ── GET / — list received DTEs for active company
   fastify.get('/', async (req, reply) => {

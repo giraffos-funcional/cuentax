@@ -88,6 +88,13 @@ export const companies = pgTable('companies', {
   sii_password_enc: text('sii_password_enc'),  // AES-256 encrypted
   sii_rcv_auto_sync: boolean('sii_rcv_auto_sync').default(false),
   sii_rcv_last_sync: timestamp('sii_rcv_last_sync', { withTimezone: true }),
+  // IMAP credentials (DTE inbox listener)
+  dte_imap_host:        varchar('dte_imap_host', { length: 100 }),
+  dte_imap_port:        integer('dte_imap_port').default(993),
+  dte_imap_user:        varchar('dte_imap_user', { length: 100 }),
+  dte_imap_password_enc: text('dte_imap_password_enc'),  // AES-256 encrypted
+  dte_imap_auto_sync:   boolean('dte_imap_auto_sync').default(false),
+  dte_imap_last_sync:   timestamp('dte_imap_last_sync', { withTimezone: true }),
   // Plan
   plan:             varchar('plan', { length: 20 }).default('starter'),
   activo:           boolean('activo').default(true),

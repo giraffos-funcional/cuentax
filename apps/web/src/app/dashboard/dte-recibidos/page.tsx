@@ -8,7 +8,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
-  Upload, CheckCircle2, XCircle, AlertTriangle, Loader2, FileText, RefreshCw,
+  Upload, CheckCircle2, AlertTriangle, Loader2, FileText, RefreshCw,
+  Mail, Save, Wifi,
 } from 'lucide-react'
 import { apiClient } from '@/lib/api-client'
 
@@ -228,13 +229,166 @@ export default function DTERecibidosPage() {
         )}
       </div>
 
-      <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700">
-        <p className="font-semibold mb-1">📨 Próximamente: recepción automática vía email</p>
-        <p>
-          Estamos trabajando en un listener IMAP que va a procesar tu casilla DTE
-          (configurada en Empresa → Facturación Electrónica) y dejar los DTEs acá automáticamente.
-          Por ahora, descargá el XML del proveedor y subilo manualmente.
-        </p>
+      <IMAPConfigCard />
+    </div>
+  )
+}
+
+// ── IMAP Config ─────────────────────────────────────────────────
+
+function IMAPConfigCard() {
+  const [config, setConfig] = useState<{
+    host: string; port: number; user: string;
+    has_password: boolean; auto_sync: boolean; last_sync: string | null;
+  } | null>(null)
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState(993)
+  const [user, setUser] = useState('')
+  const [password, setPassword] = useState('')
+  const [autoSync, setAutoSync] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get('/api/v1/dte-recibidos/imap-config')
+      setConfig(data)
+      setHost(data.host ?? '')
+      setPort(data.port ?? 993)
+      setUser(data.user ?? '')
+      setAutoSync(!!data.auto_sync)
+    } catch {/* ignore */}
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const save = async () => {
+    setSaving(true)
+    setMsg(null)
+    try {
+      const body: Record<string, unknown> = { host, port, user, auto_sync: autoSync }
+      if (password.trim()) body.password = password.trim()
+      await apiClient.put('/api/v1/dte-recibidos/imap-config', body)
+      setMsg({ type: 'ok', text: 'Credenciales IMAP guardadas' })
+      setPassword('')
+      await load()
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err?.response?.data?.message ?? 'Error al guardar' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setMsg(null), 4000)
+    }
+  }
+
+  const syncNow = async () => {
+    setSyncing(true)
+    setMsg(null)
+    try {
+      const { data } = await apiClient.post('/api/v1/dte-recibidos/sync-now')
+      setMsg({ type: 'ok', text: `Sync completa: ${data.ingested} DTEs nuevos, ${data.errors} errores` })
+      // trigger parent refresh by full reload
+      window.location.reload()
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err?.response?.data?.message ?? 'Error en sync' })
+    } finally {
+      setSyncing(false)
+      setTimeout(() => setMsg(null), 5000)
+    }
+  }
+
+  return (
+    <div className="card border border-[var(--cx-border-light)] rounded-2xl p-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Mail size={16} className="text-[var(--cx-active-icon)]" />
+        <h3 className="text-sm font-semibold text-[var(--cx-text-primary)] uppercase tracking-wider">
+          Casilla DTE — Recepción Automática (IMAP)
+        </h3>
+      </div>
+      <p className="text-xs text-[var(--cx-text-muted)] mb-4">
+        Conectá tu casilla DTE para que cada 15 minutos se busquen emails con XMLs adjuntos
+        y se carguen automáticamente. La password se almacena encriptada (AES-256).
+      </p>
+
+      {config && (
+        <div className="flex flex-wrap items-center gap-2 mb-4 text-[11px]">
+          {config.has_password ? (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border bg-emerald-50 border-emerald-200 text-emerald-700 font-semibold">
+              <Wifi size={11} /> Configurada
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border bg-amber-50 border-amber-200 text-amber-700 font-semibold">
+              Sin credenciales
+            </span>
+          )}
+          {config.auto_sync && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md border bg-violet-50 border-violet-200 text-violet-700 font-semibold">
+              <RefreshCw size={11} /> Sync automático activo
+            </span>
+          )}
+          {config.last_sync && (
+            <span className="text-[var(--cx-text-muted)]">
+              Última sync: {new Date(config.last_sync).toLocaleString('es-CL')}
+            </span>
+          )}
+        </div>
+      )}
+
+      {msg && (
+        <div className={`mb-3 px-3 py-2 rounded-lg text-xs flex items-center gap-2 border ${
+          msg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+        }`}>
+          {msg.type === 'ok' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+          {msg.text}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Servidor IMAP *</label>
+          <input value={host} onChange={e => setHost(e.target.value)} className="input-field text-sm w-full" placeholder="imap.gmail.com" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Puerto</label>
+          <input type="number" value={port} onChange={e => setPort(Number(e.target.value) || 993)} className="input-field text-sm w-full" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">Usuario *</label>
+          <input value={user} onChange={e => setUser(e.target.value)} className="input-field text-sm w-full" placeholder="dte@empresa.cl" />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-[var(--cx-text-secondary)] mb-1">
+            Password {config?.has_password ? '(dejar vacío para mantener)' : '*'}
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            className="input-field text-sm w-full"
+            placeholder={config?.has_password ? '••••••••' : 'Password de aplicación'}
+          />
+          <p className="text-[10px] text-[var(--cx-text-muted)] mt-1">
+            Para Gmail: usa una <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" className="underline">contraseña de aplicación</a> (no la password normal).
+          </p>
+        </div>
+      </div>
+
+      <label className="flex items-center gap-2 mt-4 cursor-pointer text-sm">
+        <input type="checkbox" checked={autoSync} onChange={e => setAutoSync(e.target.checked)} />
+        <span>Sincronizar automáticamente cada 15 minutos</span>
+      </label>
+
+      <div className="flex items-center gap-3 mt-4">
+        <button onClick={save} disabled={saving} className="btn-primary flex items-center gap-2 text-sm">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          Guardar
+        </button>
+        {config?.has_password && (
+          <button onClick={syncNow} disabled={syncing} className="btn-secondary flex items-center gap-2 text-sm">
+            {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Sincronizar ahora
+          </button>
+        )}
       </div>
     </div>
   )

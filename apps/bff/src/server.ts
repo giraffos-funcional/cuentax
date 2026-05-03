@@ -49,6 +49,7 @@ import { aiChatRoutes } from '@/routes/ai-chat'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
+import { startDTEMailboxPoller, stopDTEMailboxPoller, getDTEMailboxQueue } from '@/jobs/dte-mailbox-poller'
 import { startPreviredScraper, stopPreviredScraper, getPreviredQueue } from '@/jobs/previred-scraper'
 import { startRCVSync, stopRCVSync, getRCVSyncQueue } from '@/jobs/rcv-sync'
 
@@ -300,6 +301,14 @@ async function bootstrap() {
       await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "oficina_regional_sii" varchar(60)`)
       await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "numero_resolucion_sii" integer`)
       await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "fecha_resolucion_sii" date`)
+
+      // Migration 0007a: IMAP credentials for DTE inbox listener
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "dte_imap_host" varchar(100)`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "dte_imap_port" integer DEFAULT 993`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "dte_imap_user" varchar(100)`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "dte_imap_password_enc" text`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "dte_imap_auto_sync" boolean DEFAULT false`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "dte_imap_last_sync" timestamptz`)
 
       // Migration 0007: DTEs Recibidos (idempotent)
       await db.execute(sql`CREATE TABLE IF NOT EXISTS "dtes_recibidos" (
@@ -606,6 +615,7 @@ async function bootstrap() {
 
     // ── Background Jobs (BullMQ) ────────────────────────────────
     await startDTEStatusPoller()
+    await startDTEMailboxPoller()
     await startPreviredScraper()
     await startRCVSync()
 
@@ -625,6 +635,7 @@ const shutdown = async (signal: string) => {
   // Shut down BullMQ workers first (stop accepting new jobs)
   await Promise.all([
     stopDTEStatusPoller(),
+    stopDTEMailboxPoller(),
     stopPreviredScraper(),
     stopRCVSync(),
   ])
