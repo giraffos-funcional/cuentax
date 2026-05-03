@@ -192,10 +192,13 @@ class DTEReceptionService:
                 self._elem(recep_dte, "EstadoRecepDTE", "0")
                 self._elem(recep_dte, "RecepDTEGlosa", "Documento recibido OK")
 
-        # Sign the Resultado element first, then the outer RespuestaDTE
-        # (XSD requires Signature on both layers)
-        certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
-        certificate_service.sign_xml(recepcion, rut_emisor=rut_firma or rut_receptor)
+        # XSD only admits Signature in RespuestaDTE root (no Signature inside
+        # Resultado). The outer signature references Resultado via its ID.
+        certificate_service.sign_xml(
+            recepcion,
+            rut_emisor=rut_firma or rut_receptor,
+            target_id="Recepcion",
+        )
 
         return etree.tostring(recepcion, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
@@ -264,9 +267,13 @@ class DTEReceptionService:
         self._elem(result_dte, "EstadoDTE", "0" if aceptado else "2")
         self._elem(result_dte, "EstadoDTEGlosa", glosa or ("Documento aceptado" if aceptado else "Documento rechazado"))
 
-        # Sign the Resultado then the outer RespuestaDTE (XSD requires both)
-        certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
-        certificate_service.sign_xml(resp, rut_emisor=rut_firma or rut_receptor)
+        # XSD only admits Signature in the RespuestaDTE root. The outer
+        # signature references Resultado via its ID="ResultadoDTE".
+        certificate_service.sign_xml(
+            resp,
+            rut_emisor=rut_firma or rut_receptor,
+            target_id="ResultadoDTE",
+        )
 
         return etree.tostring(resp, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
@@ -339,9 +346,14 @@ class DTEReceptionService:
             # Sign each Recibo
             certificate_service.sign_xml(recibo, rut_emisor=rut_firma or rut_receptor)
 
-        # Sign SetRecibos envelope, then the outer EnvioRecibos
-        certificate_service.sign_xml(set_recibos, rut_emisor=rut_firma or rut_receptor)
-        certificate_service.sign_xml(envio, rut_emisor=rut_firma or rut_receptor)
+        # XSD only admits Signature in the EnvioRecibos root (each Recibo
+        # already has its own internal Signature signed in the loop above).
+        # The outer signature references SetRecibos via ID="SetRecibos".
+        certificate_service.sign_xml(
+            envio,
+            rut_emisor=rut_firma or rut_receptor,
+            target_id="SetRecibos",
+        )
 
         return etree.tostring(envio, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
