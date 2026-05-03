@@ -55,6 +55,11 @@ async def reset_caf_folios(rut_empresa: str, tipo_dte: int, next_folio: int = 0)
     Útil cuando los DTEs fueron firmados pero nunca enviados al SII.
     Pass next_folio to advance to a specific folio number.
     Finds the CAF whose range contains next_folio."""
+    # Pull latest disk state first so we don't reset stale memory.
+    try:
+        caf_manager._load_from_disk_for(rut_empresa, tipo_dte, "")
+    except Exception:
+        pass
     for k, caf_list in caf_manager._cafs.items():
         for caf in caf_list:
             if caf.rut_empresa != rut_empresa or caf.tipo_dte != tipo_dte:
@@ -62,6 +67,15 @@ async def reset_caf_folios(rut_empresa: str, tipo_dte: int, next_folio: int = 0)
             if next_folio and caf.folio_desde <= next_folio <= caf.folio_hasta:
                 old_folio = caf._next_folio
                 caf._next_folio = next_folio
+                # Persist reset to disk + Odoo so every worker picks it up.
+                try:
+                    caf_manager._save_to_disk(caf)
+                except Exception:
+                    pass
+                try:
+                    caf_manager.sync_folio_to_odoo(rut_empresa, tipo_dte, caf.ambiente)
+                except Exception:
+                    pass
                 total = sum(c.folios_disponibles for c in caf_list if c.tipo_dte == tipo_dte)
                 return {
                     "success": True,
@@ -77,6 +91,14 @@ async def reset_caf_folios(rut_empresa: str, tipo_dte: int, next_folio: int = 0)
             elif not next_folio:
                 old_folio = caf._next_folio
                 caf._next_folio = caf.folio_desde
+                try:
+                    caf_manager._save_to_disk(caf)
+                except Exception:
+                    pass
+                try:
+                    caf_manager.sync_folio_to_odoo(rut_empresa, tipo_dte, caf.ambiente)
+                except Exception:
+                    pass
                 return {
                     "success": True,
                     "tipo_dte": tipo_dte,

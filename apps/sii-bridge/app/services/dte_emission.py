@@ -189,6 +189,44 @@ class DTEEmissionService:
                 "mensaje": f"No hay certificado para {rut_emisor}",
             }
 
+        # Pre-flight folio availability check. emit_batch is supposed to be
+        # all-or-nothing, but consume_folio() commits each folio as it goes.
+        # If the caller asks for more folios of a tipo than the CAF has free,
+        # the first N succeed and the rest error with "No folio" — but those
+        # N folios are already burnt. The caller retries the whole batch and
+        # burns the next N, snowballing folio exhaustion.
+        # Counting folios needed per tipo and aborting upfront when any tipo
+        # is short stops that bleed without altering the consume contract.
+        from collections import Counter
+        from app.services.caf_manager import caf_manager
+        needed = Counter(p.get("tipo_dte") for p in payloads if p.get("tipo_dte"))
+        ambiente_default = ""
+        try:
+            from app.core.config import settings
+            ambiente_default = settings.SII_AMBIENTE
+        except Exception:
+            pass
+        insuf: list[dict] = []
+        for tipo, qty in needed.items():
+            try:
+                caf_manager._load_from_disk_for(rut_emisor, int(tipo), ambiente_default)
+            except Exception:
+                pass
+            cafs = caf_manager._cafs.get((rut_emisor, int(tipo), ambiente_default), [])
+            disp = sum(c.folios_disponibles for c in cafs)
+            if disp < qty:
+                insuf.append({"tipo_dte": int(tipo), "necesarios": qty, "disponibles": disp})
+        if insuf:
+            return {
+                "success": False,
+                "estado": "folios_insuficientes",
+                "total": len(payloads),
+                "emitidos": 0,
+                "errores": [{"tipo_dte": x["tipo_dte"], "error": f"Folios insuficientes: necesarios {x['necesarios']}, disponibles {x['disponibles']}"} for x in insuf],
+                "mensaje": "Pre-flight: folios insuficientes para emitir el batch completo. No se consumieron folios.",
+                "resultados": [],
+            }
+
         # Build unsigned DTEs (with TED but no signature yet)
         unsigned_dtes: list[dict] = []
         resultados: list[dict] = []
