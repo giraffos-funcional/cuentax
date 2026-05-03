@@ -50,25 +50,36 @@ class DTEReceptionService:
         dtes_data = []
         errores = []
 
-        # Find all DTE elements
-        dte_elements = root.findall(f".//{{{SII_DTE_NS}}}DTE") or root.findall(".//DTE")
+        # Find all DTE elements (use `is None` checks instead of `or` because
+        # leaf lxml elements are falsy in boolean contexts)
+        dte_elements = root.findall(f".//{{{SII_DTE_NS}}}DTE")
+        if not dte_elements:
+            dte_elements = root.findall(".//DTE")
+
+        def _find_either(parent, tag):
+            if parent is None:
+                return None
+            el = parent.find(f".//{{{SII_DTE_NS}}}{tag}")
+            if el is None:
+                el = parent.find(f".//{tag}")
+            return el
 
         for dte_el in dte_elements:
             try:
-                doc = dte_el.find(f".//{{{SII_DTE_NS}}}Documento") or dte_el.find(".//Documento")
+                doc = _find_either(dte_el, "Documento")
                 if doc is None:
                     errores.append("DTE without Documento element")
                     continue
 
-                enc = doc.find(f".//{{{SII_DTE_NS}}}Encabezado") or doc.find(".//Encabezado")
+                enc = _find_either(doc, "Encabezado")
                 if enc is None:
                     errores.append("Documento without Encabezado")
                     continue
 
-                id_doc = enc.find(f".//{{{SII_DTE_NS}}}IdDoc") or enc.find(".//IdDoc")
-                emisor = enc.find(f".//{{{SII_DTE_NS}}}Emisor") or enc.find(".//Emisor")
-                receptor = enc.find(f".//{{{SII_DTE_NS}}}Receptor") or enc.find(".//Receptor")
-                totales = enc.find(f".//{{{SII_DTE_NS}}}Totales") or enc.find(".//Totales")
+                id_doc = _find_either(enc, "IdDoc")
+                emisor = _find_either(enc, "Emisor")
+                receptor = _find_either(enc, "Receptor")
+                totales = _find_either(enc, "Totales")
 
                 tipo_dte = self._get_text(id_doc, "TipoDTE")
                 folio = self._get_text(id_doc, "Folio")
@@ -89,7 +100,9 @@ class DTEReceptionService:
                 errores.append(f"Error parsing DTE: {e}")
 
         # Extract caratula info
-        caratula = root.find(f".//{{{SII_DTE_NS}}}Caratula") or root.find(".//Caratula")
+        caratula = root.find(f".//{{{SII_DTE_NS}}}Caratula")
+        if caratula is None:
+            caratula = root.find(".//Caratula")
         rut_emisor_envio = self._get_text(caratula, "RutEmisor") if caratula is not None else ""
 
         return {
@@ -299,10 +312,20 @@ class DTEReceptionService:
         return etree.tostring(envio, encoding="unicode", xml_declaration=True)
 
     def _get_text(self, parent, tag: str) -> Optional[str]:
-        """Extract text from a child element, searching with and without namespace."""
+        """Extract text from a child element, searching with and without namespace.
+
+        IMPORTANT: lxml elements with no children evaluate to ``False`` in a
+        boolean context (deprecation but still in effect). That breaks the
+        common ``find(ns) or find(no_ns)`` fallback for leaf elements like
+        <TipoDTE>33</TipoDTE> — find() returns the element but `or` discards
+        it and walks the no-namespace path, which doesn't match. Use
+        ``is None`` explicitly.
+        """
         if parent is None:
             return None
-        el = parent.find(f"{{{SII_DTE_NS}}}{tag}") or parent.find(tag)
+        el = parent.find(f"{{{SII_DTE_NS}}}{tag}")
+        if el is None:
+            el = parent.find(tag)
         return el.text.strip() if el is not None and el.text else None
 
     @staticmethod
