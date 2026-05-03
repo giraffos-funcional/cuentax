@@ -23,7 +23,7 @@ const QUEUE_META = [
     key: 'dte-status-polling',
     label: 'Polling Estado DTE',
     description: 'Consulta estado de DTEs enviados al SII',
-    schedule: 'Cada 5 minutos',
+    schedule: 'Cada 30 minutos',
     getQueue: getDTEStatusQueue,
   },
   {
