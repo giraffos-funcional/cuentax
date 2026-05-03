@@ -1069,15 +1069,14 @@ function StepDeclaracion({ onComplete }: { onComplete: () => void }) {
   )
 }
 
-// ── Default steps (used when API is unavailable) ──────────────
-const DEFAULT_STEPS = [
-  { step: 0, nombre: 'Prerequisitos', manual: false },
-  { step: 1, nombre: 'Postulación', manual: true },
-  { step: 2, nombre: 'Set de Prueba', manual: false },
-  { step: 3, nombre: 'Simulación', manual: false },
-  { step: 4, nombre: 'Intercambio', manual: false },
-  { step: 5, nombre: 'Muestras', manual: false },
-  { step: 6, nombre: 'Declaración', manual: true },
+// ── Default steps (sidebar muestra 6 ítems; backend usa 7 — pasos 4+5 fusionados) ─
+const DEFAULT_STEPS: Array<{ step: number; nombre: string; manual: boolean; apiSteps: number[] }> = [
+  { step: 0, nombre: 'Prerequisitos', manual: false, apiSteps: [0] },
+  { step: 1, nombre: 'Postulación', manual: true, apiSteps: [1] },
+  { step: 2, nombre: 'Set de Prueba', manual: false, apiSteps: [2] },
+  { step: 3, nombre: 'Simulación', manual: false, apiSteps: [3] },
+  { step: 4, nombre: 'Asistido (Intercambio + Muestras)', manual: false, apiSteps: [4, 5] },
+  { step: 6, nombre: 'Declaración', manual: true, apiSteps: [6] },
 ]
 
 // ── Main Page ─────────────────────────────────────────────────
@@ -1106,8 +1105,8 @@ export default function CertificacionWizardPage() {
   const currentStep = viewStep ?? apiCurrent
   const steps = DEFAULT_STEPS.map(s => ({
     ...s,
-    completado: completedSet.has(s.step),
-    actual: s.step === currentStep,
+    completado: s.apiSteps.every(api => completedSet.has(api)),
+    actual: s.apiSteps.includes(currentStep),
   }))
 
   const handleCompleteStep = async (step: number) => {

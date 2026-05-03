@@ -95,45 +95,9 @@ STEP_INFO = {
 
 # ── Session storage (per rut_emisor) ─────────────────────────
 #
-# _sessions is the in-memory cache. session_store persists a JSON snapshot
-# to disk so deploys / pod restarts do not nuke signed XMLs, CAF state, etc.
-# See app/services/session_store.py for the persistence contract.
-
-_sessions: dict[str, dict] = {}
-
-# Fields that survive a restart. Everything else either regenerates on
-# demand (set_pruebas_* dataclass via re-upload) or is derived state.
-_PERSIST_FIELDS: tuple[str, ...] = (
-    "rut_emisor",
-    "current_step",
-    "steps_completed",
-    "created_at",
-    "payloads_factura",
-    "payloads_boleta",
-    "last_batch_result",
-    "intercambio_results",
-    "muestras_generadas",
-    "raw_test_set_content",
-    "libro_ventas_result",
-    "libro_compras_result",
-    # Lightweight counts so /wizard/status still reports cases after restart
-    # even when the full SetPruebasData dataclass is gone.
-    "set_summary_factura",
-    "set_summary_boleta",
-)
-
-
-def _persist_session(rut_emisor: str) -> None:
-    """Write the current session snapshot to disk (best-effort, never raises)."""
-    sess = _sessions.get(rut_emisor)
-    if not sess:
-        return
-    snapshot = {k: sess[k] for k in _PERSIST_FIELDS if k in sess}
-    # Enum is not JSON native.
-    cs = snapshot.get("current_step")
-    if hasattr(cs, "value"):
-        snapshot["current_step"] = int(cs)
-    session_store.save(rut_emisor, snapshot)
+# session_store on disk is the single source of truth. uvicorn runs multiple
+# workers each with separate process memory; persisting after every mutation
+# avoids cross-worker drift. See app/services/session_store.py.
 
 
 def _default_session(rut_emisor: str) -> dict:
@@ -142,8 +106,6 @@ def _default_session(rut_emisor: str) -> dict:
         "current_step": Step.POSTULACION,
         "steps_completed": set(),
         "created_at": datetime.now(_CHILE_TZ).isoformat(),
-        "set_pruebas_factura": None,
-        "set_pruebas_boleta": None,
         "payloads_factura": None,
         "payloads_boleta": None,
         "last_batch_result": None,
@@ -153,52 +115,33 @@ def _default_session(rut_emisor: str) -> dict:
 
 
 def _get_session(rut_emisor: str) -> dict:
-    """Get or create a certification session for a company.
-
-    Disk is the source of truth: uvicorn runs multiple workers, each with its
-    own process memory. A write from worker A never reaches worker B's cache,
-    so we re-read the persisted JSON on every call. The cache is only
-    consulted when the file does not exist (new sessions) — cost of reading a
-    small JSON on each request is negligible compared to SII round-trips.
-    """
+    """Load session from disk (or default if missing). Caller must call _save_session
+    after mutating to persist."""
     persisted = session_store.load(rut_emisor)
-    if persisted:
-        cs = persisted.get("current_step")
-        if isinstance(cs, int):
-            try:
-                persisted["current_step"] = Step(cs)
-            except ValueError:
-                persisted["current_step"] = Step.POSTULACION
-        base = _default_session(rut_emisor)
-        base.update(persisted)
-        # Preserve any live-only fields (e.g. set_pruebas_* dataclass) that
-        # were cached in this worker but are not serialized to disk.
-        if rut_emisor in _sessions:
-            cached = _sessions[rut_emisor]
-            for key in ("set_pruebas_factura", "set_pruebas_boleta"):
-                if cached.get(key) is not None and base.get(key) is None:
-                    base[key] = cached[key]
-        _sessions[rut_emisor] = base
-        return _sessions[rut_emisor]
+    if not persisted:
+        return _default_session(rut_emisor)
 
-    if rut_emisor in _sessions:
-        return _sessions[rut_emisor]
-
-    _sessions[rut_emisor] = _default_session(rut_emisor)
-    return _sessions[rut_emisor]
+    base = _default_session(rut_emisor)
+    base.update(persisted)
+    cs = base.get("current_step")
+    if isinstance(cs, int):
+        try:
+            base["current_step"] = Step(cs)
+        except ValueError:
+            base["current_step"] = Step.POSTULACION
+    return base
 
 
-def restore_sessions_from_disk() -> int:
-    """Preload every persisted session into the in-memory cache at startup."""
-    restored = session_store.load_all()
-    count = 0
-    for rut, data in restored.items():
-        # Run through _get_session branch to normalize.
-        _sessions.pop(rut, None)  # ensure _get_session takes the disk path
-        session_store.save(rut, data)  # rewrite normalized copy (no-op if same)
-        _get_session(rut)
-        count += 1
-    return count
+def _save_session(rut_emisor: str, session: dict) -> None:
+    """Persist the session snapshot to disk (best-effort, never raises)."""
+    snapshot = dict(session)
+    cs = snapshot.get("current_step")
+    if hasattr(cs, "value"):
+        snapshot["current_step"] = int(cs)
+    sc = snapshot.get("steps_completed")
+    if isinstance(sc, set):
+        snapshot["steps_completed"] = sorted(int(s) if hasattr(s, "value") else s for s in sc)
+    session_store.save(rut_emisor, snapshot)
 
 
 # ── Request models ────────────────────────────────────────────
@@ -240,13 +183,9 @@ class LibrosRequest(BaseModel):
     rut_emisor: str
     periodo: Optional[str] = None  # "YYYY-MM", defaults to current month
     fecha_emision: Optional[str] = None  # date for compras docs, defaults to today
-    # Optional inline data — when session was lost (e.g. after deploy)
-    resultados: Optional[list[dict]] = None
-    raw_test_set_path: Optional[str] = None  # path to test set file on server
-    tipo_envio: Optional[str] = "TOTAL"  # TOTAL | RECTIFICA — use RECTIFICA when a prior TOTAL exists for period
-    envio_dte_xml_b64: Optional[str] = None  # explicit EnvioDTE XML to use (overrides session batch_result)
-    only_lc: Optional[bool] = False  # skip LV generation (when LV already REVISADO CONFORME)
-    only_lv: Optional[bool] = False  # skip LC generation (when LC already REVISADO CONFORME)
+    tipo_envio: Optional[str] = "TOTAL"  # TOTAL | RECTIFICA | AJUSTE
+    only_lc: Optional[bool] = False  # skip LV generation (LV already REVISADO CONFORME)
+    only_lv: Optional[bool] = False  # skip LC generation (LC already REVISADO CONFORME)
 
 
 # ── Prerequisites check ───────────────────────────────────────
@@ -390,7 +329,7 @@ async def complete_step(req: StepCompleteRequest):
 
     session["steps_completed"].add(step)
     _advance_step(session)
-    _persist_session(req.rut_emisor)
+    _save_session(req.rut_emisor, session)
 
     return {
         "success": True,
@@ -469,13 +408,6 @@ async def upload_test_set(
         session[f"payloads_{set_type}"] = set_pruebas_parser.to_payloads(parsed)
     # Store raw content for libro de compras parsing later
     session["raw_test_set_content"] = text
-    # Lightweight summary that survives a restart when the full dataclass
-    # cannot be round-tripped through JSON.
-    session[f"set_summary_{set_type}"] = {
-        "casos_count": len(parsed.casos),
-        "rut_emisor": parsed.rut_emisor,
-        "razon_social_emisor": parsed.razon_social_emisor,
-    }
 
     # Ensure all payloads have the correct rut_emisor
     for p in session[f"payloads_{set_type}"]:
@@ -491,7 +423,7 @@ async def upload_test_set(
         f"Invalidated last_batch_result and libro_*_result for {rut_emisor} "
         f"after uploading new {set_type} SET"
     )
-    _persist_session(rut_emisor)
+    _save_session(rut_emisor, session)
 
     return {
         "success": True,
@@ -530,27 +462,13 @@ async def process_test_set(req: ProcessRequest):
             detail=f"Invalid set_type '{set_type}'. Must be 'factura' or 'boleta'.",
         )
 
-    # Find the session — use provided rut_emisor, or search for any session with payloads
+    # The UI always knows the real rut_emisor (from auth + empresa config).
     rut_emisor = req.rut_emisor
+    if not rut_emisor or rut_emisor == "auto":
+        raise HTTPException(status_code=400, detail="rut_emisor requerido")
     payloads_key = f"payloads_{set_type}"
-
-    # Strategy 1: Try the provided rut_emisor directly
-    session = None
-    if rut_emisor and rut_emisor != "auto":
-        candidate = _sessions.get(rut_emisor)
-        if candidate and candidate.get(payloads_key):
-            session = candidate
-
-    # Strategy 2: If no session found (or no payloads), search all sessions
-    if not session:
-        for session_rut, sess in _sessions.items():
-            if sess.get(payloads_key):
-                rut_emisor = session_rut
-                session = sess
-                logger.info(f"Found {set_type} payloads in session for {session_rut} (requested: {req.rut_emisor})")
-                break
-
-    if not session or not session.get(payloads_key):
+    session = _get_session(rut_emisor)
+    if not session.get(payloads_key):
         raise HTTPException(
             status_code=400,
             detail=f"No {set_type} test set loaded. Upload first via /wizard/set-prueba/upload?set_type={set_type}",
@@ -589,7 +507,7 @@ async def process_test_set(req: ProcessRequest):
             )
             result["success"] = True  # Mark as success for wizard advancement
 
-    _persist_session(rut_emisor)
+    _save_session(rut_emisor, session)
 
     return {
         **result,
@@ -622,7 +540,7 @@ async def simulacion_send(payloads: list[dict]):
     if result.get("success"):
         session["steps_completed"].add(Step.SIMULACION)
         _advance_step(session)
-    _persist_session(rut_emisor)
+    _save_session(rut_emisor, session)
 
     return {
         **result,
@@ -652,7 +570,7 @@ async def intercambio_receive(
         "timestamp": datetime.now(_CHILE_TZ).isoformat(),
         "parsed": result,
     })
-    _persist_session(rut_receptor)
+    _save_session(rut_receptor, session)
 
     return result
 
@@ -740,7 +658,7 @@ async def intercambio_respond(req: InterceptRequest):
     if all_ok:
         session["steps_completed"].add(Step.INTERCAMBIO)
         _advance_step(session)
-    _persist_session(req.rut_receptor)
+    _save_session(req.rut_receptor, session)
 
     return {
         "success": all_ok,
@@ -774,7 +692,7 @@ async def generate_muestra_pdf(req: PDFRequest):
         if session["muestras_generadas"] >= 1:
             session["steps_completed"].add(Step.MUESTRAS)
             _advance_step(session)
-        _persist_session(rut_emisor)
+        _save_session(rut_emisor, session)
 
     return {
         "success": True,
@@ -869,7 +787,7 @@ async def generate_muestras_bulk(
         session["muestras_generadas"] = session.get("muestras_generadas", 0) + len(pdfs)
         session["steps_completed"].add(Step.MUESTRAS)
         _advance_step(session)
-        _persist_session(rut_emisor)
+        _save_session(rut_emisor, session)
 
     return {
         "success": len(errors) == 0,
@@ -902,9 +820,8 @@ async def generate_libros(req: LibrosRequest):
     periodo = req.periodo or datetime.now(_CHILE_TZ).date().strftime("%Y-%m")
     fecha_emision = req.fecha_emision or datetime.now(_CHILE_TZ).date().strftime("%Y-%m-%d")
 
-    # Try session first, then fall back to inline data.
-    # IMPORTANT: use _get_session so disk-persisted state is rehydrated on any
-    # worker — uvicorn runs multi-worker and _sessions is per-process memory.
+    # Try session first, then fall back to inline data. _get_session reads
+    # from disk so multi-worker uvicorn doesn't drift.
     session = None
     batch_result = {}
     raw_content = None
@@ -912,52 +829,31 @@ async def generate_libros(req: LibrosRequest):
     if rut_emisor and rut_emisor != "auto":
         session = _get_session(rut_emisor)
 
-    # Fallback: rehydrate every persisted session from disk and pick the one
-    # that has a prior batch_result. Covers the case where the caller didn't
-    # know the rut and sent "auto".
+    # Fallback: scan persisted sessions for one with a prior batch_result.
+    # Covers the case where the caller didn't know the rut and sent "auto".
     if not session or not session.get("raw_test_set_content"):
-        restore_sessions_from_disk()
-        for session_rut, sess in _sessions.items():
+        for session_rut, sess in session_store.load_all().items():
             if sess.get("last_batch_result") or sess.get("raw_test_set_content"):
                 rut_emisor = session_rut
-                session = sess
+                session = _get_session(session_rut)
                 break
 
     if session:
         batch_result = session.get("last_batch_result") or {}
         raw_content = session.get("raw_test_set_content")
 
-    # Fall back to inline data when session is lost (e.g. after deploy)
-    inline_resultados = req.resultados
-    if req.raw_test_set_path:
-        import os
-        if os.path.exists(req.raw_test_set_path):
-            with open(req.raw_test_set_path, "r", encoding="latin-1") as f:
-                raw_content = f.read()
-
     if not raw_content:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "No test set content available. Either upload via "
-                "/wizard/set-prueba/upload or pass raw_test_set_path"
-            ),
+            detail="No test set content available. Upload via /wizard/set-prueba/upload first.",
         )
 
     # AJUSTE can be sent empty (zero-totals envelope for re-submission)
     _tipo_envio_early = (req.tipo_envio or "TOTAL").upper()
-    if (
-        not batch_result
-        and not inline_resultados
-        and _tipo_envio_early != "AJUSTE"
-        and not req.only_lc
-    ):
+    if not batch_result and _tipo_envio_early != "AJUSTE" and not req.only_lc:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "No batch results available. Either process via "
-                "/wizard/set-prueba/process or pass resultados inline"
-            ),
+            detail="No batch results available. Process the SET via /wizard/set-prueba/process first.",
         )
 
     # Parse libro de compras data from the test set file
@@ -988,8 +884,8 @@ async def generate_libros(req: LibrosRequest):
         )
 
     # 1. Generate and send Libro de Ventas
-    # Priority: explicit request XML > EnvioDTE XML from batch > inline resultados > session resultados
-    xml_b64 = req.envio_dte_xml_b64 or batch_result.get("xml_envio_b64")
+    # Priority: EnvioDTE XML from batch > session resultados
+    xml_b64 = batch_result.get("xml_envio_b64")
     resultado_ventas = None
     if req.only_lc:
         # Skip LV entirely — used when LV already REVISADO CONFORME at SII
@@ -1000,15 +896,6 @@ async def generate_libros(req: LibrosRequest):
             rut_emisor=rut_emisor,
             periodo=periodo,
             folio_notificacion=folio_ventas,
-            tipo_envio=tipo_envio_libros,
-        )
-    elif inline_resultados:
-        resultado_ventas = libro_emission_service.emit_libro_ventas_from_resultados(
-            resultados=inline_resultados,
-            rut_emisor=rut_emisor,
-            periodo=periodo,
-            folio_notificacion=folio_ventas,
-            fecha_doc=fecha_emision,
             tipo_envio=tipo_envio_libros,
         )
     elif batch_result.get("resultados"):
@@ -1063,7 +950,7 @@ async def generate_libros(req: LibrosRequest):
             session["libro_ventas_result"] = resultado_ventas
         if resultado_compras is not None:
             session["libro_compras_result"] = resultado_compras
-        _persist_session(session.get("rut_emisor") or rut_emisor)
+        _save_session(session.get("rut_emisor") or rut_emisor, session)
 
     overall_success = (
         (resultado_ventas is None or resultado_ventas.get("success"))
@@ -1090,30 +977,13 @@ async def certification_status(rut_emisor: str = Query(...)):
     session = _get_session(rut_emisor)
     sii_conn = sii_soap_client.check_connectivity()
 
-    # Prefer the live dataclass when present; fall back to the persisted
-    # summary so /status still shows case counts after a restart.
-    factura_summary = session.get("set_summary_factura") or {}
-    boleta_summary = session.get("set_summary_boleta") or {}
-    set_factura_cargado = (
-        session.get("set_pruebas_factura") is not None
-        or bool(factura_summary)
-        or bool(session.get("payloads_factura"))
-    )
-    set_boleta_cargado = (
-        session.get("set_pruebas_boleta") is not None
-        or bool(boleta_summary)
-        or bool(session.get("payloads_boleta"))
-    )
-    total_factura = (
-        len(session["set_pruebas_factura"].casos)
-        if session.get("set_pruebas_factura")
-        else factura_summary.get("casos_count", len(session.get("payloads_factura") or []))
-    )
-    total_boleta = (
-        len(session["set_pruebas_boleta"].casos)
-        if session.get("set_pruebas_boleta")
-        else boleta_summary.get("casos_count", len(session.get("payloads_boleta") or []))
-    )
+    # Case counts derive from the persisted payloads (single source of truth).
+    payloads_factura = session.get("payloads_factura") or []
+    payloads_boleta = session.get("payloads_boleta") or []
+    set_factura_cargado = bool(payloads_factura)
+    set_boleta_cargado = bool(payloads_boleta)
+    total_factura = len(payloads_factura)
+    total_boleta = len(payloads_boleta)
 
     return {
         "rut_emisor": rut_emisor,
@@ -1143,8 +1013,6 @@ async def reset_wizard(rut_emisor: str = Query(...)):
     Clears both the in-memory cache and the persisted snapshot so a reset is
     not silently undone by the next restart.
     """
-    if rut_emisor in _sessions:
-        del _sessions[rut_emisor]
     session_store.delete(rut_emisor)
     return {"success": True, "mensaje": f"Wizard reset for {rut_emisor}"}
 
