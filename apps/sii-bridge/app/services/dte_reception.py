@@ -185,7 +185,7 @@ class DTEReceptionService:
         # Sign the Resultado element — signing failure is fatal
         certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
 
-        return etree.tostring(recepcion, encoding="unicode", xml_declaration=True)
+        return etree.tostring(recepcion, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
     def generate_resultado_dte(
         self,
@@ -246,7 +246,7 @@ class DTEReceptionService:
         # Sign — signing failure is fatal
         certificate_service.sign_xml(resultado, rut_emisor=rut_firma or rut_receptor)
 
-        return etree.tostring(resp, encoding="unicode", xml_declaration=True)
+        return etree.tostring(resp, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
     def generate_envio_recibos(
         self,
@@ -309,7 +309,7 @@ class DTEReceptionService:
         # Sign the SetRecibos envelope
         certificate_service.sign_xml(set_recibos, rut_emisor=rut_firma or rut_receptor)
 
-        return etree.tostring(envio, encoding="unicode", xml_declaration=True)
+        return etree.tostring(envio, encoding="ISO-8859-1", xml_declaration=True).decode("iso-8859-1")
 
     def _get_text(self, parent, tag: str) -> Optional[str]:
         """Extract text from a child element, searching with and without namespace.
