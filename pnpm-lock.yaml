@@ -81,6 +81,9 @@ importers:
       '@cuentax/billing':
         specifier: workspace:*
         version: link:../../packages/billing
+      '@cuentax/email':
+        specifier: workspace:*
+        version: link:../../packages/email
       '@cuentax/tenancy':
         specifier: workspace:*
         version: link:../../packages/tenancy
@@ -441,6 +444,18 @@ importers:
         version: 5.7.3
 
   packages/billing:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.7
+        version: 20.19.37
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.37)
+
+  packages/email:
     devDependencies:
       '@types/node':
         specifier: ^20.12.7

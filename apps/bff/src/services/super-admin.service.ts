@@ -139,3 +139,24 @@ export async function recordLogin(id: number): Promise<void> {
     .set({ last_login_at: new Date() })
     .where(eq(superAdmins.id, id))
 }
+
+export async function setTotpSecret(adminId: number, encryptedSecret: string): Promise<void> {
+  await db
+    .update(superAdmins)
+    .set({ totp_secret_enc: encryptedSecret, totp_enabled: false, updated_at: new Date() })
+    .where(eq(superAdmins.id, adminId))
+}
+
+export async function enableTotp(adminId: number): Promise<void> {
+  await db
+    .update(superAdmins)
+    .set({ totp_enabled: true, updated_at: new Date() })
+    .where(eq(superAdmins.id, adminId))
+}
+
+export async function disableTotp(adminId: number): Promise<void> {
+  await db
+    .update(superAdmins)
+    .set({ totp_enabled: false, totp_secret_enc: null, updated_at: new Date() })
+    .where(eq(superAdmins.id, adminId))
+}

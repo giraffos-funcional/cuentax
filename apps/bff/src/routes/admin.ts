@@ -21,7 +21,17 @@ import {
   recordLogin,
   verifyPassword,
   createSuperAdmin,
+  setTotpSecret,
+  enableTotp,
+  disableTotp,
 } from '@/services/super-admin.service'
+import {
+  generateSecret as generateTotpSecret,
+  encryptSecret as encryptTotpSecret,
+  decryptSecret as decryptTotpSecret,
+  otpauthUrl,
+  verifyTotp,
+} from '@/services/totp.service'
 import {
   provisionTenant,
   setStatus,
@@ -43,6 +53,7 @@ const signAdminAccess = createSigner({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  totp_code: z.string().regex(/^\d{6}$/).optional(),
 })
 
 const createTenantSchema = z.object({
@@ -92,10 +103,20 @@ export async function adminRoutes(fastify: FastifyInstance) {
       return reply.code(401).send({ error: 'invalid_credentials' })
     }
 
-    // TODO: enforce TOTP when admin.totp_enabled is true (Fase 01 T1.3 segunda pasada).
+    // Enforce TOTP when enabled.
     if (admin.totp_enabled) {
-      logger.warn({ email }, 'admin.totp_required_but_not_implemented')
-      // Por ahora seguimos para no bloquear; en producción real, requerir paso 2.
+      if (!parsed.data.totp_code) {
+        return reply.code(401).send({ error: 'totp_required' })
+      }
+      if (!admin.totp_secret_enc) {
+        logger.error({ email }, 'admin.totp_enabled_but_no_secret')
+        return reply.code(500).send({ error: 'totp_misconfigured' })
+      }
+      const secret = decryptTotpSecret(admin.totp_secret_enc)
+      if (!verifyTotp(secret, parsed.data.totp_code)) {
+        logger.warn({ email }, 'admin.totp_failed')
+        return reply.code(401).send({ error: 'invalid_totp' })
+      }
     }
 
     const jti = randomUUID()
@@ -378,6 +399,46 @@ export async function adminRoutes(fastify: FastifyInstance) {
         // Likely unique constraint violation
         return reply.code(409).send({ error: 'email_taken' })
       }
+    })
+
+    // ── 2FA TOTP enrollment ────────────────────────────────
+    instance.post('/auth/totp/enroll', async (request, reply) => {
+      const adminId = request.superAdmin!.admin_id
+      const me = await findById(adminId)
+      if (!me) return reply.code(404).send({ error: 'not_found' })
+      if (me.totp_enabled) return reply.code(400).send({ error: 'totp_already_enabled' })
+
+      const secret = generateTotpSecret()
+      await setTotpSecret(adminId, encryptTotpSecret(secret))
+      const url = otpauthUrl(secret, me.email)
+      return reply.send({ secret, otpauth_url: url })
+    })
+
+    instance.post('/auth/totp/verify', async (request, reply) => {
+      const adminId = request.superAdmin!.admin_id
+      const body = z.object({ code: z.string().regex(/^\d{6}$/) }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error' })
+
+      const fresh = await findByEmail(request.superAdmin!.email)
+      if (!fresh?.totp_secret_enc) return reply.code(400).send({ error: 'no_pending_secret' })
+      const secret = decryptTotpSecret(fresh.totp_secret_enc)
+      if (!verifyTotp(secret, body.data.code)) {
+        return reply.code(401).send({ error: 'invalid_code' })
+      }
+      await enableTotp(adminId)
+      return reply.send({ ok: true })
+    })
+
+    instance.post('/auth/totp/disable', async (request, reply) => {
+      const adminId = request.superAdmin!.admin_id
+      const body = z.object({ password: z.string().min(1) }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error' })
+      const fresh = await findByEmail(request.superAdmin!.email)
+      if (!fresh) return reply.code(404).send({ error: 'not_found' })
+      const ok = await verifyPassword(body.data.password, fresh.password_hash)
+      if (!ok) return reply.code(401).send({ error: 'invalid_password' })
+      await disableTotp(adminId)
+      return reply.send({ ok: true })
     })
 
     // ── Billing: cross-tenant invoices view ────────────────

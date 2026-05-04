@@ -5,7 +5,7 @@
   "description": "CUENTAX BFF — Backend For Frontend (Fastify + TypeScript)",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "pnpm --filter @cuentax/tenancy build && pnpm --filter @cuentax/billing build && tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
+    "build": "pnpm --filter @cuentax/tenancy build && pnpm --filter @cuentax/billing build && pnpm --filter @cuentax/email build && tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
@@ -20,6 +20,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
     "@cuentax/billing": "workspace:*",
+    "@cuentax/email": "workspace:*",
     "@cuentax/tenancy": "workspace:*",
     "@fastify/cookie": "^9.4.0",
     "@fastify/cors": "^9.0.1",

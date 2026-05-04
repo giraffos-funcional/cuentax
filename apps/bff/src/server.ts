@@ -59,6 +59,8 @@ import { startPreviredScraper, stopPreviredScraper, getPreviredQueue } from '@/j
 import { startRCVSync, stopRCVSync, getRCVSyncQueue } from '@/jobs/rcv-sync'
 import { startCloseRevenueShare, stopCloseRevenueShare } from '@/jobs/close-revenue-share'
 import { startGenerateMonthlyInvoices, stopGenerateMonthlyInvoices } from '@/jobs/generate-monthly-invoices'
+import { startChargeDue, stopChargeDue } from '@/jobs/charge-due-invoices'
+import { startDunning, stopDunning } from '@/jobs/dunning'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -695,6 +697,22 @@ async function bootstrap() {
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "rs_run_tenant_period" ON "revenue_share_runs"("tenant_id","period")`)
       await db.execute(sql`CREATE        INDEX IF NOT EXISTS "rs_run_status_idx"    ON "revenue_share_runs"("status")`)
 
+      // Migration 0011: Phase 04 magic-link tokens (idempotent)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "magic_links" (
+        "id" serial PRIMARY KEY,
+        "tenant_id" integer REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "email" varchar(255) NOT NULL,
+        "token_hash" varchar(64) NOT NULL,
+        "purpose" varchar(32) NOT NULL,
+        "expires_at" timestamptz NOT NULL,
+        "consumed_at" timestamptz,
+        "metadata" text,
+        "created_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "magic_link_hash_idx"    ON "magic_links"("token_hash")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "magic_link_tenant_idx"  ON "magic_links"("tenant_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "magic_link_expires_idx" ON "magic_links"("expires_at")`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
@@ -823,6 +841,8 @@ async function bootstrap() {
     await startRCVSync()
     startCloseRevenueShare()
     startGenerateMonthlyInvoices()
+    startChargeDue()
+    startDunning()
 
     // Bank import async worker (for large CSVs)
     const { startBankImportWorker } = await import('./jobs/bank-import.js')
@@ -845,6 +865,8 @@ const shutdown = async (signal: string) => {
     stopRCVSync(),
     stopCloseRevenueShare(),
     stopGenerateMonthlyInvoices(),
+    stopChargeDue(),
+    stopDunning(),
   ])
   await fastify.close()
   await redis.quit()

@@ -44,6 +44,13 @@ export const config = {
   MP_NOTIFICATION_URL:        optional('MP_NOTIFICATION_URL', ''),
   BILLING_BACK_URL:           optional('BILLING_BACK_URL', 'https://cuentax.cl/billing/return'),
 
+  // Email (Phase 04)
+  EMAIL_PROVIDER:             optional('EMAIL_PROVIDER', 'log'),
+  EMAIL_FROM:                 optional('EMAIL_FROM', 'Cuentax <hola@cuentax.cl>'),
+  POSTMARK_TOKEN:             optional('POSTMARK_TOKEN', ''),
+  RESEND_API_KEY:             optional('RESEND_API_KEY', ''),
+  PUBLIC_BASE_URL:            optional('PUBLIC_BASE_URL', 'https://cuentax.cl'),
+
   // Odoo
   ODOO_URL:        optional('ODOO_URL', 'http://localhost:8069'),
   // Public Odoo URL, used for context-aware writes that don't persist through

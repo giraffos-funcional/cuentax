@@ -24,6 +24,7 @@ import { isReservedSubdomain, isValidSlug } from '@cuentax/tenancy'
 import { db } from '@/db/client'
 import { tenants } from '@/db/schema'
 import { provisionTenant, ProvisioningError } from '@/services/tenant-provisioning.service'
+import { sendWelcomeMagicLink, consumeMagicLink } from '@/services/magic-link.service'
 import { logger } from '@/core/logger'
 
 const signupSchema = z.object({
@@ -62,14 +63,19 @@ export async function signupRoutes(fastify: FastifyInstance) {
         })
         logger.info({ tenantId: tenant.id, slug: tenant.slug, source: 'self-serve' }, 'signup.completed')
 
-        // TODO: send magic-link email for first login (requires email
-        // provider — Postmark/Resend). For now we return the slug so
-        // the caller can route the user to the right subdomain.
+        // Fire-and-forget welcome email with magic-link first-login token.
+        sendWelcomeMagicLink({
+          tenantId:   tenant.id,
+          tenantSlug: tenant.slug,
+          tenantName: tenant.name,
+          email:      body.email,
+        }).catch((err) => logger.error({ err, tenantId: tenant.id }, 'signup.welcome_email_failed'))
+
         return reply.code(201).send({
           tenant_slug:    tenant.slug,
           tenant_url:     `https://${tenant.slug}.cuentax.cl`,
           trial_ends_at:  tenant.trial_ends_at,
-          next:           'login',
+          next:           'check_email',
         })
       } catch (err) {
         if (err instanceof ProvisioningError) {
@@ -80,6 +86,20 @@ export async function signupRoutes(fastify: FastifyInstance) {
       }
     },
   )
+
+  // Consume a magic-link token (first-login). Returns tenant info; the
+  // frontend should redirect the user to the tenant subdomain login.
+  fastify.post('/magic-link/consume', async (request, reply) => {
+    const body = z.object({ token: z.string().min(1) }).safeParse(request.body)
+    if (!body.success) return reply.code(400).send({ error: 'validation_error' })
+    const result = await consumeMagicLink(body.data.token)
+    if (!result.ok) return reply.code(401).send({ error: result.reason })
+    return reply.send({
+      tenant_id: result.tenant_id,
+      email:     result.email,
+      purpose:   result.purpose,
+    })
+  })
 
   // Public slug availability check (used by the signup form)
   fastify.get('/slug-available', async (request, reply) => {

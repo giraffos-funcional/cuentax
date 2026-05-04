@@ -793,3 +793,6 @@ export {
   feeTypeEnum,
   revenueShareRunStatusEnum,
 } from '@/db/schema/revenue-share'
+
+// ── Re-export magic-link schema (Phase 04) ───────────────────
+export { magicLinks } from '@/db/schema/magic-links'
