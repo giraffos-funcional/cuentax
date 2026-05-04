@@ -74,3 +74,9 @@ coverage/
 .playwright-mcp/
 *.png
 .claude/scheduled_tasks.lock
+
+# Next.js
+.next/
+out/
+*.tsbuildinfo
+
