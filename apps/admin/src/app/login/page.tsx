@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation'
-import { adminFetch } from '@/lib/api'
+import { adminFetch, AdminApiError } from '@/lib/api'
 import { setAdminCookie, getAdminToken } from '@/lib/auth'
 
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { error?: string }
+  searchParams: { error?: string; totp?: string; email?: string }
 }) {
   if (getAdminToken()) redirect('/dashboard')
 
@@ -13,31 +13,46 @@ export default function LoginPage({
     'use server'
     const email = String(formData.get('email') ?? '').trim()
     const password = String(formData.get('password') ?? '')
+    const totp_code = String(formData.get('totp_code') ?? '').trim() || undefined
     if (!email || !password) redirect('/login?error=missing')
 
     try {
       const result = await adminFetch<{ access_token: string }>('/auth/login', {
         method: 'POST',
-        body: { email, password },
+        body: { email, password, ...(totp_code ? { totp_code } : {}) },
       })
       setAdminCookie(result.access_token)
-    } catch {
+    } catch (err) {
+      if (err instanceof AdminApiError) {
+        const code = (err.body as { error?: string })?.error
+        if (code === 'totp_required' || code === 'invalid_totp') {
+          // Re-render with TOTP field shown
+          redirect(`/login?totp=1&email=${encodeURIComponent(email)}${code === 'invalid_totp' ? '&error=invalid_totp' : ''}`)
+        }
+      }
       redirect('/login?error=invalid')
     }
     redirect('/dashboard')
   }
+
+  const showTotp = searchParams.totp === '1'
 
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm bg-white rounded-xl shadow-sm border border-border p-8">
         <h1 className="text-2xl font-semibold mb-1">Cuentax Admin</h1>
         <p className="text-sm text-muted-foreground mb-6">Acceso de operador interno</p>
+
         {searchParams.error === 'invalid' && (
           <p className="mb-4 text-sm text-destructive">Email o contraseña inválidos.</p>
+        )}
+        {searchParams.error === 'invalid_totp' && (
+          <p className="mb-4 text-sm text-destructive">Código 2FA incorrecto.</p>
         )}
         {searchParams.error === 'missing' && (
           <p className="mb-4 text-sm text-destructive">Completá email y contraseña.</p>
         )}
+
         <form action={login} className="space-y-4">
           <label className="block">
             <span className="text-sm font-medium">Email</span>
@@ -45,7 +60,9 @@ export default function LoginPage({
               type="email"
               name="email"
               required
-              autoFocus
+              defaultValue={searchParams.email ?? ''}
+              autoFocus={!showTotp}
+              readOnly={showTotp}
               className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </label>
@@ -58,6 +75,24 @@ export default function LoginPage({
               className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </label>
+
+          {showTotp && (
+            <label className="block">
+              <span className="text-sm font-medium">Código 2FA</span>
+              <input
+                type="text"
+                name="totp_code"
+                required
+                pattern="\d{6}"
+                inputMode="numeric"
+                placeholder="123456"
+                autoFocus
+                className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <span className="text-xs text-muted-foreground">6 dígitos de tu app de autenticación.</span>
+            </label>
+          )}
+
           <button
             type="submit"
             className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"

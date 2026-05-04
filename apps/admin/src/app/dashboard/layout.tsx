@@ -38,6 +38,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
           <Link href="/dashboard/billing" className="px-3 py-2 rounded hover:bg-muted">Billing</Link>
           <Link href="/dashboard/revenue-share" className="px-3 py-2 rounded hover:bg-muted">Revenue share</Link>
           <Link href="/dashboard/audit" className="px-3 py-2 rounded hover:bg-muted">Audit log</Link>
+          <Link href="/dashboard/security" className="px-3 py-2 rounded hover:bg-muted">Seguridad (2FA)</Link>
         </nav>
         <form action={logout} className="mt-auto">
           <button className="w-full text-left text-sm text-muted-foreground hover:text-zinc-900 px-3 py-2 rounded hover:bg-muted">
