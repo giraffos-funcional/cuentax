@@ -765,3 +765,9 @@ export {
   tenantsRelations,
   plansRelations,
 } from '@/db/schema/tenants'
+
+// ── Re-export super_admins schema (Phase 01 admin) ───────────
+export {
+  superAdmins,
+  superAdminRoleEnum,
+} from '@/db/schema/super-admins'

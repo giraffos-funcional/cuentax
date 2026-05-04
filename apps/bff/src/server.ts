@@ -46,6 +46,7 @@ import { gastosRoutes } from '@/routes/gastos'
 import { pushTokenRoutes } from '@/routes/push-tokens'
 import { ocrRoutes } from '@/routes/ocr'
 import { aiChatRoutes } from '@/routes/ai-chat'
+import { adminRoutes } from '@/routes/admin'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -539,6 +540,23 @@ async function bootstrap() {
       await db.execute(sql`ALTER TABLE "audit_log" ADD COLUMN IF NOT EXISTS "tenant_id" integer REFERENCES "tenants"("id")`)
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "audit_tenant_time_idx" ON "audit_log"("tenant_id","created_at")`)
 
+      // Migration 0008: Phase 01 super_admins (idempotent)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE super_admin_role AS ENUM('owner','support','finance'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "super_admins" (
+        "id" serial PRIMARY KEY,
+        "email" varchar(255) NOT NULL,
+        "password_hash" text NOT NULL,
+        "name" text,
+        "role" super_admin_role NOT NULL DEFAULT 'support',
+        "totp_secret_enc" text,
+        "totp_enabled" boolean NOT NULL DEFAULT false,
+        "active" boolean NOT NULL DEFAULT true,
+        "last_login_at" timestamptz,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "super_admin_email_idx" ON "super_admins" (LOWER("email"))`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
@@ -569,6 +587,7 @@ async function bootstrap() {
   await fastify.register(pushTokenRoutes, { prefix: '/api/v1/push-tokens' })
   await fastify.register(ocrRoutes, { prefix: '/api/v1/ocr' })
   await fastify.register(aiChatRoutes, { prefix: '/api/v1/ai/chat' })
+  await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────
   const { usaAccountingRoutes } = await import('./routes/usa-accounting.js')

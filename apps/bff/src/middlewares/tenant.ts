@@ -35,6 +35,7 @@ const PUBLIC_ROUTES = [
 
 const TENANT_OPTIONAL_ROUTES = [
   '/api/v1/webhooks/', // webhooks externos validan firma, no tenant
+  '/api/admin/',       // rutas cross-tenant del admin console (Fase 01)
 ]
 
 const ROOT_DOMAINS: readonly string[] = (

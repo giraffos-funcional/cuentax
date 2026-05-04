@@ -1,0 +1,380 @@
+/**
+ * Admin Routes — /api/admin/*
+ *
+ * Cross-tenant operator endpoints. ALL routes (except /admin/auth/login)
+ * require a super-admin JWT (scope=admin) via the requireSuperAdmin guard.
+ *
+ * Refs: docs/multitenancy/phase-01-admin.md T1.4
+ */
+import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { randomUUID } from 'crypto'
+import { createSigner } from 'fast-jwt'
+import { sql, desc, eq, ilike, or } from 'drizzle-orm'
+import { config } from '@/core/config'
+import { db } from '@/db/client'
+import { tenants, plans, companies, dteDocuments, auditLog } from '@/db/schema'
+import { logger } from '@/core/logger'
+import {
+  findByEmail,
+  findById,
+  recordLogin,
+  verifyPassword,
+  createSuperAdmin,
+} from '@/services/super-admin.service'
+import {
+  provisionTenant,
+  setStatus,
+  updateRevenueShareRates,
+  ProvisioningError,
+} from '@/services/tenant-provisioning.service'
+import { impersonateTenant } from '@/services/impersonation.service'
+import { requireSuperAdmin, requireRole } from '@/middlewares/require-super-admin'
+
+const ADMIN_ACCESS_TTL_SECONDS = 60 * 60 // 1h
+const signAdminAccess = createSigner({
+  key: config.JWT_SECRET,
+  expiresIn: ADMIN_ACCESS_TTL_SECONDS * 1000,
+})
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+})
+
+const createTenantSchema = z.object({
+  slug: z.string().min(1).max(63),
+  name: z.string().min(1),
+  primary_rut: z.string().optional(),
+  billing_email: z.string().email().optional(),
+  plan_code: z.string().optional(),
+  status: z.enum(['trialing', 'active']).optional(),
+})
+
+const patchTenantSchema = z.object({
+  name: z.string().min(1).optional(),
+  primary_rut: z.string().optional(),
+  billing_email: z.string().email().optional(),
+  plan_code: z.string().optional(),
+  revenue_share_rate_contabilidad: z.number().min(0).max(1).optional(),
+  revenue_share_rate_remuneraciones: z.number().min(0).max(1).optional(),
+})
+
+const listQuerySchema = z.object({
+  q: z.string().optional(),
+  status: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+})
+
+export async function adminRoutes(fastify: FastifyInstance) {
+  // ════════════════════════════════════════════════════════════
+  // PUBLIC: login
+  // ════════════════════════════════════════════════════════════
+  fastify.post('/auth/login', async (request, reply) => {
+    const parsed = loginSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'validation_error', details: parsed.error.flatten().fieldErrors })
+    }
+    const { email, password } = parsed.data
+
+    const admin = await findByEmail(email)
+    if (!admin || !admin.active) {
+      logger.warn({ email }, 'admin.login_failed')
+      return reply.code(401).send({ error: 'invalid_credentials' })
+    }
+    const ok = await verifyPassword(password, admin.password_hash)
+    if (!ok) {
+      logger.warn({ email }, 'admin.login_failed')
+      return reply.code(401).send({ error: 'invalid_credentials' })
+    }
+
+    // TODO: enforce TOTP when admin.totp_enabled is true (Fase 01 T1.3 segunda pasada).
+    if (admin.totp_enabled) {
+      logger.warn({ email }, 'admin.totp_required_but_not_implemented')
+      // Por ahora seguimos para no bloquear; en producción real, requerir paso 2.
+    }
+
+    const jti = randomUUID()
+    const token = signAdminAccess({
+      sub: `admin:${admin.id}`,
+      scope: 'admin',
+      admin_id: admin.id,
+      email: admin.email,
+      role: admin.role,
+      jti,
+      type: 'access',
+    })
+    await recordLogin(admin.id)
+    return reply.send({
+      access_token: token,
+      expires_in: ADMIN_ACCESS_TTL_SECONDS,
+      admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role },
+    })
+  })
+
+  // ════════════════════════════════════════════════════════════
+  // PROTECTED routes
+  // ════════════════════════════════════════════════════════════
+  fastify.register(async (instance) => {
+    instance.addHook('preHandler', requireSuperAdmin)
+
+    // ── /me ────────────────────────────────────────────────
+    instance.get('/me', async (request, reply) => {
+      const id = request.superAdmin!.admin_id
+      const me = await findById(id)
+      if (!me) return reply.code(404).send({ error: 'not_found' })
+      return reply.send(me)
+    })
+
+    // ── Tenants ────────────────────────────────────────────
+    instance.get('/tenants', async (request, reply) => {
+      const parsed = listQuerySchema.safeParse(request.query)
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'validation_error', details: parsed.error.flatten().fieldErrors })
+      }
+      const { q, status, page, limit } = parsed.data
+      const offset = (page - 1) * limit
+
+      const where = []
+      if (q) {
+        where.push(or(ilike(tenants.name, `%${q}%`), ilike(tenants.slug, `%${q}%`)))
+      }
+      if (status) {
+        where.push(eq(tenants.status, status as 'trialing' | 'active' | 'past_due' | 'suspended' | 'cancelled'))
+      }
+      const cond = where.length > 0 ? sql.join(where, sql` AND `) : undefined
+
+      const rows = await db
+        .select()
+        .from(tenants)
+        .where(cond as never)
+        .orderBy(desc(tenants.created_at))
+        .limit(limit)
+        .offset(offset)
+
+      const totalRow = await db.execute(sql`SELECT count(*)::int AS c FROM tenants ${cond ?? sql``}`)
+      const total = (totalRow as unknown as { rows: Array<{ c: number }> }).rows?.[0]?.c
+        ?? (totalRow as unknown as Array<{ c: number }>)[0]?.c
+        ?? 0
+
+      return reply.send({ data: rows, total, page, limit })
+    })
+
+    instance.get('/tenants/:slug', async (request, reply) => {
+      const { slug } = request.params as { slug: string }
+      const rows = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1)
+      const t = rows[0]
+      if (!t) return reply.code(404).send({ error: 'not_found' })
+
+      // Resumen: companies + DTEs del último mes
+      const companyRows = await db.select().from(companies).where(eq(companies.tenant_id, t.id))
+      const dteCountRow = await db.execute(sql`
+        SELECT count(*)::int AS dtes_30d
+        FROM dte_documents d
+        JOIN companies c ON c.id = d.company_id
+        WHERE c.tenant_id = ${t.id}
+          AND d.created_at > now() - interval '30 days'
+      `)
+      const dtes30d = (dteCountRow as any).rows?.[0]?.dtes_30d ?? (dteCountRow as any)[0]?.dtes_30d ?? 0
+
+      // Plan
+      let plan: typeof plans.$inferSelect | null = null
+      if (t.plan_id) {
+        const planRows = await db.select().from(plans).where(eq(plans.id, t.plan_id)).limit(1)
+        plan = planRows[0] ?? null
+      }
+
+      return reply.send({
+        ...t,
+        plan,
+        usage: {
+          companies: companyRows.length,
+          dtes_last_30d: dtes30d,
+        },
+      })
+    })
+
+    instance.post('/tenants', { preHandler: requireRole('owner', 'support') }, async (request, reply) => {
+      const parsed = createTenantSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'validation_error', details: parsed.error.flatten().fieldErrors })
+      }
+      try {
+        const tenant = await provisionTenant(parsed.data)
+        return reply.code(201).send(tenant)
+      } catch (err) {
+        if (err instanceof ProvisioningError) {
+          return reply.code(409).send({ error: err.code, message: err.message })
+        }
+        throw err
+      }
+    })
+
+    instance.patch('/tenants/:slug', { preHandler: requireRole('owner', 'support') }, async (request, reply) => {
+      const { slug } = request.params as { slug: string }
+      const parsed = patchTenantSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'validation_error', details: parsed.error.flatten().fieldErrors })
+      }
+      const body = parsed.data
+
+      const updates: Record<string, unknown> = { updated_at: new Date() }
+      if (body.name !== undefined) updates.name = body.name
+      if (body.primary_rut !== undefined) updates.primary_rut = body.primary_rut
+      if (body.billing_email !== undefined) updates.billing_email = body.billing_email
+      if (body.plan_code !== undefined) {
+        const planRows = await db.select().from(plans).where(eq(plans.code, body.plan_code)).limit(1)
+        if (planRows.length === 0) return reply.code(400).send({ error: 'plan_not_found' })
+        updates.plan_id = planRows[0]!.id
+      }
+      if (body.revenue_share_rate_contabilidad !== undefined) {
+        updates.revenue_share_rate_contabilidad = body.revenue_share_rate_contabilidad.toFixed(4)
+      }
+      if (body.revenue_share_rate_remuneraciones !== undefined) {
+        updates.revenue_share_rate_remuneraciones = body.revenue_share_rate_remuneraciones.toFixed(4)
+      }
+
+      if (Object.keys(updates).length === 1) {
+        // sólo updated_at
+        return reply.code(400).send({ error: 'no_fields_to_update' })
+      }
+
+      const [row] = await db.update(tenants).set(updates).where(eq(tenants.slug, slug)).returning()
+      if (!row) return reply.code(404).send({ error: 'not_found' })
+      logger.info({ adminId: request.superAdmin!.admin_id, slug, updates: Object.keys(updates) }, 'admin.tenant_patched')
+      return reply.send(row)
+    })
+
+    instance.post('/tenants/:slug/suspend', { preHandler: requireRole('owner') }, async (request, reply) => {
+      const { slug } = request.params as { slug: string }
+      const result = await setStatus(slug, 'suspended')
+      if (!result) return reply.code(404).send({ error: 'not_found' })
+      logger.warn({ adminId: request.superAdmin!.admin_id, slug }, 'admin.tenant_suspended')
+      return reply.send(result)
+    })
+
+    instance.post('/tenants/:slug/reactivate', { preHandler: requireRole('owner') }, async (request, reply) => {
+      const { slug } = request.params as { slug: string }
+      const result = await setStatus(slug, 'active')
+      if (!result) return reply.code(404).send({ error: 'not_found' })
+      logger.info({ adminId: request.superAdmin!.admin_id, slug }, 'admin.tenant_reactivated')
+      return reply.send(result)
+    })
+
+    instance.patch('/tenants/:slug/revenue-share', { preHandler: requireRole('owner', 'finance') }, async (request, reply) => {
+      const { slug } = request.params as { slug: string }
+      const body = z.object({
+        contabilidad: z.number().min(0).max(1).optional(),
+        remuneraciones: z.number().min(0).max(1).optional(),
+      }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+      try {
+        const result = await updateRevenueShareRates(slug, body.data)
+        if (!result) return reply.code(404).send({ error: 'not_found' })
+        return reply.send(result)
+      } catch (err) {
+        if (err instanceof ProvisioningError) {
+          return reply.code(400).send({ error: err.code, message: err.message })
+        }
+        throw err
+      }
+    })
+
+    instance.post('/tenants/:slug/impersonate', { preHandler: requireRole('owner', 'support') }, async (request, reply) => {
+      const { slug } = request.params as { slug: string }
+      const result = await impersonateTenant(request.superAdmin!.admin_id, slug)
+      if (!result) return reply.code(404).send({ error: 'not_found' })
+      return reply.send(result)
+    })
+
+    // ── Plans ──────────────────────────────────────────────
+    instance.get('/plans', async (_request, reply) => {
+      const rows = await db.select().from(plans).orderBy(plans.id)
+      return reply.send({ data: rows })
+    })
+
+    // ── Metrics ────────────────────────────────────────────
+    instance.get('/metrics/overview', async (_request, reply) => {
+      const result = await db.execute(sql`
+        WITH t AS (SELECT * FROM tenants),
+             active AS (SELECT count(*)::int AS c FROM t WHERE status = 'active'),
+             trialing AS (SELECT count(*)::int AS c FROM t WHERE status = 'trialing'),
+             suspended AS (SELECT count(*)::int AS c FROM t WHERE status = 'suspended'),
+             total AS (SELECT count(*)::int AS c FROM t),
+             companies_total AS (SELECT count(*)::int AS c FROM companies),
+             mrr AS (
+               SELECT COALESCE(SUM(p.base_price_clp), 0)::int AS clp
+               FROM tenants t
+               LEFT JOIN plans p ON p.id = t.plan_id
+               WHERE t.status IN ('active', 'past_due')
+             )
+        SELECT
+          (SELECT c FROM total) AS tenants_total,
+          (SELECT c FROM active) AS tenants_active,
+          (SELECT c FROM trialing) AS tenants_trialing,
+          (SELECT c FROM suspended) AS tenants_suspended,
+          (SELECT c FROM companies_total) AS companies_total,
+          (SELECT clp FROM mrr) AS mrr_clp
+      `)
+      const row = (result as any).rows?.[0] ?? (result as any)[0]
+      return reply.send({
+        tenants: {
+          total: Number(row.tenants_total),
+          active: Number(row.tenants_active),
+          trialing: Number(row.tenants_trialing),
+          suspended: Number(row.tenants_suspended),
+        },
+        companies_total: Number(row.companies_total),
+        mrr_clp: Number(row.mrr_clp),
+        arr_clp: Number(row.mrr_clp) * 12,
+      })
+    })
+
+    // ── Audit log ──────────────────────────────────────────
+    instance.get('/audit', async (request, reply) => {
+      const q = z.object({
+        tenant_id: z.coerce.number().int().optional(),
+        action: z.string().optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      }).safeParse(request.query)
+      if (!q.success) return reply.code(400).send({ error: 'validation_error', details: q.error.flatten().fieldErrors })
+      const { tenant_id, action, page, limit } = q.data
+      const offset = (page - 1) * limit
+
+      const where = []
+      if (tenant_id !== undefined) where.push(eq(auditLog.tenant_id, tenant_id))
+      if (action) where.push(ilike(auditLog.action, `%${action}%`))
+      const cond = where.length > 0 ? sql.join(where, sql` AND `) : undefined
+
+      const rows = await db
+        .select()
+        .from(auditLog)
+        .where(cond as never)
+        .orderBy(desc(auditLog.created_at))
+        .limit(limit)
+        .offset(offset)
+
+      return reply.send({ data: rows, page, limit })
+    })
+
+    // ── First-time bootstrap: only owner can create more admins ──
+    instance.post('/admins', { preHandler: requireRole('owner') }, async (request, reply) => {
+      const body = z.object({
+        email: z.string().email(),
+        password: z.string().min(12, 'Mínimo 12 caracteres'),
+        name: z.string().optional(),
+        role: z.enum(['owner', 'support', 'finance']).default('support'),
+      }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+      try {
+        const created = await createSuperAdmin(body.data)
+        return reply.code(201).send(created)
+      } catch (err) {
+        // Likely unique constraint violation
+        return reply.code(409).send({ error: 'email_taken' })
+      }
+    })
+  })
+}
