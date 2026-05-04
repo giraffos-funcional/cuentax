@@ -62,6 +62,7 @@ import { sql } from 'drizzle-orm'
 
 // Middleware
 import { authGuard } from '@/middlewares/auth-guard'
+import { tenantMiddleware } from '@/middlewares/tenant'
 
 // Request context (AsyncLocalStorage for correlation IDs)
 import { requestContext } from '@/core/request-context'
@@ -160,6 +161,12 @@ async function bootstrap() {
     requestContext.enterWith({ requestId: reqId })
     done()
   })
+
+  // ── Multi-tenant resolution (Phase 00) ────────────────────
+  // Resolves tenant from Host / X-Tenant-Slug / ?tenant query param,
+  // and company from JWT / X-Company-ID. Public routes (auth/health)
+  // and webhooks are bypassed inside the middleware itself.
+  fastify.addHook('preHandler', tenantMiddleware)
 
   // ── Prometheus request tracking ────────────────────────────
   fastify.addHook('onResponse', (request, reply, done) => {
