@@ -13,7 +13,7 @@ import { createSigner } from 'fast-jwt'
 import { sql, desc, eq, ilike, or } from 'drizzle-orm'
 import { config } from '@/core/config'
 import { db } from '@/db/client'
-import { tenants, plans, companies, dteDocuments, auditLog } from '@/db/schema'
+import { tenants, plans, companies, dteDocuments, auditLog, invoices, revenueShareRuns } from '@/db/schema'
 import { logger } from '@/core/logger'
 import {
   findByEmail,
@@ -30,6 +30,9 @@ import {
 } from '@/services/tenant-provisioning.service'
 import { impersonateTenant } from '@/services/impersonation.service'
 import { requireSuperAdmin, requireRole } from '@/middlewares/require-super-admin'
+import { closeRevenueShare, lockRun } from '@/services/revenue-share/closer'
+import { injectIntoInvoice } from '@/services/revenue-share/injector'
+import { generateMonthlyInvoice } from '@/services/billing/invoice-generator'
 
 const ADMIN_ACCESS_TTL_SECONDS = 60 * 60 // 1h
 const signAdminAccess = createSigner({
@@ -374,6 +377,97 @@ export async function adminRoutes(fastify: FastifyInstance) {
       } catch (err) {
         // Likely unique constraint violation
         return reply.code(409).send({ error: 'email_taken' })
+      }
+    })
+
+    // ── Billing: cross-tenant invoices view ────────────────
+    instance.get('/invoices', async (request, reply) => {
+      const q = z.object({
+        status: z.enum(['draft','issued','paid','past_due','void']).optional(),
+        period: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+        page:   z.coerce.number().int().min(1).default(1),
+        limit:  z.coerce.number().int().min(1).max(200).default(50),
+      }).safeParse(request.query)
+      if (!q.success) return reply.code(400).send({ error: 'validation_error', details: q.error.flatten().fieldErrors })
+      const { status, period, page, limit } = q.data
+      const offset = (page - 1) * limit
+      const conds = []
+      if (status) conds.push(eq(invoices.status, status))
+      if (period) conds.push(eq(invoices.period, period))
+      const cond = conds.length > 0 ? sql.join(conds, sql` AND `) : undefined
+      const rows = await db
+        .select()
+        .from(invoices)
+        .where(cond as never)
+        .orderBy(desc(invoices.created_at))
+        .limit(limit)
+        .offset(offset)
+      return reply.send({ data: rows, page, limit })
+    })
+
+    // Trigger manual invoice generation for one tenant + period (idempotent).
+    instance.post('/billing/invoices/generate', { preHandler: requireRole('owner', 'finance') }, async (request, reply) => {
+      const body = z.object({
+        tenant_id: z.number().int().positive(),
+        period:    z.string().regex(/^\d{4}-\d{2}$/),
+      }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+      try {
+        const result = await generateMonthlyInvoice({ tenantId: body.data.tenant_id, period: body.data.period })
+        return reply.code(201).send(result)
+      } catch (err) {
+        return reply.code(400).send({ error: 'generation_failed', message: (err as Error).message })
+      }
+    })
+
+    // ── Revenue share: cross-tenant runs ────────────────────
+    instance.get('/revenue-share/runs', async (request, reply) => {
+      const q = z.object({
+        period:    z.string().regex(/^\d{4}-\d{2}$/).optional(),
+        tenant_id: z.coerce.number().int().positive().optional(),
+      }).safeParse(request.query)
+      if (!q.success) return reply.code(400).send({ error: 'validation_error', details: q.error.flatten().fieldErrors })
+      const conds = []
+      if (q.data.period)    conds.push(eq(revenueShareRuns.period, q.data.period))
+      if (q.data.tenant_id) conds.push(eq(revenueShareRuns.tenant_id, q.data.tenant_id))
+      const cond = conds.length > 0 ? sql.join(conds, sql` AND `) : undefined
+      const rows = await db
+        .select()
+        .from(revenueShareRuns)
+        .where(cond as never)
+        .orderBy(desc(revenueShareRuns.period), desc(revenueShareRuns.tenant_id))
+        .limit(500)
+      return reply.send({ data: rows })
+    })
+
+    // Trigger close (calculate + persist) for one tenant + period
+    instance.post('/revenue-share/close', { preHandler: requireRole('owner', 'finance') }, async (request, reply) => {
+      const body = z.object({
+        tenant_id: z.number().int().positive(),
+        period:    z.string().regex(/^\d{4}-\d{2}$/),
+      }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+      const result = await closeRevenueShare(body.data.tenant_id, body.data.period)
+      return reply.send(result)
+    })
+
+    // Lock a run (no further recalculation allowed).
+    instance.post('/revenue-share/runs/:id/lock', { preHandler: requireRole('owner') }, async (request, reply) => {
+      const id = Number((request.params as { id: string }).id)
+      await lockRun(id)
+      return reply.send({ ok: true })
+    })
+
+    // Inject a run's totals into a given invoice (admin manual workflow).
+    instance.post('/revenue-share/runs/:id/inject', { preHandler: requireRole('owner', 'finance') }, async (request, reply) => {
+      const id = Number((request.params as { id: string }).id)
+      const body = z.object({ invoice_id: z.number().int().positive() }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+      try {
+        await injectIntoInvoice(id, body.data.invoice_id)
+        return reply.send({ ok: true })
+      } catch (err) {
+        return reply.code(400).send({ error: 'inject_failed', message: (err as Error).message })
       }
     })
   })

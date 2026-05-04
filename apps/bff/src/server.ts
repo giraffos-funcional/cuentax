@@ -49,12 +49,14 @@ import { aiChatRoutes } from '@/routes/ai-chat'
 import { adminRoutes } from '@/routes/admin'
 import { billingRoutes } from '@/routes/billing'
 import { mercadopagoWebhookRoutes } from '@/routes/webhooks/mercadopago'
+import { tenantFeesRoutes } from '@/routes/tenant-fees'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
 import { startDTEMailboxPoller, stopDTEMailboxPoller, getDTEMailboxQueue } from '@/jobs/dte-mailbox-poller'
 import { startPreviredScraper, stopPreviredScraper, getPreviredQueue } from '@/jobs/previred-scraper'
 import { startRCVSync, stopRCVSync, getRCVSyncQueue } from '@/jobs/rcv-sync'
+import { startCloseRevenueShare, stopCloseRevenueShare } from '@/jobs/close-revenue-share'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -651,6 +653,46 @@ async function bootstrap() {
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "dunning_invoice_attempt_idx" ON "dunning_attempts"("invoice_id","attempt_number")`)
       await db.execute(sql`CREATE        INDEX IF NOT EXISTS "dunning_tenant_idx"          ON "dunning_attempts"("tenant_id")`)
 
+      // Migration 0010: Phase 03 revenue-share (idempotent)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE fee_type                 AS ENUM('contabilidad','remuneraciones'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE revenue_share_run_status AS ENUM('calculating','ready','invoiced','paid','locked'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "tenant_fees" (
+        "id" serial PRIMARY KEY,
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "company_id" integer NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+        "fee_type" fee_type NOT NULL,
+        "monthly_clp" integer NOT NULL,
+        "billing_day" integer NOT NULL DEFAULT 1,
+        "active" boolean NOT NULL DEFAULT true,
+        "valid_from" date NOT NULL,
+        "valid_to" date,
+        "notes" text,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "tenant_fee_unique"     ON "tenant_fees"("tenant_id","company_id","fee_type","valid_from")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "tenant_fee_active_idx" ON "tenant_fees"("tenant_id","active")`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "revenue_share_runs" (
+        "id" serial PRIMARY KEY,
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "period" varchar(7) NOT NULL,
+        "status" revenue_share_run_status NOT NULL DEFAULT 'calculating',
+        "total_contabilidad_clp" integer NOT NULL DEFAULT 0,
+        "total_remuneraciones_clp" integer NOT NULL DEFAULT 0,
+        "share_contabilidad_clp" integer NOT NULL DEFAULT 0,
+        "share_remuneraciones_clp" integer NOT NULL DEFAULT 0,
+        "total_share_clp" integer NOT NULL DEFAULT 0,
+        "rate_contabilidad" numeric(5,4) NOT NULL,
+        "rate_remuneraciones" numeric(5,4) NOT NULL,
+        "invoice_id" integer REFERENCES "invoices"("id"),
+        "detail" jsonb,
+        "calculated_at" timestamptz,
+        "locked_at" timestamptz,
+        "notes" text
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "rs_run_tenant_period" ON "revenue_share_runs"("tenant_id","period")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "rs_run_status_idx"    ON "revenue_share_runs"("status")`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
@@ -683,6 +725,7 @@ async function bootstrap() {
   await fastify.register(aiChatRoutes, { prefix: '/api/v1/ai/chat' })
   await fastify.register(billingRoutes, { prefix: '/api/v1/billing' })
   await fastify.register(mercadopagoWebhookRoutes, { prefix: '/api/v1/webhooks/mercadopago' })
+  await fastify.register(tenantFeesRoutes, { prefix: '/api/v1/tenant-fees' })
   await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────
@@ -775,6 +818,7 @@ async function bootstrap() {
     await startDTEMailboxPoller()
     await startPreviredScraper()
     await startRCVSync()
+    startCloseRevenueShare()
 
     // Bank import async worker (for large CSVs)
     const { startBankImportWorker } = await import('./jobs/bank-import.js')
@@ -795,6 +839,7 @@ const shutdown = async (signal: string) => {
     stopDTEMailboxPoller(),
     stopPreviredScraper(),
     stopRCVSync(),
+    stopCloseRevenueShare(),
   ])
   await fastify.close()
   await redis.quit()

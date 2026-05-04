@@ -785,3 +785,11 @@ export {
   lineItemTypeEnum,
   dunningOutcomeEnum,
 } from '@/db/schema/billing'
+
+// ── Re-export revenue-share schema (Phase 03) ────────────────
+export {
+  tenantFees,
+  revenueShareRuns,
+  feeTypeEnum,
+  revenueShareRunStatusEnum,
+} from '@/db/schema/revenue-share'
