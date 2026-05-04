@@ -18,13 +18,14 @@ const scrypt = promisify(scryptCb) as (
   password: string,
   salt: Buffer,
   keylen: number,
-  options: { N: number; r: number; p: number },
+  options: { N: number; r: number; p: number; maxmem: number },
 ) => Promise<Buffer>
 
 const SCRYPT_N = 1 << 15 // 32768
 const SCRYPT_R = 8
 const SCRYPT_P = 1
 const SCRYPT_KEYLEN = 32
+const SCRYPT_MAXMEM = 64 * 1024 * 1024 // 64 MB — default 32MB is too tight for N=32768
 
 export type SuperAdminRole = 'owner' | 'support' | 'finance'
 
@@ -43,6 +44,7 @@ export async function hashPassword(plain: string): Promise<string> {
     N: SCRYPT_N,
     r: SCRYPT_R,
     p: SCRYPT_P,
+    maxmem: SCRYPT_MAXMEM,
   })
   return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString('hex')}$${hash.toString('hex')}`
 }
@@ -55,7 +57,7 @@ export async function verifyPassword(plain: string, encoded: string): Promise<bo
   const p = Number(parts[3])
   const salt = Buffer.from(parts[4]!, 'hex')
   const expected = Buffer.from(parts[5]!, 'hex')
-  const got = await scrypt(plain, salt, expected.length, { N, r, p })
+  const got = await scrypt(plain, salt, expected.length, { N, r, p, maxmem: SCRYPT_MAXMEM })
   if (got.length !== expected.length) return false
   return timingSafeEqual(got, expected)
 }
