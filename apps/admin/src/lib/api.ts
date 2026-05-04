@@ -90,3 +90,34 @@ export interface Plan {
   included_companies: number
   overage_price_per_dte_clp: number
 }
+
+export interface Invoice {
+  id: number
+  tenant_id: number
+  subscription_id: number | null
+  period: string
+  status: 'draft' | 'issued' | 'paid' | 'past_due' | 'void'
+  subtotal_clp: number
+  iva_clp: number
+  total_clp: number
+  due_at: string | null
+  paid_at: string | null
+  created_at: string
+}
+
+export interface RevenueShareRun {
+  id: number
+  tenant_id: number
+  period: string
+  status: 'calculating' | 'ready' | 'invoiced' | 'paid' | 'locked'
+  total_contabilidad_clp: number
+  total_remuneraciones_clp: number
+  share_contabilidad_clp: number
+  share_remuneraciones_clp: number
+  total_share_clp: number
+  rate_contabilidad: string
+  rate_remuneraciones: string
+  invoice_id: number | null
+  calculated_at: string | null
+  locked_at: string | null
+}
