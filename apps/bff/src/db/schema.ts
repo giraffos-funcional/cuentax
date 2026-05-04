@@ -15,6 +15,7 @@ import {
   varchar, decimal, real,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
+import { tenants } from '@/db/schema/tenants'
 
 // ── Enums ─────────────────────────────────────────────────────
 export const countryCodeEnum = pgEnum('country_code', ['CL', 'US'])
@@ -47,6 +48,9 @@ export const tipoContribuyenteEnum = pgEnum('tipo_contribuyente', [
 // ══════════════════════════════════════════════════════════════
 export const companies = pgTable('companies', {
   id:               serial('id').primaryKey(),
+  // Tenant ownership (Phase 00). NULLABLE during initial rollout — backfilled
+  // by T0.3 (legacy tenant) and then ALTERed to NOT NULL.
+  tenant_id:        integer('tenant_id').references(() => tenants.id),
   odoo_company_id:  integer('odoo_company_id').unique(),
   // Multi-country support
   country_code:     countryCodeEnum('country_code').notNull().default('CL'),
@@ -104,6 +108,7 @@ export const companies = pgTable('companies', {
   // Partial unique index: RUT unique only for Chilean companies
   rutIdx: uniqueIndex('companies_rut_idx').on(t.rut),
   countryIdx: index('companies_country_idx').on(t.country_code),
+  tenantIdx:  index('companies_tenant_idx').on(t.tenant_id),
 }))
 
 // ══════════════════════════════════════════════════════════════
@@ -317,6 +322,8 @@ export const webhookEndpoints = pgTable('webhook_endpoints', {
 // ══════════════════════════════════════════════════════════════
 export const auditLog = pgTable('audit_log', {
   id:               serial('id').primaryKey(),
+  // Tenant scope (Phase 00). NULLABLE during initial rollout.
+  tenant_id:        integer('tenant_id').references(() => tenants.id),
   company_id:       integer('company_id'),
   user_id:          integer('user_id'),
   action:           text('action').notNull(),  // 'dte.emitir', 'login', etc.
@@ -329,6 +336,7 @@ export const auditLog = pgTable('audit_log', {
 }, (t) => ({
   companyTimeIdx: index('audit_company_time_idx').on(t.company_id, t.created_at),
   actionIdx:      index('audit_action_idx').on(t.action),
+  tenantTimeIdx:  index('audit_tenant_time_idx').on(t.tenant_id, t.created_at),
 }))
 
 // ══════════════════════════════════════════════════════════════
@@ -748,3 +756,12 @@ export const gastosRelations = relations(gastos, ({ one }) => ({
 
 // ── Re-export push tokens schema ─────────────────────────────
 export { pushTokens, pushTokensRelations } from '@/db/schema/push-tokens'
+
+// ── Re-export tenants & plans schema (Phase 00 foundation) ───
+export {
+  tenants,
+  plans,
+  tenantStatusEnum,
+  tenantsRelations,
+  plansRelations,
+} from '@/db/schema/tenants'

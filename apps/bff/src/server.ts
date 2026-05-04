@@ -497,6 +497,46 @@ async function bootstrap() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "bank_tx_fecha_idx" ON "bank_transactions"("fecha")`)
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "bank_tx_external_idx" ON "bank_transactions"("bank_account_id","external_id")`)
 
+      // Migration 0007: Phase 00 multi-tenant foundation (idempotent)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE tenant_status AS ENUM('trialing','active','past_due','suspended','cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "plans" (
+        "id" serial PRIMARY KEY,
+        "code" varchar(32) NOT NULL UNIQUE,
+        "name" text NOT NULL,
+        "base_price_clp" integer NOT NULL,
+        "included_dtes" integer NOT NULL DEFAULT 0,
+        "included_companies" integer NOT NULL DEFAULT 1,
+        "overage_price_per_dte_clp" integer NOT NULL DEFAULT 0,
+        "features" jsonb,
+        "revenue_share_enabled" boolean NOT NULL DEFAULT true,
+        "active" boolean NOT NULL DEFAULT true,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "tenants" (
+        "id" serial PRIMARY KEY,
+        "slug" varchar(63) NOT NULL,
+        "name" text NOT NULL,
+        "status" tenant_status NOT NULL DEFAULT 'trialing',
+        "plan_id" integer REFERENCES "plans"("id"),
+        "owner_user_id" integer,
+        "primary_rut" varchar(12),
+        "billing_email" varchar(255),
+        "branding" jsonb,
+        "trial_ends_at" timestamptz,
+        "revenue_share_rate_contabilidad" numeric(5,4) NOT NULL DEFAULT 0.2000,
+        "revenue_share_rate_remuneraciones" numeric(5,4) NOT NULL DEFAULT 0.2000,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now(),
+        "deleted_at" timestamptz
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "tenant_slug_idx"   ON "tenants"("slug")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "tenant_status_idx" ON "tenants"("status")`)
+      await db.execute(sql`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "tenant_id" integer REFERENCES "tenants"("id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "companies_tenant_idx" ON "companies"("tenant_id")`)
+      await db.execute(sql`ALTER TABLE "audit_log" ADD COLUMN IF NOT EXISTS "tenant_id" integer REFERENCES "tenants"("id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "audit_tenant_time_idx" ON "audit_log"("tenant_id","created_at")`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
