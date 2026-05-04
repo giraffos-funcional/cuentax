@@ -771,3 +771,17 @@ export {
   superAdmins,
   superAdminRoleEnum,
 } from '@/db/schema/super-admins'
+
+// ── Re-export billing schema (Phase 02) ──────────────────────
+export {
+  subscriptions,
+  invoices,
+  invoiceLineItems,
+  payments,
+  dunningAttempts,
+  subscriptionStatusEnum,
+  invoiceStatusEnum,
+  paymentStatusEnum,
+  lineItemTypeEnum,
+  dunningOutcomeEnum,
+} from '@/db/schema/billing'

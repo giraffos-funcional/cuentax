@@ -36,6 +36,14 @@ export const config = {
   TENANT_RESOLVER_CACHE_TTL:  optional('TENANT_RESOLVER_CACHE_TTL', '60'),
   TENANT_DEFAULT_PLAN:        optional('TENANT_DEFAULT_PLAN', 'starter'),
 
+  // Billing — Mercado Pago (Phase 02)
+  MP_ACCESS_TOKEN:            optional('MP_ACCESS_TOKEN', ''),
+  MP_PUBLIC_KEY:              optional('MP_PUBLIC_KEY', ''),
+  MP_WEBHOOK_SECRET:          optional('MP_WEBHOOK_SECRET', ''),
+  MP_BASE_URL:                optional('MP_BASE_URL', 'https://api.mercadopago.com'),
+  MP_NOTIFICATION_URL:        optional('MP_NOTIFICATION_URL', ''),
+  BILLING_BACK_URL:           optional('BILLING_BACK_URL', 'https://cuentax.cl/billing/return'),
+
   // Odoo
   ODOO_URL:        optional('ODOO_URL', 'http://localhost:8069'),
   // Public Odoo URL, used for context-aware writes that don't persist through

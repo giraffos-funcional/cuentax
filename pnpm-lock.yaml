@@ -78,6 +78,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.87.0
         version: 0.87.0(zod@3.25.76)
+      '@cuentax/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@cuentax/tenancy':
         specifier: workspace:*
         version: link:../../packages/tenancy
@@ -436,6 +439,18 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.7.3
+
+  packages/billing:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.12.7
+        version: 20.19.37
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.5.0
+        version: 1.6.1(@types/node@20.19.37)
 
   packages/stores:
     dependencies:

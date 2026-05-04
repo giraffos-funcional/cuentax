@@ -47,6 +47,8 @@ import { pushTokenRoutes } from '@/routes/push-tokens'
 import { ocrRoutes } from '@/routes/ocr'
 import { aiChatRoutes } from '@/routes/ai-chat'
 import { adminRoutes } from '@/routes/admin'
+import { billingRoutes } from '@/routes/billing'
+import { mercadopagoWebhookRoutes } from '@/routes/webhooks/mercadopago'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -557,6 +559,91 @@ async function bootstrap() {
       )`)
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "super_admin_email_idx" ON "super_admins" (LOWER("email"))`)
 
+      // Migration 0009: Phase 02 billing (Mercado Pago) — idempotent
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE subscription_status AS ENUM('trialing','active','past_due','cancelled','paused'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE invoice_status      AS ENUM('draft','issued','paid','past_due','void'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE payment_status      AS ENUM('pending','approved','rejected','refunded','in_process'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE line_item_type      AS ENUM('subscription','overage','revenue_share_contabilidad','revenue_share_remuneraciones','adjustment'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE dunning_outcome     AS ENUM('success','failed','skipped'); EXCEPTION WHEN duplicate_object THEN null; END $$`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "subscriptions" (
+        "id" serial PRIMARY KEY,
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "plan_id" integer NOT NULL REFERENCES "plans"("id"),
+        "status" subscription_status NOT NULL DEFAULT 'trialing',
+        "payment_provider" varchar(16) NOT NULL DEFAULT 'mercadopago',
+        "provider_subscription_id" varchar(64),
+        "payment_method_token" varchar(255),
+        "current_period_start" timestamptz,
+        "current_period_end" timestamptz,
+        "cancel_at_period_end" boolean NOT NULL DEFAULT false,
+        "trial_ends_at" timestamptz,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now(),
+        "cancelled_at" timestamptz
+      )`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "subscription_tenant_idx" ON "subscriptions"("tenant_id")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "subscription_status_idx" ON "subscriptions"("status")`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "subscription_provider_sub_idx" ON "subscriptions"("provider_subscription_id") WHERE "provider_subscription_id" IS NOT NULL`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "invoices" (
+        "id" serial PRIMARY KEY,
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "subscription_id" integer REFERENCES "subscriptions"("id"),
+        "period" varchar(7) NOT NULL,
+        "status" invoice_status NOT NULL DEFAULT 'draft',
+        "subtotal_clp" integer NOT NULL DEFAULT 0,
+        "iva_clp" integer NOT NULL DEFAULT 0,
+        "total_clp" integer NOT NULL DEFAULT 0,
+        "dte_id" integer,
+        "issued_at" timestamptz,
+        "due_at" timestamptz,
+        "paid_at" timestamptz,
+        "metadata" jsonb,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "invoice_tenant_period_idx" ON "invoices"("tenant_id","period")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "invoice_status_idx"        ON "invoices"("status")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "invoice_due_idx"           ON "invoices"("status","due_at")`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "invoice_line_items" (
+        "id" serial PRIMARY KEY,
+        "invoice_id" integer NOT NULL REFERENCES "invoices"("id") ON DELETE CASCADE,
+        "type" line_item_type NOT NULL,
+        "description" text NOT NULL,
+        "quantity" integer NOT NULL DEFAULT 1,
+        "unit_price_clp" integer NOT NULL DEFAULT 0,
+        "amount_clp" integer NOT NULL,
+        "metadata" jsonb
+      )`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "line_item_invoice_idx" ON "invoice_line_items"("invoice_id")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "line_item_type_idx"    ON "invoice_line_items"("invoice_id","type")`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "payments" (
+        "id" serial PRIMARY KEY,
+        "invoice_id" integer REFERENCES "invoices"("id"),
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "provider" varchar(16) NOT NULL DEFAULT 'mercadopago',
+        "provider_txn_id" varchar(64) NOT NULL,
+        "amount_clp" integer NOT NULL,
+        "status" payment_status NOT NULL,
+        "failure_reason" text,
+        "raw_payload" jsonb,
+        "created_at" timestamptz DEFAULT now(),
+        "updated_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "payment_provider_txn_idx" ON "payments"("provider","provider_txn_id")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "payment_invoice_idx"      ON "payments"("invoice_id")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "payment_tenant_idx"       ON "payments"("tenant_id")`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "dunning_attempts" (
+        "id" serial PRIMARY KEY,
+        "invoice_id" integer NOT NULL REFERENCES "invoices"("id") ON DELETE CASCADE,
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "attempt_number" integer NOT NULL,
+        "attempted_at" timestamptz DEFAULT now(),
+        "outcome" dunning_outcome NOT NULL,
+        "notes" text
+      )`)
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "dunning_invoice_attempt_idx" ON "dunning_attempts"("invoice_id","attempt_number")`)
+      await db.execute(sql`CREATE        INDEX IF NOT EXISTS "dunning_tenant_idx"          ON "dunning_attempts"("tenant_id")`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
@@ -587,6 +674,8 @@ async function bootstrap() {
   await fastify.register(pushTokenRoutes, { prefix: '/api/v1/push-tokens' })
   await fastify.register(ocrRoutes, { prefix: '/api/v1/ocr' })
   await fastify.register(aiChatRoutes, { prefix: '/api/v1/ai/chat' })
+  await fastify.register(billingRoutes, { prefix: '/api/v1/billing' })
+  await fastify.register(mercadopagoWebhookRoutes, { prefix: '/api/v1/webhooks/mercadopago' })
   await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────
