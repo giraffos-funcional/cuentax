@@ -68,6 +68,8 @@ declare module 'fastify' {
   interface FastifyRequest {
     companyId?: number
     companyRut?: string
+    tenantId?: number
+    tenantSlug?: string
   }
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>

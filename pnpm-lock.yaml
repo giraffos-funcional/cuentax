@@ -29,6 +29,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.87.0
         version: 0.87.0(zod@3.25.76)
+      '@cuentax/tenancy':
+        specifier: workspace:*
+        version: link:../../packages/tenancy
       '@fastify/cookie':
         specifier: ^9.4.0
         version: 9.4.0

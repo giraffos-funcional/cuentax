@@ -31,6 +31,11 @@ export const config = {
   DATABASE_URL: optional('DATABASE_URL', 'postgresql://cuentax:cuentax@localhost:5432/cuentax'),
   REDIS_URL:    optional('REDIS_URL', 'redis://localhost:6379'),
 
+  // Multi-tenant (Phase 00)
+  TENANT_ROOT_DOMAINS:        optional('TENANT_ROOT_DOMAINS', 'cuentax.cl,cuentax.local'),
+  TENANT_RESOLVER_CACHE_TTL:  optional('TENANT_RESOLVER_CACHE_TTL', '60'),
+  TENANT_DEFAULT_PLAN:        optional('TENANT_DEFAULT_PLAN', 'starter'),
+
   // Odoo
   ODOO_URL:        optional('ODOO_URL', 'http://localhost:8069'),
   // Public Odoo URL, used for context-aware writes that don't persist through

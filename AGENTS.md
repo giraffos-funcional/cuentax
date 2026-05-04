@@ -79,3 +79,32 @@ curl -s https://deploy.giraffos.com/api/v1/healthcheck \
 curl -s https://deploy.giraffos.com/api/v1/version \
   -H "Authorization: Bearer $COOLIFY_TOKEN"
 ```
+
+## Multi-tenancy (Phase 00 onward)
+
+Cuentax usa **un deploy compartido** con aislamiento por `tenant_id` y RLS Postgres. Cada tenant es un **contador / despacho contable** y administra N companies (PYMEs).
+
+### Reglas para nuevas tablas
+
+Cualquier tabla nueva con datos de negocio (DTE, facturas, contactos, etc.) debe:
+
+1. **Llevar `tenant_id`** directo si es first-class para el tenant (e.g. `tenant_fees`, `subscriptions`), o
+2. **Llevar `company_id`** y heredar tenant via `companies.tenant_id` (la regla más común).
+3. **Tener policy RLS** registrada en `infra/postgres/rls-policies.sql` (las basadas en `company_id` se agregan al array `tables` del `DO $$ … END $$` block).
+4. **No usar `db` directamente** en handlers tenant-scoped: usar `withTenantTx(tenantId, async (tx) => …)` desde `@/db/with-tenant`.
+
+### Subdominios reservados
+
+Lista en `packages/tenancy/src/reserved.ts`. No usar `admin`, `api`, `www`, `webhooks`, etc. como slug de tenant.
+
+### Variables de entorno relevantes
+
+- `TENANT_ROOT_DOMAINS` — dominios apex separados por coma (`cuentax.cl,cuentax.local`).
+- `TENANT_RESOLVER_CACHE_TTL` — segundos de cache Redis para slug → tenant (default 60).
+- `TENANT_DEFAULT_PLAN` — plan code por defecto en provisioning self-serve.
+
+### Refs
+
+- `docs/multitenancy/README.md` — índice de fases.
+- `docs/multitenancy/decisions.md` — decisiones cerradas (D1 shared DB+RLS, D5 Mercado Pago, etc.).
+- `docs/multitenancy/phase-00-foundation.md` — tickets atomic ejecutables.
