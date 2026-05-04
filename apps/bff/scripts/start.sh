@@ -1,17 +1,16 @@
 #!/bin/bash
 # CuentaX BFF — Startup script
-# Installs Playwright Chromium browser if not already present, then starts the app.
+#
+# Note: Playwright was replaced by playwright-core to skip the 97MB Ubuntu
+# deps that were stalling SV1 deploys (commit ad60af1). Scrapers (rcv-sync,
+# itau-scraper) are lazy and will throw a descriptive error at runtime if
+# a chromium binary isn't available — they don't block boot.
+#
+# To re-enable scrapers, set CHROME_EXECUTABLE_PATH=/path/to/chromium and
+# install chromium via the system package manager (or run a separate worker
+# container with @playwright/test installed).
 
 set -e
-
-echo "[init] Checking Playwright Chromium..."
-
-# Install Chromium browser (skip if already installed)
-if npx playwright install chromium 2>&1; then
-  echo "[init] Playwright Chromium ready"
-else
-  echo "[init] WARNING: Playwright Chromium install failed — RCV sync will be unavailable"
-fi
 
 echo "[init] Starting CuentaX BFF..."
 cd /app/apps/bff
