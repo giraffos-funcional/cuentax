@@ -50,6 +50,7 @@ import { adminRoutes } from '@/routes/admin'
 import { billingRoutes } from '@/routes/billing'
 import { mercadopagoWebhookRoutes } from '@/routes/webhooks/mercadopago'
 import { tenantFeesRoutes } from '@/routes/tenant-fees'
+import { signupRoutes } from '@/routes/signup'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -57,6 +58,7 @@ import { startDTEMailboxPoller, stopDTEMailboxPoller, getDTEMailboxQueue } from 
 import { startPreviredScraper, stopPreviredScraper, getPreviredQueue } from '@/jobs/previred-scraper'
 import { startRCVSync, stopRCVSync, getRCVSyncQueue } from '@/jobs/rcv-sync'
 import { startCloseRevenueShare, stopCloseRevenueShare } from '@/jobs/close-revenue-share'
+import { startGenerateMonthlyInvoices, stopGenerateMonthlyInvoices } from '@/jobs/generate-monthly-invoices'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -726,6 +728,7 @@ async function bootstrap() {
   await fastify.register(billingRoutes, { prefix: '/api/v1/billing' })
   await fastify.register(mercadopagoWebhookRoutes, { prefix: '/api/v1/webhooks/mercadopago' })
   await fastify.register(tenantFeesRoutes, { prefix: '/api/v1/tenant-fees' })
+  await fastify.register(signupRoutes, { prefix: '/api/v1/signup' })
   await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────
@@ -819,6 +822,7 @@ async function bootstrap() {
     await startPreviredScraper()
     await startRCVSync()
     startCloseRevenueShare()
+    startGenerateMonthlyInvoices()
 
     // Bank import async worker (for large CSVs)
     const { startBankImportWorker } = await import('./jobs/bank-import.js')
@@ -840,6 +844,7 @@ const shutdown = async (signal: string) => {
     stopPreviredScraper(),
     stopRCVSync(),
     stopCloseRevenueShare(),
+    stopGenerateMonthlyInvoices(),
   ])
   await fastify.close()
   await redis.quit()

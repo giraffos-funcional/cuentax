@@ -31,6 +31,7 @@ const PUBLIC_ROUTES = [
   '/metrics',
   '/api/v1/auth/login',
   '/api/v1/auth/refresh',
+  '/api/v1/signup',  // self-serve (Phase 04) — no tenant context yet
 ]
 
 const TENANT_OPTIONAL_ROUTES = [

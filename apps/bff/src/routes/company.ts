@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { sql, eq } from 'drizzle-orm'
+import { sql, eq, and } from 'drizzle-orm'
 import { z } from 'zod'
 import { authGuard } from '@/middlewares/auth-guard'
 import { authService } from '@/services/auth.service'
@@ -180,9 +180,12 @@ export async function companyRoutes(fastify: FastifyInstance) {
   fastify.get('/', async (req, reply) => {
     const user = (req as any).user
 
-    // Get ALL companies from DB (user can access any they created)
-    const allCompanies = await db.select().from(companies)
-      .where(eq(companies.activo, true))
+    // Filter by tenant when the multi-tenant context is set; otherwise
+    // fall back to all-companies (legacy behavior during rollout).
+    const baseFilter = req.tenantId
+      ? and(eq(companies.activo, true), eq(companies.tenant_id, req.tenantId))
+      : eq(companies.activo, true)
+    const allCompanies = await db.select().from(companies).where(baseFilter)
 
     return reply.send({
       companies: allCompanies.map(c => ({
