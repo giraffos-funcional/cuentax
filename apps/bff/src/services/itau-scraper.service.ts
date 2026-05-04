@@ -13,8 +13,8 @@
  * Auth: RUT personal + clave internet (no 2FA/coordinates)
  */
 
-import { chromium } from 'playwright'
-import type { Browser, BrowserContext, Page } from 'playwright'
+import { chromium } from 'playwright-core'
+import type { Browser, BrowserContext, Page } from 'playwright-core'
 import { logger } from '@/core/logger'
 
 // ---------------------------------------------------------------------------

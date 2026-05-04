@@ -16,8 +16,8 @@
  */
 
 import crypto from 'node:crypto'
-import { chromium } from 'playwright'
-import type { Browser, BrowserContext } from 'playwright'
+import { chromium } from 'playwright-core'
+import type { Browser, BrowserContext } from 'playwright-core'
 import { eq, and, inArray } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { companies, rcvRegistros, rcvDetalles, dteDocuments } from '@/db/schema'
