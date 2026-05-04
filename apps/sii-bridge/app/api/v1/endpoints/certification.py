@@ -146,16 +146,6 @@ def _save_session(rut_emisor: str, session: dict) -> None:
 
 # ── Request models ────────────────────────────────────────────
 
-class EmisorData(BaseModel):
-    rut_emisor: str
-    razon_social: str
-    giro: str
-    direccion: str = ""
-    comuna: str = ""
-    ciudad: str = "Santiago"
-    actividad_economica: int = 620200
-
-
 class StepCompleteRequest(BaseModel):
     rut_emisor: str
     step: int
