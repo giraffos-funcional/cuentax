@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { adminFetch, AdminApiError } from '@/lib/api'
 import { setAdminCookie, getAdminToken } from '@/lib/auth'
+import { t } from '@/lib/i18n'
 
 export default function LoginPage({
   searchParams,
@@ -40,22 +41,22 @@ export default function LoginPage({
   return (
     <main className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm bg-white rounded-xl shadow-sm border border-border p-8">
-        <h1 className="text-2xl font-semibold mb-1">Cuentax Admin</h1>
-        <p className="text-sm text-muted-foreground mb-6">Acceso de operador interno</p>
+        <h1 className="text-2xl font-semibold mb-1">{t('login.title')}</h1>
+        <p className="text-sm text-muted-foreground mb-6">{t('login.subtitle')}</p>
 
         {searchParams.error === 'invalid' && (
-          <p className="mb-4 text-sm text-destructive">Email o contraseña inválidos.</p>
+          <p className="mb-4 text-sm text-destructive">{t('login.error.invalid')}</p>
         )}
         {searchParams.error === 'invalid_totp' && (
-          <p className="mb-4 text-sm text-destructive">Código 2FA incorrecto.</p>
+          <p className="mb-4 text-sm text-destructive">{t('login.error.invalidTotp')}</p>
         )}
         {searchParams.error === 'missing' && (
-          <p className="mb-4 text-sm text-destructive">Completá email y contraseña.</p>
+          <p className="mb-4 text-sm text-destructive">{t('login.error.missing')}</p>
         )}
 
         <form action={login} className="space-y-4">
           <label className="block">
-            <span className="text-sm font-medium">Email</span>
+            <span className="text-sm font-medium">{t('login.email')}</span>
             <input
               type="email"
               name="email"
@@ -67,7 +68,7 @@ export default function LoginPage({
             />
           </label>
           <label className="block">
-            <span className="text-sm font-medium">Contraseña</span>
+            <span className="text-sm font-medium">{t('login.password')}</span>
             <input
               type="password"
               name="password"
@@ -78,7 +79,7 @@ export default function LoginPage({
 
           {showTotp && (
             <label className="block">
-              <span className="text-sm font-medium">Código 2FA</span>
+              <span className="text-sm font-medium">{t('login.totp')}</span>
               <input
                 type="text"
                 name="totp_code"
@@ -89,7 +90,7 @@ export default function LoginPage({
                 autoFocus
                 className="mt-1 block w-full rounded-md border border-border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
               />
-              <span className="text-xs text-muted-foreground">6 dígitos de tu app de autenticación.</span>
+              <span className="text-xs text-muted-foreground">{t('login.totpHint')}</span>
             </label>
           )}
 
@@ -97,7 +98,7 @@ export default function LoginPage({
             type="submit"
             className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
           >
-            Iniciar sesión
+            {t('login.submit')}
           </button>
         </form>
       </div>

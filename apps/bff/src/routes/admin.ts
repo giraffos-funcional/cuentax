@@ -331,6 +331,32 @@ export async function adminRoutes(fastify: FastifyInstance) {
       return reply.send(row)
     })
 
+    // Bulk suspend/reactivate — owner only.
+    instance.post('/tenants/bulk', { preHandler: requireRole('owner') }, async (request, reply) => {
+      const body = z.object({
+        slugs:  z.array(z.string()).min(1).max(200),
+        action: z.enum(['suspend', 'reactivate']),
+      }).safeParse(request.body)
+      if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+
+      const targetStatus = body.data.action === 'suspend' ? 'suspended' : 'active'
+      const results: Array<{ slug: string; ok: boolean }> = []
+      for (const slug of body.data.slugs) {
+        const r = await setStatus(slug, targetStatus)
+        results.push({ slug, ok: !!r })
+        if (r) {
+          await auditFromRequest(request, {
+            action: body.data.action === 'suspend' ? 'admin.tenant.suspended' : 'admin.tenant.reactivated',
+            tenant_id: r.id,
+            actor_admin_id: request.superAdmin!.admin_id,
+            resource: 'tenant', resource_id: r.id,
+            payload: { bulk: true },
+          })
+        }
+      }
+      return reply.send({ results })
+    })
+
     instance.post('/tenants/:slug/suspend', { preHandler: requireRole('owner') }, async (request, reply) => {
       const { slug } = request.params as { slug: string }
       const result = await setStatus(slug, 'suspended')
