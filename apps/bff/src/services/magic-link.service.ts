@@ -7,7 +7,7 @@
  */
 import { createHash, randomBytes } from 'crypto'
 import { eq, and, gt, isNull } from 'drizzle-orm'
-import { createEmailProvider } from '@cuentax/email'
+import { createEmailProvider, welcomeMagicLink } from '@cuentax/email'
 import { config } from '@/core/config'
 import { db } from '@/db/client'
 import { magicLinks } from '@/db/schema'
@@ -62,22 +62,18 @@ export async function sendWelcomeMagicLink(input: {
   })
 
   const link = `https://${input.tenantSlug}.cuentax.cl/login?token=${encodeURIComponent(token)}`
-  const subject = `Bienvenido/a a Cuentax — ${input.tenantName}`
-  const html = `
-    <div style="font-family: ui-sans-serif, system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #18181b;">
-      <h1 style="font-size: 22px; margin: 0 0 8px 0;">Tu cuenta Cuentax está lista</h1>
-      <p style="color: #52525b; margin: 0 0 24px 0;">Hola, te acabamos de crear una cuenta para <strong>${escapeHtml(input.tenantName)}</strong>. Hacé clic abajo para entrar por primera vez.</p>
-      <a href="${link}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: 500;">Entrar a Cuentax</a>
-      <p style="color: #71717a; font-size: 13px; margin-top: 24px;">El link expira el ${expires_at.toLocaleString('es-CL', { timeZone: 'America/Santiago' })}. Si no fuiste vos, podés ignorar este mensaje.</p>
-      <p style="color: #71717a; font-size: 12px; margin-top: 32px;">Tu URL: <a href="https://${input.tenantSlug}.cuentax.cl">${input.tenantSlug}.cuentax.cl</a></p>
-    </div>
-  `
+  const tpl = welcomeMagicLink({
+    tenantName: input.tenantName,
+    tenantSlug: input.tenantSlug,
+    loginUrl:   link,
+    expiresAt:  expires_at,
+  })
   try {
     await emailProvider.send({
       to:      input.email,
       from:    config.EMAIL_FROM,
-      subject,
-      html,
+      subject: tpl.subject,
+      html:    tpl.html,
     })
     logger.info({ tenantId: input.tenantId, email: input.email, provider: emailProvider.name }, 'magic_link.sent')
   } catch (err) {
@@ -120,8 +116,3 @@ export async function consumeMagicLink(rawToken: string): Promise<{
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] ?? c
-  ))
-}

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { adminFetch } from '@/lib/api'
 import { clearAdminCookie, requireSession } from '@/lib/auth'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { MobileSidebarToggle } from '@/components/mobile-sidebar-toggle'
 
 interface Me { id: number; email: string; name: string | null; role: string }
 
@@ -26,7 +27,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
   return (
     <div className="min-h-screen flex">
-      <aside className="w-60 border-r border-border bg-white p-4 flex flex-col">
+      <MobileSidebarToggle />
+      <aside className="cx-sidebar w-60 border-r border-border bg-white p-4 flex flex-col fixed md:static inset-y-0 left-0 z-40 -translate-x-full md:translate-x-0 transition-transform">
         <div className="mb-8 flex items-start justify-between">
           <div>
             <h1 className="font-semibold">Cuentax Admin</h1>
@@ -52,7 +54,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
           </button>
         </form>
       </aside>
-      <main className="flex-1 p-8 max-w-6xl">{children}</main>
+      <main className="flex-1 p-4 md:p-8 max-w-6xl pt-16 md:pt-8">{children}</main>
     </div>
   )
 }

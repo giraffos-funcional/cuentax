@@ -17,6 +17,7 @@ import { InstallPrompt } from '@/components/pwa/InstallPrompt'
 import { AIChatWidget } from '@/components/ai-chat/AIChatWidget'
 import { HelpButton } from '@/components/help/HelpButton'
 import { ImpersonationBanner } from '@/components/impersonation-banner'
+import { NotificationsBell } from '@/components/notifications-bell'
 import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard, FileText, BookOpen,
@@ -942,21 +943,7 @@ function Topbar({ title, collapsed, onMenuToggle }: { title: string, collapsed: 
       {/* Ayuda */}
       <HelpButton />
       {/* Notificaciones */}
-      <div className="relative">
-        <button
-          onClick={() => setShowNotifications(!showNotifications)}
-          className="relative w-8 h-8 rounded-lg flex items-center justify-center text-[var(--cx-text-muted)] hover:text-[var(--cx-text-primary)] hover:bg-[var(--cx-hover-bg)] transition-colors"
-        >
-          <Bell size={15} />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--cx-violet-500)]" />
-        </button>
-        {showNotifications && (
-          <div className="absolute right-0 top-10 w-64 rounded-xl bg-[var(--cx-bg-surface)] border border-[var(--cx-border-light)] shadow-lg p-4 z-50">
-            <p className="text-xs font-semibold text-[var(--cx-text-primary)] mb-2">Notificaciones</p>
-            <p className="text-xs text-[var(--cx-text-muted)]">Sin notificaciones nuevas</p>
-          </div>
-        )}
-      </div>
+      <NotificationsBell />
     </header>
   )
 }

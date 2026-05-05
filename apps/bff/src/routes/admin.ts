@@ -46,7 +46,7 @@ import { generateMonthlyInvoice } from '@/services/billing/invoice-generator'
 import { auditFromRequest } from '@/services/audit.service'
 import { issueMagicLink, consumeMagicLink } from '@/services/magic-link.service'
 import { setPassword } from '@/services/super-admin.service'
-import { createEmailProvider } from '@cuentax/email'
+import { createEmailProvider, passwordReset } from '@cuentax/email'
 import { getCronHealth } from '@/services/cron-health.service'
 
 const ADMIN_ACCESS_TTL_SECONDS = 60 * 60 // 1h
@@ -106,13 +106,12 @@ export async function adminRoutes(fastify: FastifyInstance) {
         POSTMARK_TOKEN: config.POSTMARK_TOKEN,
         RESEND_API_KEY: config.RESEND_API_KEY,
       })
+      const tpl = passwordReset({ resetUrl: link })
       ep.send({
         to:      admin.email,
         from:    config.EMAIL_FROM,
-        subject: 'Cuentax Admin — restablecer contraseña',
-        html: `<p>Hola, hicimos un link para restablecer tu contraseña de Cuentax Admin.</p>
-               <p><a href="${link}">Restablecer ahora</a></p>
-               <p>Expira en 24h. Si no fuiste vos, ignorá este mensaje.</p>`,
+        subject: tpl.subject,
+        html:    tpl.html,
       }).catch((err) => logger.error({ err }, 'admin.forgot_email_failed'))
     }
     return reply.send({ ok: true })

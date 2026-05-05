@@ -125,3 +125,6 @@ export function createEmailProvider(env: {
   }
   return new LogEmailProvider()
 }
+
+// ── Re-export templates ──────────────────────────────────────────
+export * from './templates'

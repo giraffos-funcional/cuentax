@@ -51,3 +51,18 @@ html, body {
 .dark .border-zinc-300 {
   border-color: hsl(var(--cx-border)) !important;
 }
+
+/* Mobile sidebar — toggled via body.sidebar-open class */
+@media (max-width: 767px) {
+  body.sidebar-open .cx-sidebar {
+    transform: translateX(0);
+    box-shadow: 0 0 24px rgba(0,0,0,0.15);
+  }
+  body.sidebar-open::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 30;
+  }
+}
