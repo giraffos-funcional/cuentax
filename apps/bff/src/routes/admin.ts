@@ -231,7 +231,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         .limit(limit)
         .offset(offset)
 
-      const totalRow = await db.execute(sql`SELECT count(*)::int AS c FROM tenants ${cond ?? sql``}`)
+      const totalRow = await db.execute(sql`SELECT count(*)::int AS c FROM tenants ${cond ? sql`WHERE ${cond}` : sql``}`)
       const total = (totalRow as unknown as { rows: Array<{ c: number }> }).rows?.[0]?.c
         ?? (totalRow as unknown as Array<{ c: number }>)[0]?.c
         ?? 0
