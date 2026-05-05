@@ -796,3 +796,6 @@ export {
 
 // ── Re-export magic-link schema (Phase 04) ───────────────────
 export { magicLinks } from '@/db/schema/magic-links'
+
+// ── Re-export notifications schema ───────────────────────────
+export { notifications } from '@/db/schema/notifications'

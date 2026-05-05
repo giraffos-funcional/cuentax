@@ -52,6 +52,9 @@ import { mercadopagoWebhookRoutes } from '@/routes/webhooks/mercadopago'
 import { tenantFeesRoutes } from '@/routes/tenant-fees'
 import { signupRoutes } from '@/routes/signup'
 import { onboardingRoutes } from '@/routes/onboarding'
+import { apiKeysRoutes } from '@/routes/api-keys'
+import { webhooksConfigRoutes } from '@/routes/webhooks-config'
+import { notificationsRoutes } from '@/routes/notifications'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -715,6 +718,29 @@ async function bootstrap() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "magic_link_tenant_idx"  ON "magic_links"("tenant_id")`)
       await db.execute(sql`CREATE INDEX IF NOT EXISTS "magic_link_expires_idx" ON "magic_links"("expires_at")`)
 
+      // Migration 0012: notifications + audit immutability trigger
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "notifications" (
+        "id" serial PRIMARY KEY,
+        "tenant_id" integer NOT NULL REFERENCES "tenants"("id") ON DELETE CASCADE,
+        "user_id" integer,
+        "level" varchar(16) NOT NULL,
+        "title" varchar(200) NOT NULL,
+        "body" text,
+        "href" varchar(500),
+        "metadata" jsonb,
+        "read_at" timestamptz,
+        "archived_at" timestamptz,
+        "created_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "notif_tenant_unread_idx" ON "notifications"("tenant_id","read_at")`)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS "notif_created_idx"       ON "notifications"("created_at")`)
+
+      await db.execute(sql`CREATE OR REPLACE FUNCTION audit_log_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF current_user = 'cuentax_admin' THEN RETURN COALESCE(NEW, OLD); END IF; RAISE EXCEPTION 'audit_log is append-only'; END; $$`)
+      await db.execute(sql`DROP TRIGGER IF EXISTS audit_log_no_update ON audit_log`)
+      await db.execute(sql`CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW EXECUTE FUNCTION audit_log_immutable()`)
+      await db.execute(sql`DROP TRIGGER IF EXISTS audit_log_no_delete ON audit_log`)
+      await db.execute(sql`CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW EXECUTE FUNCTION audit_log_immutable()`)
+
       logger.info('✅ Schema auto-migration complete')
     } catch (migErr) {
       logger.warn({ migErr }, 'Schema migration failed — non-critical')
@@ -749,7 +775,10 @@ async function bootstrap() {
   await fastify.register(mercadopagoWebhookRoutes, { prefix: '/api/v1/webhooks/mercadopago' })
   await fastify.register(tenantFeesRoutes, { prefix: '/api/v1/tenant-fees' })
   await fastify.register(signupRoutes, { prefix: '/api/v1/signup' })
-  await fastify.register(onboardingRoutes, { prefix: '/api/v1/onboarding' })
+  await fastify.register(onboardingRoutes,    { prefix: '/api/v1/onboarding' })
+  await fastify.register(apiKeysRoutes,       { prefix: '/api/v1/api-keys' })
+  await fastify.register(webhooksConfigRoutes,{ prefix: '/api/v1/webhook-endpoints' })
+  await fastify.register(notificationsRoutes, { prefix: '/api/v1/notifications' })
   await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────
