@@ -43,6 +43,10 @@ import { requireSuperAdmin, requireRole } from '@/middlewares/require-super-admi
 import { closeRevenueShare, lockRun } from '@/services/revenue-share/closer'
 import { injectIntoInvoice } from '@/services/revenue-share/injector'
 import { generateMonthlyInvoice } from '@/services/billing/invoice-generator'
+import { auditFromRequest } from '@/services/audit.service'
+import { issueMagicLink, consumeMagicLink } from '@/services/magic-link.service'
+import { setPassword } from '@/services/super-admin.service'
+import { createEmailProvider } from '@cuentax/email'
 
 const ADMIN_ACCESS_TTL_SECONDS = 60 * 60 // 1h
 const signAdminAccess = createSigner({
@@ -82,6 +86,56 @@ const listQuerySchema = z.object({
 })
 
 export async function adminRoutes(fastify: FastifyInstance) {
+  // ════════════════════════════════════════════════════════════
+  // PUBLIC: password reset request + completion via magic link
+  // ════════════════════════════════════════════════════════════
+  fastify.post('/auth/forgot-password', async (request, reply) => {
+    const body = z.object({ email: z.string().email() }).safeParse(request.body)
+    if (!body.success) return reply.code(400).send({ error: 'validation_error' })
+    // Always return 200 to avoid email enumeration; only actually send if account exists.
+    const admin = await findByEmail(body.data.email)
+    if (admin && admin.active) {
+      const { token } = await issueMagicLink({
+        email:   admin.email,
+        purpose: 'password_reset',
+      })
+      const link = `${config.PUBLIC_BASE_URL}/admin-reset?token=${encodeURIComponent(token)}`
+      const ep = createEmailProvider({
+        EMAIL_PROVIDER: config.EMAIL_PROVIDER,
+        POSTMARK_TOKEN: config.POSTMARK_TOKEN,
+        RESEND_API_KEY: config.RESEND_API_KEY,
+      })
+      ep.send({
+        to:      admin.email,
+        from:    config.EMAIL_FROM,
+        subject: 'Cuentax Admin — restablecer contraseña',
+        html: `<p>Hola, hicimos un link para restablecer tu contraseña de Cuentax Admin.</p>
+               <p><a href="${link}">Restablecer ahora</a></p>
+               <p>Expira en 24h. Si no fuiste vos, ignorá este mensaje.</p>`,
+      }).catch((err) => logger.error({ err }, 'admin.forgot_email_failed'))
+    }
+    return reply.send({ ok: true })
+  })
+
+  fastify.post('/auth/reset-password', async (request, reply) => {
+    const body = z.object({
+      token:    z.string().min(1),
+      password: z.string().min(12),
+    }).safeParse(request.body)
+    if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+
+    const claim = await consumeMagicLink(body.data.token)
+    if (!claim.ok) return reply.code(401).send({ error: claim.reason })
+    if (claim.purpose !== 'password_reset') return reply.code(400).send({ error: 'wrong_purpose' })
+
+    const admin = await findByEmail(claim.email)
+    if (!admin) return reply.code(404).send({ error: 'admin_not_found' })
+
+    await setPassword(admin.id, body.data.password)
+    logger.info({ adminId: admin.id }, 'admin.password_reset')
+    return reply.send({ ok: true })
+  })
+
   // ════════════════════════════════════════════════════════════
   // PUBLIC: login
   // ════════════════════════════════════════════════════════════
@@ -226,6 +280,13 @@ export async function adminRoutes(fastify: FastifyInstance) {
       }
       try {
         const tenant = await provisionTenant(parsed.data)
+        await auditFromRequest(request, {
+          action: 'admin.tenant.created',
+          tenant_id: tenant.id,
+          actor_admin_id: request.superAdmin!.admin_id,
+          resource: 'tenant', resource_id: tenant.id,
+          payload: { slug: tenant.slug, plan_code: parsed.data.plan_code },
+        })
         return reply.code(201).send(tenant)
       } catch (err) {
         if (err instanceof ProvisioningError) {
@@ -275,6 +336,12 @@ export async function adminRoutes(fastify: FastifyInstance) {
       const result = await setStatus(slug, 'suspended')
       if (!result) return reply.code(404).send({ error: 'not_found' })
       logger.warn({ adminId: request.superAdmin!.admin_id, slug }, 'admin.tenant_suspended')
+      await auditFromRequest(request, {
+        action: 'admin.tenant.suspended',
+        tenant_id: result.id,
+        actor_admin_id: request.superAdmin!.admin_id,
+        resource: 'tenant', resource_id: result.id,
+      })
       return reply.send(result)
     })
 
@@ -283,6 +350,12 @@ export async function adminRoutes(fastify: FastifyInstance) {
       const result = await setStatus(slug, 'active')
       if (!result) return reply.code(404).send({ error: 'not_found' })
       logger.info({ adminId: request.superAdmin!.admin_id, slug }, 'admin.tenant_reactivated')
+      await auditFromRequest(request, {
+        action: 'admin.tenant.reactivated',
+        tenant_id: result.id,
+        actor_admin_id: request.superAdmin!.admin_id,
+        resource: 'tenant', resource_id: result.id,
+      })
       return reply.send(result)
     })
 
@@ -309,6 +382,13 @@ export async function adminRoutes(fastify: FastifyInstance) {
       const { slug } = request.params as { slug: string }
       const result = await impersonateTenant(request.superAdmin!.admin_id, slug)
       if (!result) return reply.code(404).send({ error: 'not_found' })
+      await auditFromRequest(request, {
+        action: 'admin.tenant.impersonate_started',
+        tenant_id: result.tenant.id,
+        actor_admin_id: request.superAdmin!.admin_id,
+        resource: 'tenant', resource_id: result.tenant.id,
+        payload: { tenant_slug: slug },
+      })
       return reply.send(result)
     })
 
@@ -352,6 +432,50 @@ export async function adminRoutes(fastify: FastifyInstance) {
         companies_total: Number(row.companies_total),
         mrr_clp: Number(row.mrr_clp),
         arr_clp: Number(row.mrr_clp) * 12,
+      })
+    })
+
+    // ── Trend metrics (last 12 months) ─────────────────────
+    instance.get('/metrics/trends', async (_request, reply) => {
+      // Returns 12 monthly buckets ending at the current Santiago month.
+      // For each: tenants_created, signups (alias), invoices_total_clp, invoices_paid_clp, dtes_emitted.
+      const result = await db.execute(sql`
+        WITH months AS (
+          SELECT to_char(date_trunc('month', now() - (n * interval '1 month')) AT TIME ZONE 'America/Santiago', 'YYYY-MM') AS period
+          FROM generate_series(0, 11) AS n
+        )
+        SELECT
+          m.period,
+          (SELECT count(*)::int FROM tenants
+            WHERE to_char(created_at AT TIME ZONE 'America/Santiago', 'YYYY-MM') = m.period
+          ) AS tenants_created,
+          (SELECT COALESCE(sum(total_clp), 0)::bigint FROM invoices
+            WHERE period = m.period
+          ) AS invoices_total_clp,
+          (SELECT COALESCE(sum(total_clp), 0)::bigint FROM invoices
+            WHERE period = m.period AND status = 'paid'
+          ) AS invoices_paid_clp,
+          (SELECT count(*)::int FROM dte_documents d
+            WHERE to_char(d.created_at AT TIME ZONE 'America/Santiago', 'YYYY-MM') = m.period
+          ) AS dtes_emitted
+        FROM months m
+        ORDER BY m.period
+      `)
+      const rows = ((result as any).rows ?? (result as any)) as Array<{
+        period: string
+        tenants_created: number | string
+        invoices_total_clp: number | string
+        invoices_paid_clp: number | string
+        dtes_emitted: number | string
+      }>
+      return reply.send({
+        data: rows.map((r) => ({
+          period:             r.period,
+          tenants_created:    Number(r.tenants_created),
+          invoices_total_clp: Number(r.invoices_total_clp),
+          invoices_paid_clp:  Number(r.invoices_paid_clp),
+          dtes_emitted:       Number(r.dtes_emitted),
+        })),
       })
     })
 
@@ -516,6 +640,11 @@ export async function adminRoutes(fastify: FastifyInstance) {
     instance.post('/revenue-share/runs/:id/lock', { preHandler: requireRole('owner') }, async (request, reply) => {
       const id = Number((request.params as { id: string }).id)
       await lockRun(id)
+      await auditFromRequest(request, {
+        action: 'admin.revenue_share.locked',
+        actor_admin_id: request.superAdmin!.admin_id,
+        resource: 'revenue_share_run', resource_id: id,
+      })
       return reply.send({ ok: true })
     })
 

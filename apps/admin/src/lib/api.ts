@@ -105,6 +105,14 @@ export interface Invoice {
   created_at: string
 }
 
+export interface TrendPoint {
+  period: string
+  tenants_created: number
+  invoices_total_clp: number
+  invoices_paid_clp: number
+  dtes_emitted: number
+}
+
 export interface RevenueShareRun {
   id: number
   tenant_id: number

@@ -16,6 +16,7 @@ import { registerServiceWorker } from '@/lib/register-sw'
 import { InstallPrompt } from '@/components/pwa/InstallPrompt'
 import { AIChatWidget } from '@/components/ai-chat/AIChatWidget'
 import { HelpButton } from '@/components/help/HelpButton'
+import { ImpersonationBanner } from '@/components/impersonation-banner'
 import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard, FileText, BookOpen,
@@ -1040,6 +1041,7 @@ export default function DashboardLayout({
             onMenuToggle={() => setCollapsed(!collapsed)}
           />
           <main className="flex-1 overflow-y-auto p-6">
+            <ImpersonationBanner />
             {children}
           </main>
         </div>

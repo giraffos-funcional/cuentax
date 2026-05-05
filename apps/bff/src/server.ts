@@ -61,6 +61,7 @@ import { startCloseRevenueShare, stopCloseRevenueShare } from '@/jobs/close-reve
 import { startGenerateMonthlyInvoices, stopGenerateMonthlyInvoices } from '@/jobs/generate-monthly-invoices'
 import { startChargeDue, stopChargeDue } from '@/jobs/charge-due-invoices'
 import { startDunning, stopDunning } from '@/jobs/dunning'
+import { startMagicLinkCleanup, stopMagicLinkCleanup } from '@/jobs/cleanup-magic-links'
 
 // DB
 import { pingDB, db } from '@/db/client'
@@ -843,6 +844,7 @@ async function bootstrap() {
     startGenerateMonthlyInvoices()
     startChargeDue()
     startDunning()
+    startMagicLinkCleanup()
 
     // Bank import async worker (for large CSVs)
     const { startBankImportWorker } = await import('./jobs/bank-import.js')
@@ -867,6 +869,7 @@ const shutdown = async (signal: string) => {
     stopGenerateMonthlyInvoices(),
     stopChargeDue(),
     stopDunning(),
+    stopMagicLinkCleanup(),
   ])
   await fastify.close()
   await redis.quit()

@@ -10,9 +10,10 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { eq, desc } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { subscriptions, invoices } from '@/db/schema'
-import { createSetupIntent } from '@/services/billing.service'
+import { subscriptions, invoices, plans } from '@/db/schema'
+import { createSetupIntent, getBillingProvider } from '@/services/billing.service'
 import { generateInvoicePdf } from '@/services/billing/invoice-pdf.service'
+import { audit } from '@/services/audit.service'
 import { logger } from '@/core/logger'
 
 const setupSchema = z.object({
@@ -60,6 +61,91 @@ export async function billingRoutes(fastify: FastifyInstance) {
       .orderBy(desc(invoices.period))
       .limit(50)
     return reply.send({ data: rows })
+  })
+
+  // ── POST /api/v1/billing/change-plan ──────────────────────────
+  // Cambio de plan (efectivo en próximo período): updates subscription.plan_id.
+  // Si el upgrade lo justifica, podríamos prorratear con un payment one-shot;
+  // por ahora dejamos esa decisión manual al admin (POST admin/billing/invoices/generate).
+  fastify.post('/change-plan', async (request, reply) => {
+    if (!request.tenantId) return reply.code(400).send({ error: 'tenant_required' })
+    const body = z.object({ plan_code: z.string().min(1) }).safeParse(request.body)
+    if (!body.success) return reply.code(400).send({ error: 'validation_error', details: body.error.flatten().fieldErrors })
+
+    const planRows = await db.select().from(plans).where(eq(plans.code, body.data.plan_code)).limit(1)
+    const plan = planRows[0]
+    if (!plan) return reply.code(404).send({ error: 'plan_not_found' })
+
+    const subRows = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.tenant_id, request.tenantId))
+      .orderBy(desc(subscriptions.created_at))
+      .limit(1)
+    const sub = subRows[0]
+    if (!sub) return reply.code(404).send({ error: 'no_subscription' })
+
+    await db
+      .update(subscriptions)
+      .set({ plan_id: plan.id, updated_at: new Date() })
+      .where(eq(subscriptions.id, sub.id))
+
+    await audit({
+      action: 'tenant.plan_changed',
+      tenant_id: request.tenantId,
+      resource: 'subscription', resource_id: sub.id,
+      payload: { from_plan_id: sub.plan_id, to_plan_id: plan.id, to_plan_code: plan.code },
+    })
+    logger.info({ tenantId: request.tenantId, fromPlan: sub.plan_id, toPlan: plan.id }, 'subscription.plan_changed')
+    return reply.send({ ok: true, plan_id: plan.id, plan_code: plan.code })
+  })
+
+  // ── POST /api/v1/billing/cancel ───────────────────────────────
+  // Cancela la suscripción (default: efectivo a fin de período).
+  fastify.post('/cancel', async (request, reply) => {
+    if (!request.tenantId) return reply.code(400).send({ error: 'tenant_required' })
+    const body = z.object({
+      immediate: z.boolean().default(false),
+      reason: z.string().max(500).optional(),
+    }).safeParse(request.body ?? {})
+    if (!body.success) return reply.code(400).send({ error: 'validation_error' })
+
+    const subRows = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.tenant_id, request.tenantId))
+      .orderBy(desc(subscriptions.created_at))
+      .limit(1)
+    const sub = subRows[0]
+    if (!sub) return reply.code(404).send({ error: 'no_subscription' })
+
+    if (body.data.immediate) {
+      // Try to cancel at provider as well; ignore failure (idempotent on our side).
+      if (sub.provider_subscription_id) {
+        try {
+          const provider = getBillingProvider()
+          await provider.cancelSubscription({ provider_subscription_id: sub.provider_subscription_id })
+        } catch (err) {
+          logger.warn({ err, subId: sub.id }, 'subscription.provider_cancel_failed')
+        }
+      }
+      await db.update(subscriptions)
+        .set({ status: 'cancelled', cancelled_at: new Date(), updated_at: new Date() })
+        .where(eq(subscriptions.id, sub.id))
+    } else {
+      await db.update(subscriptions)
+        .set({ cancel_at_period_end: true, updated_at: new Date() })
+        .where(eq(subscriptions.id, sub.id))
+    }
+
+    await audit({
+      action: body.data.immediate ? 'tenant.subscription_cancelled_now' : 'tenant.subscription_cancel_scheduled',
+      tenant_id: request.tenantId,
+      resource: 'subscription', resource_id: sub.id,
+      payload: { reason: body.data.reason },
+    })
+    logger.info({ tenantId: request.tenantId, immediate: body.data.immediate }, 'subscription.cancelled')
+    return reply.send({ ok: true, cancel_at_period_end: !body.data.immediate, immediate: body.data.immediate })
   })
 
   // ── GET /api/v1/billing/invoices/:id/pdf ──────────────────────

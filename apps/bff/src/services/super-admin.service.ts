@@ -160,3 +160,12 @@ export async function disableTotp(adminId: number): Promise<void> {
     .set({ totp_enabled: false, totp_secret_enc: null, updated_at: new Date() })
     .where(eq(superAdmins.id, adminId))
 }
+
+export async function setPassword(adminId: number, plain: string): Promise<void> {
+  if (plain.length < 12) throw new Error('Password must be at least 12 characters')
+  const password_hash = await hashPassword(plain)
+  await db
+    .update(superAdmins)
+    .set({ password_hash, updated_at: new Date() })
+    .where(eq(superAdmins.id, adminId))
+}
