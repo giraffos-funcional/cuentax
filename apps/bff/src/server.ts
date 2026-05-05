@@ -703,6 +703,31 @@ async function bootstrap() {
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "rs_run_tenant_period" ON "revenue_share_runs"("tenant_id","period")`)
       await db.execute(sql`CREATE        INDEX IF NOT EXISTS "rs_run_status_idx"    ON "revenue_share_runs"("status")`)
 
+      // api_keys + webhook_endpoints (declared in original schema, never had a numbered migration)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "api_keys" (
+        "id" serial PRIMARY KEY,
+        "company_id" integer NOT NULL REFERENCES "companies"("id"),
+        "name" text NOT NULL,
+        "key_hash" text NOT NULL UNIQUE,
+        "key_prefix" varchar(10),
+        "scopes" text[] DEFAULT '{}',
+        "last_used_at" timestamptz,
+        "expires_at" timestamptz,
+        "activo" boolean DEFAULT true,
+        "created_at" timestamptz DEFAULT now()
+      )`)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS "webhook_endpoints" (
+        "id" serial PRIMARY KEY,
+        "company_id" integer NOT NULL REFERENCES "companies"("id"),
+        "url" text NOT NULL,
+        "secret_hash" text NOT NULL,
+        "events" text[] NOT NULL,
+        "activo" boolean DEFAULT true,
+        "failure_count" integer DEFAULT 0,
+        "last_triggered_at" timestamptz,
+        "created_at" timestamptz DEFAULT now()
+      )`)
+
       // Migration 0011: Phase 04 magic-link tokens (idempotent)
       await db.execute(sql`CREATE TABLE IF NOT EXISTS "magic_links" (
         "id" serial PRIMARY KEY,
