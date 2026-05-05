@@ -56,6 +56,7 @@ import { apiKeysRoutes } from '@/routes/api-keys'
 import { webhooksConfigRoutes } from '@/routes/webhooks-config'
 import { notificationsRoutes } from '@/routes/notifications'
 import { activityRoutes } from '@/routes/activity'
+import { f29Routes } from '@/routes/f29'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -806,6 +807,7 @@ async function bootstrap() {
   await fastify.register(webhooksConfigRoutes,{ prefix: '/api/v1/webhook-endpoints' })
   await fastify.register(notificationsRoutes, { prefix: '/api/v1/notifications' })
   await fastify.register(activityRoutes,      { prefix: '/api/v1/activity' })
+  await fastify.register(f29Routes,           { prefix: '/api/v1/f29' })
   await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────
