@@ -24,12 +24,16 @@ export default function LoginPage({
       })
       setAdminCookie(result.access_token)
     } catch (err) {
+      const isRedirect = err && typeof err === 'object' && 'digest' in err && String((err as { digest?: unknown }).digest).startsWith('NEXT_REDIRECT')
+      if (isRedirect) throw err
       if (err instanceof AdminApiError) {
+        console.error('[admin/login] BFF error', err.status, err.body)
         const code = (err.body as { error?: string })?.error
         if (code === 'totp_required' || code === 'invalid_totp') {
-          // Re-render with TOTP field shown
           redirect(`/login?totp=1&email=${encodeURIComponent(email)}${code === 'invalid_totp' ? '&error=invalid_totp' : ''}`)
         }
+      } else {
+        console.error('[admin/login] unexpected error', err)
       }
       redirect('/login?error=invalid')
     }
