@@ -51,6 +51,7 @@ import { billingRoutes } from '@/routes/billing'
 import { mercadopagoWebhookRoutes } from '@/routes/webhooks/mercadopago'
 import { tenantFeesRoutes } from '@/routes/tenant-fees'
 import { signupRoutes } from '@/routes/signup'
+import { onboardingRoutes } from '@/routes/onboarding'
 
 // Jobs (BullMQ)
 import { startDTEStatusPoller, stopDTEStatusPoller, getDTEStatusQueue } from '@/jobs/dte-status-poller'
@@ -748,6 +749,7 @@ async function bootstrap() {
   await fastify.register(mercadopagoWebhookRoutes, { prefix: '/api/v1/webhooks/mercadopago' })
   await fastify.register(tenantFeesRoutes, { prefix: '/api/v1/tenant-fees' })
   await fastify.register(signupRoutes, { prefix: '/api/v1/signup' })
+  await fastify.register(onboardingRoutes, { prefix: '/api/v1/onboarding' })
   await fastify.register(adminRoutes,  { prefix: '/api/admin' })
 
   // ── USA Accounting (feature-flagged) ──────────────────────

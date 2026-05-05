@@ -47,6 +47,7 @@ import { auditFromRequest } from '@/services/audit.service'
 import { issueMagicLink, consumeMagicLink } from '@/services/magic-link.service'
 import { setPassword } from '@/services/super-admin.service'
 import { createEmailProvider } from '@cuentax/email'
+import { getCronHealth } from '@/services/cron-health.service'
 
 const ADMIN_ACCESS_TTL_SECONDS = 60 * 60 // 1h
 const signAdminAccess = createSigner({
@@ -433,6 +434,39 @@ export async function adminRoutes(fastify: FastifyInstance) {
         mrr_clp: Number(row.mrr_clp),
         arr_clp: Number(row.mrr_clp) * 12,
       })
+    })
+
+    // ── Global search ──────────────────────────────────────
+    instance.get('/search', async (request, reply) => {
+      const q = z.object({ q: z.string().min(2).max(100) }).safeParse(request.query)
+      if (!q.success) return reply.code(400).send({ error: 'validation_error' })
+      const term = `%${q.data.q.replace(/%/g, '\\%')}%`
+
+      const tenantsRes = await db.execute(sql`
+        SELECT id, slug, name, status, primary_rut FROM tenants
+        WHERE name ILIKE ${term} OR slug ILIKE ${term} OR primary_rut ILIKE ${term}
+        ORDER BY created_at DESC LIMIT 20
+      `)
+      const companiesRes = await db.execute(sql`
+        SELECT id, tenant_id, razon_social, rut FROM companies
+        WHERE razon_social ILIKE ${term} OR rut ILIKE ${term}
+        LIMIT 20
+      `)
+      const adminsRes = await db.execute(sql`
+        SELECT id, email, role, active FROM super_admins
+        WHERE email ILIKE ${term} OR name ILIKE ${term}
+        LIMIT 10
+      `)
+      return reply.send({
+        tenants:   ((tenantsRes   as any).rows ?? tenantsRes)   as Array<unknown>,
+        companies: ((companiesRes as any).rows ?? companiesRes) as Array<unknown>,
+        admins:    ((adminsRes    as any).rows ?? adminsRes)    as Array<unknown>,
+      })
+    })
+
+    // ── Cron health ────────────────────────────────────────
+    instance.get('/crons/health', async (_request, reply) => {
+      return reply.send({ data: await getCronHealth() })
     })
 
     // ── Trend metrics (last 12 months) ─────────────────────

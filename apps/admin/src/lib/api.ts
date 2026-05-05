@@ -105,6 +105,15 @@ export interface Invoice {
   created_at: string
 }
 
+export interface CronHealth {
+  name: string
+  counts: { waiting: number; active: number; completed: number; failed: number; delayed: number }
+  last_completed_at: string | null
+  last_failed_at: string | null
+  last_failure: { id: string; reason: string; failedAt: string } | null
+  next_run_at: string | null
+}
+
 export interface TrendPoint {
   period: string
   tenants_created: number

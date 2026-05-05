@@ -14,6 +14,7 @@ import { subscriptions, invoices, plans } from '@/db/schema'
 import { createSetupIntent, getBillingProvider } from '@/services/billing.service'
 import { generateInvoicePdf } from '@/services/billing/invoice-pdf.service'
 import { audit } from '@/services/audit.service'
+import { exportTenant } from '@/services/tenant-export.service'
 import { logger } from '@/core/logger'
 
 const setupSchema = z.object({
@@ -146,6 +147,17 @@ export async function billingRoutes(fastify: FastifyInstance) {
     })
     logger.info({ tenantId: request.tenantId, immediate: body.data.immediate }, 'subscription.cancelled')
     return reply.send({ ok: true, cancel_at_period_end: !body.data.immediate, immediate: body.data.immediate })
+  })
+
+  // ── GET /api/v1/billing/export ────────────────────────────────
+  fastify.get('/export', async (request, reply) => {
+    if (!request.tenantId) return reply.code(400).send({ error: 'tenant_required' })
+    const data = await exportTenant(request.tenantId)
+    await audit({ action: 'tenant.data_exported', tenant_id: request.tenantId })
+    return reply
+      .header('Content-Disposition', `attachment; filename="cuentax-export-tenant-${request.tenantId}.json"`)
+      .header('Content-Type', 'application/json')
+      .send(data)
   })
 
   // ── GET /api/v1/billing/invoices/:id/pdf ──────────────────────
