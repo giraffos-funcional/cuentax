@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { adminFetch } from '@/lib/api'
 import { clearAdminCookie, requireSession } from '@/lib/auth'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 interface Me { id: number; email: string; name: string | null; role: string }
 
@@ -26,9 +27,12 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   return (
     <div className="min-h-screen flex">
       <aside className="w-60 border-r border-border bg-white p-4 flex flex-col">
-        <div className="mb-8">
-          <h1 className="font-semibold">Cuentax Admin</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">{me.email} · {me.role}</p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="font-semibold">Cuentax Admin</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">{me.email} · {me.role}</p>
+          </div>
+          <ThemeToggle />
         </div>
         <nav className="flex flex-col gap-1 text-sm">
           <Link href="/dashboard" className="px-3 py-2 rounded hover:bg-muted">Overview</Link>

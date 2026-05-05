@@ -51,6 +51,9 @@ export const config = {
   RESEND_API_KEY:             optional('RESEND_API_KEY', ''),
   PUBLIC_BASE_URL:            optional('PUBLIC_BASE_URL', 'https://cuentax.cl'),
 
+  // Super-admin IP allowlist (comma-separated). Empty = no restriction.
+  ADMIN_ALLOW_IPS:            optional('ADMIN_ALLOW_IPS', ''),
+
   // Odoo
   ODOO_URL:        optional('ODOO_URL', 'http://localhost:8069'),
   // Public Odoo URL, used for context-aware writes that don't persist through

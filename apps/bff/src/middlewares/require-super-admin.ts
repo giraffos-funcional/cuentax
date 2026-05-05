@@ -12,6 +12,19 @@ import { config } from '@/core/config'
 
 const verify = createVerifier({ key: config.JWT_SECRET })
 
+const ALLOWED_IPS = (config.ADMIN_ALLOW_IPS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+function isIpAllowed(ip: string | undefined): boolean {
+  if (ALLOWED_IPS.length === 0) return true  // no allowlist → permit all
+  if (!ip) return false
+  // Strip ::ffff: prefix if present (IPv4-mapped IPv6)
+  const normalized = ip.replace(/^::ffff:/, '')
+  return ALLOWED_IPS.includes(normalized) || ALLOWED_IPS.includes(ip)
+}
+
 export interface AdminTokenPayload {
   sub: string
   scope: 'admin'
@@ -31,6 +44,11 @@ export async function requireSuperAdmin(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  // IP allowlist (optional, controlled by ADMIN_ALLOW_IPS env). Applies
+  // before token validation so unauthorized IPs don't even get a 401.
+  if (!isIpAllowed(request.ip)) {
+    return reply.code(403).send({ error: 'ip_not_allowed' })
+  }
   const auth = request.headers.authorization
   if (!auth || !auth.startsWith('Bearer ')) {
     return reply.code(401).send({ error: 'unauthorized', message: 'Bearer token required' })

@@ -2,7 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --cx-border:                  220 13% 91%;
+  --cx-muted:                   220 14% 96%;
+  --cx-muted-foreground:        220 9% 46%;
+  --cx-primary:                 221 83% 53%;
+  --cx-primary-foreground:      0 0% 98%;
+  --cx-destructive:             0 72% 51%;
+  --cx-destructive-foreground:  0 0% 98%;
+  --cx-bg:                      0 0% 100%;
+  --cx-fg:                      222 47% 11%;
+}
+
+.dark {
+  --cx-border:                  217 19% 22%;
+  --cx-muted:                   217 19% 18%;
+  --cx-muted-foreground:        220 9% 60%;
+  --cx-primary:                 221 83% 60%;
+  --cx-primary-foreground:      0 0% 98%;
+  --cx-destructive:             0 70% 60%;
+  --cx-destructive-foreground:  0 0% 98%;
+  --cx-bg:                      222 47% 8%;
+  --cx-fg:                      0 0% 96%;
+}
+
 html, body {
-  @apply h-full bg-muted text-zinc-900 antialiased;
+  @apply h-full antialiased;
+  background-color: hsl(var(--cx-muted));
+  color: hsl(var(--cx-fg));
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.dark .bg-white {
+  background-color: hsl(var(--cx-bg)) !important;
+}
+.dark .bg-zinc-50 {
+  background-color: hsl(var(--cx-muted)) !important;
+}
+.dark .text-zinc-900 {
+  color: hsl(var(--cx-fg)) !important;
+}
+.dark .text-zinc-500,
+.dark .text-zinc-600,
+.dark .text-zinc-700 {
+  color: hsl(var(--cx-muted-foreground)) !important;
+}
+.dark .border-zinc-200,
+.dark .border-zinc-300 {
+  border-color: hsl(var(--cx-border)) !important;
 }

@@ -469,6 +469,74 @@ export async function adminRoutes(fastify: FastifyInstance) {
       return reply.send({ data: await getCronHealth() })
     })
 
+    // ── Revenue-share forecast (next N months) ─────────────
+    instance.get('/revenue-share/forecast', async (request, reply) => {
+      const q = z.object({ months: z.coerce.number().int().min(1).max(12).default(6) })
+        .safeParse(request.query)
+      if (!q.success) return reply.code(400).send({ error: 'validation_error' })
+
+      const result = await db.execute(sql`
+        WITH active_fees AS (
+          SELECT
+            t.id AS tenant_id, t.slug,
+            t.revenue_share_rate_contabilidad   AS rate_c,
+            t.revenue_share_rate_remuneraciones AS rate_r,
+            COALESCE(SUM(CASE WHEN tf.fee_type='contabilidad'   AND tf.active THEN tf.monthly_clp ELSE 0 END), 0) AS sum_c,
+            COALESCE(SUM(CASE WHEN tf.fee_type='remuneraciones' AND tf.active THEN tf.monthly_clp ELSE 0 END), 0) AS sum_r
+          FROM tenants t
+          LEFT JOIN tenant_fees tf ON tf.tenant_id = t.id
+          WHERE t.status IN ('active','trialing','past_due')
+          GROUP BY t.id, t.slug
+        )
+        SELECT
+          tenant_id, slug,
+          ROUND(sum_c * rate_c)::int AS share_contabilidad_clp,
+          ROUND(sum_r * rate_r)::int AS share_remuneraciones_clp,
+          ROUND(sum_c * rate_c + sum_r * rate_r)::int AS total_share_clp,
+          sum_c::int AS total_contabilidad_clp,
+          sum_r::int AS total_remuneraciones_clp
+        FROM active_fees
+        WHERE sum_c > 0 OR sum_r > 0
+        ORDER BY total_share_clp DESC
+      `)
+      const rows = ((result as any).rows ?? result) as Array<{
+        tenant_id: number; slug: string
+        share_contabilidad_clp: number; share_remuneraciones_clp: number; total_share_clp: number
+        total_contabilidad_clp: number; total_remuneraciones_clp: number
+      }>
+      const monthly_total = rows.reduce((acc, r) => acc + Number(r.total_share_clp), 0)
+      return reply.send({
+        months: q.data.months,
+        monthly_share_clp: monthly_total,
+        forecast_total_clp: monthly_total * q.data.months,
+        per_tenant: rows,
+      })
+    })
+
+    // ── Cohort retention ───────────────────────────────────
+    instance.get('/metrics/cohorts', async (_request, reply) => {
+      const result = await db.execute(sql`
+        WITH cohorts AS (
+          SELECT
+            id,
+            to_char(date_trunc('month', created_at AT TIME ZONE 'America/Santiago'), 'YYYY-MM') AS cohort,
+            status
+          FROM tenants
+          WHERE created_at > now() - interval '12 months'
+        )
+        SELECT
+          cohort,
+          count(*)::int AS total,
+          count(*) FILTER (WHERE status IN ('active','trialing','past_due'))::int AS retained,
+          count(*) FILTER (WHERE status = 'cancelled')::int AS churned,
+          count(*) FILTER (WHERE status = 'suspended')::int AS suspended
+        FROM cohorts
+        GROUP BY cohort
+        ORDER BY cohort DESC
+      `)
+      return reply.send({ data: ((result as any).rows ?? result) })
+    })
+
     // ── Trend metrics (last 12 months) ─────────────────────
     instance.get('/metrics/trends', async (_request, reply) => {
       // Returns 12 monthly buckets ending at the current Santiago month.
